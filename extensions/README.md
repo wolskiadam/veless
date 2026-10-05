@@ -216,6 +216,42 @@ Inne: `PackExt.cfg` (m.in. `mode`, `canEdit`), `PackExt.current()`, `PackExt.bee
 Kafelek: `['title' => 'Tytuł', 'html' => '...']` albo `['title' => ..., 'render' => fn(array $ctx, PDO $pdo): string]`.
 `$ctx` to filtry strony: `from`, `to` (RRRR-MM-DD), `source`, `status`, `currency`.
 
+### Oferta Allegro (formularz i Zarządzanie ofertami)
+
+| Hak | Rodzaj | Argumenty | Co robi |
+|---|---|---|---|
+| `allegro_offer.description_tools` | akcja (HTML) | `array $ctx` | przyciski/skrypty nad edytorem opisu w formularzu oferty (np. własny generator opisu) |
+| `allegro_offer.ext_data` | filtr | `array $ext, ?array $posted, array $product, array $saved` | dane rozszerzeń zapisywane razem z ofertą |
+| `allegro_offers.operations` | akcja (HTML) | `array $ctx` | przyciski w menu OPERACJE na liście ofert |
+
+`$ctx` formularza: `product_id`, `product` (wiersz `products`), `form` (formularz), `saved` (zapisana oferta), `images`, `categories`, `csrf`.
+`$ctx` listy ofert: `csrf`. Zaznaczone oferty to `.al-sel:checked` (wartość = ID oferty Allegro).
+
+**Dane rozszerzenia przy ofercie.** Formularz trzyma je w `$form['ext']` (klucz = nazwa rozszerzenia) i zapisuje z ofertą.
+Filtr `allegro_offer.ext_data` jest wołany przy otwarciu formularza (`$posted === null`, np. do przeniesienia starych danych
+z `$saved`) i przy zapisie (`$posted` = to, co przyszło z przeglądarki). Rdzeń niczego z `$posted` nie przepisuje sam:
+rozszerzenie bierze **tylko swój klucz** i oczyszcza go:
+
+```php
+Hooks::addFilter('allegro_offer.ext_data', function (array $ext, ?array $posted, array $product, array $saved): array {
+    if ($posted !== null && array_key_exists('mojafunkcja', $posted)) {
+        $ext['mojafunkcja'] = MojeDane::sanitize($posted['mojafunkcja']);
+    }
+    return $ext;
+});
+```
+
+**Skrypt w formularzu** używa `window.OfferForm` (gotowe po załadowaniu strony, więc wołaj je np. po kliknięciu):
+`productId`, `csrf()`, `photos()` (zdjęcia oferty i galerii produktu), `getSections()` / `setSections(sekcje)` (opis w formacie
+Allegro: `[{items:[{type:'TEXT',content:'<p>..</p>'},{type:'IMAGE',url:'https://..'}]}]`), `hasDescription()`,
+`getExt(klucz)` / `setExt(klucz, dane)` (dane rozszerzenia zapisywane z ofertą), `showDescription()`.
+Wysłanie opisu do trwającej oferty: POST `offer_allegro.php?product=ID&ajax=push_desc` z polami `csrf`, `offer_id`,
+`description_sections` (JSON) i opcjonalnie `ext_data` (JSON `{klucz: dane}`, przechodzi przez ten sam filtr).
+Produkt dla oferty z listy: `offer_allegro.php?offer=ID&resolve=1` → `{ok, product_id, name}`.
+
+Pliki rozszerzenia (np. fonty, grafiki, większe skrypty) podasz własną stroną `'raw' => true`, która odda plik
+z katalogu rozszerzenia z właściwym `Content-Type` (tylko pliki z listy, bez ścieżek z `..`).
+
 ## Własne tabele
 
 Rozszerzenie tworzy swoje tabele samo (`CREATE TABLE IF NOT EXISTS ...`), najlepiej z prefiksem `ext_<nazwa>_`.

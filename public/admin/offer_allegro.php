@@ -11,6 +11,7 @@ declare(strict_types=1);
  * (body i sprawdzenie pól: AllegroOfferPayload).
  */
 
+use Pase\Plugin\Hooks;
 use Pase\Repository\OfferTemplateRepository;
 use Pase\Services\AllegroOfferPayload;
 use Pase\Repository\AllegroFieldTemplateRepository;
@@ -317,6 +318,13 @@ if (isset($_GET['ajax'])) {
                 : $client->patchOffer($oid, ['description' => ['sections' => $new], 'images' => $m['images']]);
             if ($r['ok']) {
                 $r['message'] = 'Zmieniono opis oferty ' . $oid . ' na Allegro.';
+                // Dane rozszerzeń (np. pola generatora opisu) zapamiętane przy produkcie - przy kolejnej zmianie startujemy od nich.
+                $posted = json_decode((string) ($_POST['ext_data'] ?? ''), true);
+                $old = is_array($d['ext'] ?? null) ? $d['ext'] : [];
+                $ext = is_array($posted) ? Hooks::applyFilters('allegro_offer.ext_data', $old, $posted, $p, $d) : $old;
+                if ($ext !== $old) {
+                    $offers->save($productId, 'allegro', array_merge($d, ['ext' => $ext]), (string) ($saved['status'] ?? 'draft'));
+                }
             }
         }
         echo json_encode($r, JSON_UNESCAPED_UNICODE);
@@ -423,6 +431,8 @@ $form = [
     'ads'              => !empty($d['ads']),
     'main_photo_2560'  => ($d['main_photo_2560'] ?? true) !== false,
 ];
+// Dane rozszerzeń zapisywane razem z ofertą (klucz = nazwa rozszerzenia), np. pola własnego generatora opisu.
+$form['ext'] = Hooks::applyFilters('allegro_offer.ext_data', is_array($d['ext'] ?? null) ? $d['ext'] : [], null, $p, $d);
 foreach (array_keys(AllegroOfferPayload::DEFAULT_SETTINGS) as $k) {
     $form[$k] = $d[$k] ?? $def($k);
 }
@@ -516,6 +526,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
     $form['publish_mode'] = in_array($_POST['publish_mode'] ?? '', ['draft', 'now', 'scheduled'], true) ? $_POST['publish_mode'] : 'draft';
     // Opis z edytora blokowego (JSON sekcji), oczyszczony do tagów, które przyjmuje Allegro.
     $form['description_sections'] = AllegroOfferPayload::descriptionSections(['description_sections' => (string) ($_POST['description_sections'] ?? '[]')]);
+    $postedExt = json_decode((string) ($_POST['ext_data'] ?? ''), true);
+    if (is_array($postedExt)) {
+        $form['ext'] = Hooks::applyFilters('allegro_offer.ext_data', $form['ext'], $postedExt, $p, $d);
+    }
     $form['handling']  = isset(\Pase\Services\AllegroOfferOperations::HANDLING_TIMES[$_POST['handling'] ?? '']) ? $_POST['handling'] : 'PT24H';
     // Zdjęcia: kolejność z galerii (pierwsze = główne).
     $form['images']    = array_values(array_unique(array_filter((array) ($_POST['images'] ?? []),
@@ -753,6 +767,7 @@ $sections = [
 <form method="post" id="offerForm" class="ao">
 <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
 <input type="hidden" name="description_sections" id="f_desc_json" value="">
+<input type="hidden" name="ext_data" id="f_ext_json" value="<?= $e(json_encode((object) $form['ext'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)) ?>">
 
 <div class="ao-main">
 
@@ -896,6 +911,8 @@ $sections = [
         <h2>Opis <?= $req ?></h2>
         <?php if ($descFromTemplate): ?><p class="ok-note">✓ Wypełniono z szablonu opisu (wg kategorii). <a href="allegro_templates.php">Edytuj szablony opisu</a></p><?php endif; ?>
         <p class="hint" style="margin-top:-6px">Opis składa się z sekcji, jak na Allegro: tekst, zdjęcie albo zdjęcie z tekstem obok. W tekście: nagłówki, akapity, pogrubienie i listy.</p>
+        <?= Hooks::render('allegro_offer.description_tools', ['product_id' => $productId, 'product' => $p, 'form' => $form, 'saved' => $d,
+            'images' => $images, 'categories' => $categories, 'csrf' => csrfToken()]) ?>
         <div class="live-box" id="liveBox">
             <strong>Trwająca oferta:</strong>
             <select id="liveOffer"><option value="">szukam ofert tego produktu…</option></select>
@@ -1643,6 +1660,21 @@ $sections = [
     document.querySelectorAll('[data-add]').forEach(function (b) {
         b.addEventListener('click', function () { sections.push(newSection(b.dataset.add)); renderDesc(); });
     });
+    // ---- Dla rozszerzeń (hak allegro_offer.description_tools): opis, zdjęcia i własne dane oferty ----
+    var extInput = document.getElementById('f_ext_json');
+    window.OfferForm = {
+        productId: <?= (int) $productId ?>,
+        csrf: function () { return form.querySelector('[name=csrf]').value; },
+        photos: function () { return photos.concat(pool); },
+        getSections: function () { return JSON.parse(JSON.stringify(sections)); },
+        setSections: function (secs) { sections = JSON.parse(JSON.stringify(secs)); renderDesc(); },
+        hasDescription: function () {
+            return sections.some(function (sec) { return sec.items.some(function (it) { return it.type === 'IMAGE' ? it.url : (it.content || '').replace(/<[^>]*>/g, '').trim(); }); });
+        },
+        getExt: function (key) { var all = JSON.parse(extInput.value || '{}'); return all[key] === undefined ? null : all[key]; },
+        setExt: function (key, value) { var all = JSON.parse(extInput.value || '{}'); all[key] = value; extInput.value = JSON.stringify(all); },
+        showDescription: function () { document.getElementById('s-desc').scrollIntoView({ behavior: 'smooth' }); }
+    };
     // ---- Trwająca oferta: wczytanie jej opisu do edytora i wysyłka opisu z edytora (PATCH) ----
     (function () {
         var sel = document.getElementById('liveOffer'), msg = document.getElementById('liveMsg');
@@ -1672,6 +1704,7 @@ $sections = [
             fd.append('csrf', form.querySelector('[name=csrf]').value);
             fd.append('offer_id', sel.value);
             fd.append('description_sections', JSON.stringify(sections));
+            fd.append('ext_data', extInput.value);
             fetch(base + 'push_desc', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function (r) { return r.json(); })
                 .then(function (j) { say(j.message || (j.ok ? 'Gotowe.' : 'Allegro odrzuciło zmianę.'), j.ok ? 'ok' : 'bad'); })
                 .catch(function () { say('Nie udało się wysłać opisu.', 'bad'); }).then(function () { b.disabled = false; });

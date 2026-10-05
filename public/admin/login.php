@@ -115,15 +115,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="login-card">
         <h1><?= htmlspecialchars(t('login.heading')) ?></h1>
         <?php if ($error): ?><div class="error-msg"><?= htmlspecialchars($error) ?></div><?php endif; ?>
+        <?php if (\Pase\Support\Demo::on()): ?>
+        <form method="POST" class="demo-box" style="background:var(--accent-soft);border-radius:10px;padding:16px;margin-bottom:22px;text-align:center">
+            <p style="margin:0 0 12px;line-height:1.45">To wersja demonstracyjna z fikcyjnymi danymi.<br>Login i hasło: <b>demo</b></p>
+            <input type="hidden" name="csrf" value="<?= htmlspecialchars($_SESSION['login_csrf'], ENT_QUOTES, 'UTF-8') ?>">
+            <input type="hidden" name="username" value="<?= htmlspecialchars(\Pase\Support\Demo::USERNAME) ?>">
+            <input type="hidden" name="password" value="<?= htmlspecialchars(\Pase\Support\Demo::PASSWORD) ?>">
+            <button type="submit" class="btn-login">Wejdź do demo</button>
+        </form>
+        <?php endif; ?>
         <form method="POST">
             <input type="hidden" name="csrf" value="<?= htmlspecialchars($_SESSION['login_csrf'], ENT_QUOTES, 'UTF-8') ?>">
             <label for="username"><?= htmlspecialchars(t('login.user')) ?></label>
             <input type="text" id="username" name="username" required autofocus autocomplete="username" value="<?= htmlspecialchars(is_string($_POST['username'] ?? null) ? $_POST['username'] : '') ?>">
-            <div class="pw-row"><label for="password"><?= htmlspecialchars(t('login.pass')) ?></label><a href="forgot_password.php" class="forgot"><?= htmlspecialchars(t('login.forgot')) ?></a></div>
+            <div class="pw-row"><label for="password"><?= htmlspecialchars(t('login.pass')) ?></label><?php if (!\Pase\Support\Demo::on()): ?><a href="forgot_password.php" class="forgot"><?= htmlspecialchars(t('login.forgot')) ?></a><?php endif; ?></div>
             <input type="password" id="password" name="password" autocomplete="current-password" required>
             <button type="submit" class="btn-login"><?= htmlspecialchars(t('login.submit')) ?></button>
         </form>
-        <a href="login_quick.php" class="btn-phone">Zaloguj innym urządzeniem</a>
+        <?php if (!\Pase\Support\Demo::on()): ?><a href="login_quick.php" class="btn-phone">Zaloguj innym urządzeniem</a><?php endif; ?>
         <p style="text-align:center;margin:18px 0 0">
             <?php foreach (\Pase\Support\I18n::available() as $code => $name):
                 $cur = $code === \Pase\Support\I18n::locale(); ?>

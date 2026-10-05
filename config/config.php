@@ -47,6 +47,9 @@ spl_autoload_register(static function (string $class): void {
 // --- Wczytaj konfigurację .env ---
 Env::load(PASE_ROOT . '/.env');
 
+// --- Wersja demonstracyjna (DEMO_MODE=1): odrzuć pliki i zablokowane strony, zanim cokolwiek się wykona ---
+\Pase\Support\Demo::guardRequest();
+
 // --- Globalny skrót tłumaczeń: t('klucz', ['n' => 1]) ---
 if (!function_exists('t')) {
     /** @param array<string,string|int|float> $vars */

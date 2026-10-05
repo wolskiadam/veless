@@ -43,6 +43,10 @@ final class Http
         array|string|null $body = null,
         int $timeout = 20
     ): HttpResponse {
+        if (Demo::on()) {
+            // Wersja demo nie łączy się z żadnym zewnętrznym API.
+            return new HttpResponse(503, 'Wersja demo: połączenia z zewnętrznymi usługami są wyłączone.');
+        }
         $ch = curl_init();
 
         $curlHeaders = [];

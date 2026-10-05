@@ -200,6 +200,9 @@ final class CompanyLookup
     /** @return array{0:int,1:string} */
     public static function curl(string $method, string $url, array $headers, ?string $body): array
     {
+        if (\Pase\Support\Demo::on()) {
+            return [0, ''];
+        }
         $ch = curl_init($url);
         $h = [];
         foreach ($headers as $k => $v) { $h[] = $k . ': ' . $v; }

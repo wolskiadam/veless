@@ -111,6 +111,11 @@ jobs:
           CRM_TEST_MYSQL: '1'
           CRM_TEST_MYSQL_USER: root
           CRM_TEST_MYSQL_PASSWORD: isolated-test-only
+      - run: php tests/demo_mode_mysql.php
+        env:
+          CRM_TEST_MYSQL: '1'
+          CRM_TEST_MYSQL_USER: root
+          CRM_TEST_MYSQL_PASSWORD: isolated-test-only
       - run: php tests/handover_mysql.php
         env:
           CRM_TEST_MYSQL: '1'

@@ -92,6 +92,7 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
     <?= \Pase\Plugin\Hooks::assetTags('admin') . \Pase\Plugin\Hooks::render('admin.head', $pageKey) ?>
 </head>
 <body>
+    <?= \Pase\Support\Demo::bannerHtml() ?>
     <div class="page">
         <?php require __DIR__ . '/nav.php'; ?>
         <main>

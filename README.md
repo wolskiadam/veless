@@ -190,6 +190,27 @@ brakujące tabele powstaną same.
 - Podział pracy: **bazę aktualizuje system sam; pliki kodu wgrywasz przez FTP** (aplikacja
   celowo nie modyfikuje własnych plików — to byłoby zagrożenie bezpieczeństwa).
 
+## Wersja demonstracyjna (DEMO_MODE)
+
+Publiczne demo, w którym każdy może się zalogować (np. demo.veless.pl). Instalacja jak zwykle,
+ale z `DEMO_MODE=1` w `.env`, a zamiast workera w cronie jest tylko nocny reset:
+
+```
+0 3 * * *  php /ścieżka/do/veless/cli/demo_reset.php
+```
+
+`cli/demo_reset.php` usuwa wszystkie tabele i pliki robocze, tworzy bazę od nowa i wgrywa fikcyjny
+„Sklep Demo” (`src/Services/DemoData.php`: 12 produktów, ~140 zamówień z ostatniego miesiąca,
+przesyłki, dokumenty, automatyzacje). Uruchom go raz po wgraniu plików. Bez `DEMO_MODE=1` odmawia
+działania, więc nie wyczyści prawdziwego systemu.
+
+W trybie demo (`src/Support/Demo.php`):
+- na stronie logowania jest przycisk „Wejdź do demo” (login i hasło: `demo`), a w panelu pasek z informacją,
+- nic nie wychodzi na zewnątrz: zapytania HTTP do API, wyszukiwarka firm i wysyłka e-maili są wyłączone,
+- serwer nie przyjmuje żadnych plików (wtyczki, załączniki, CSV, kopie),
+- kopie zapasowe, migracja adresu, pobieranie agenta i reset hasła są wyłączone,
+- konta, 2FA, wtyczki, integracje i ustawienia wysyłki można oglądać, ale nie zmieniać.
+
 ## Instalacja na hostingu współdzielonym
 
 Logowanie dwuetapowe zgodne z Google Authenticator: [konfiguracja i wdrożenie 2FA](TWO-FACTOR.md).

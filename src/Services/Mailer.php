@@ -82,6 +82,9 @@ final class Mailer
     /** @return array{0:bool,1:string} */
     private function deliver(string $toEmail, string $subject, string $htmlBody, array $attachments): array
     {
+        if (\Pase\Support\Demo::on()) {
+            return [false, 'Wersja demo: wysyłka e-maili jest wyłączona.'];
+        }
         if (!$this->isConfigured()) {
             return [false, 'SMTP nie jest skonfigurowany (Konfiguracja → E-mail).'];
         }

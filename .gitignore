@@ -45,3 +45,6 @@ __pycache__/
 
 # Instalacja lokalna w Dockerze (baza danych)
 /dane/
+
+# Grafiki produktów wersji demo (tworzy cli/demo_reset.php)
+/public/demo-img/

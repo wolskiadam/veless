@@ -71,8 +71,8 @@ def normalize(config: dict) -> dict:
 def legacy_config_candidates() -> list[Path]:
     """Gdzie mógł leżeć config.json starego agenta (skrypt / PaseAgent.exe) - do przejęcia ustawień."""
     here = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
-    # 2.0 zapisywał ustawienia w folderze „CRM Agent" - po zmianie nazwy przejmujemy je stamtąd.
-    candidates = [app_dir().parent / "CRM Agent" / "config.json",
+    # Wcześniejsze nazwy programu („Woskarz CRM", w 2.0 „CRM Agent") - po zmianie nazwy przejmujemy ustawienia stamtąd.
+    candidates = [app_dir().parent / "Woskarz CRM" / "config.json", app_dir().parent / "CRM Agent" / "config.json",
                   here / "config.json", Path("C:/PaseAgent/config.json"), Path.home() / "PaseAgent" / "config.json"]
     return [p for p in candidates if p != config_path()]
 

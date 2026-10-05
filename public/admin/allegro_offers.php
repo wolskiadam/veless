@@ -329,6 +329,7 @@ require __DIR__ . '/header.php';
                     <?php foreach (AllegroOfferOperations::OPERATIONS as $k => [$lbl, $grp]): if ($grp !== 'update') continue; ?>
                         <button type="button" data-op="<?= $k ?>"><?= $e($lbl) ?></button>
                     <?php endforeach; ?>
+                    <?= \Pase\Plugin\Hooks::render('allegro_offers.operations', ['csrf' => csrfToken()]) ?>
                 </div>
                 <div>
                     <h4>Wystaw</h4>

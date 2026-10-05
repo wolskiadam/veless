@@ -1,0 +1,28 @@
+name: Powiadom repozytorium wdrożenia
+
+# Opcjonalne. Po każdej zmianie main wysyła zdarzenie „veless-updated" (repository_dispatch) do repozytorium,
+# które wdraża Veless razem z własnymi wtyczkami na Twój serwer. Bez ustawień nic nie robi.
+#   Settings → Secrets and variables → Actions:
+#     Variables: DEPLOY_REPO = właściciel/repozytorium (np. moja-firma/veless-sklep)
+#     Secrets:   DEPLOY_DISPATCH_TOKEN = token z uprawnieniem Contents: Read and write tylko do tego repozytorium
+# Forki nie mają tych ustawień, więc u nich zadanie jest pomijane.
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  notify:
+    if: vars.DEPLOY_REPO != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wyślij repository_dispatch
+        env:
+          TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+          REPO: ${{ vars.DEPLOY_REPO }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "Brak sekretu DEPLOY_DISPATCH_TOKEN - pomijam."; exit 0; fi
+          curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/dispatches" -d '{"event_type":"veless-updated"}'

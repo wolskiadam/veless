@@ -13,7 +13,7 @@ from pathlib import Path
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 VALUE_NAME = "Veless"
-LEGACY_VALUE_NAMES = ("CRM Agent",)   # wpisy z wcześniejszych nazw programu - usuwane przy zapisie
+LEGACY_VALUE_NAMES = ("CRM Agent", "Woskarz CRM")   # wpisy z wcześniejszych nazw programu - usuwane przy zapisie
 LAUNCH_LABEL = "pl.crm.agent"
 
 

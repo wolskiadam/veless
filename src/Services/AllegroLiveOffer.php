@@ -188,7 +188,7 @@ final class AllegroLiveOffer
     ];
 
     /** Pola formularza (nazwa w POST) => klucze stanu formularza, które z nich powstają (reszta ma tę samą nazwę). */
-    private const POST_TO_FORM = ['params' => ['params', 'ean']];
+    private const POST_TO_FORM = ['params' => ['params', 'ean'], 'ext_data' => ['ext']];
 
     /**
      * Formularz do aktualizacji trwającej oferty: dane oferty z Allegro ($liveForm) i tylko te pola z formularza,

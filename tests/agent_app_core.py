@@ -55,6 +55,8 @@ check(cfg["api_key"] == "OLD" and cfg["printer_name"] == "Zebra ZD420", "Setting
 check(config.app_dir().name == "Veless"
       and config.app_dir().parent / "CRM Agent" / "config.json" in config.legacy_config_candidates(),
       "Settings of 2.0 (folder 'CRM Agent') are taken over after the rename")
+check(config.legacy_config_candidates()[0] == config.app_dir().parent / "Woskarz CRM" / "config.json",
+      "Settings from the earlier name (folder 'Woskarz CRM') are taken over first")
 config.save(dict(cfg, printer_a4="Brother"))
 check(config.load()["printer_a4"] == "Brother" and config.config_path().is_file(), "Settings saved in user data folder")
 

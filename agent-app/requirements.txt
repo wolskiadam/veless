@@ -1,4 +1,4 @@
-PySide6-Essentials>=6.6
+PySide6-Essentials>=6.11.2
 requests>=2.31
 pypdfium2>=4.20
 Pillow>=10.0

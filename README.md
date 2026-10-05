@@ -495,6 +495,11 @@ działają na tym samym wzorcu co system **sds-generator** (sesja PHP + tabela `
 - **Logowanie:** `Logger` zapisuje każdą operację i odpowiedź API ze Status Code
   (CLI → STDERR/cron.log, web → `storage/app.log`).
 
+## Jak pomóc
+
+Każdy może zgłaszać błędy i pomysły oraz przesyłać poprawki przez pull request –
+zasady są w [CONTRIBUTING.md](CONTRIBUTING.md), a luki bezpieczeństwa zgłaszaj według [SECURITY.md](SECURITY.md).
+
 ## Licencja
 
 Veless jest udostępniany na licencji GNU Affero General Public License v3.0 (AGPL-3.0), pełny tekst w pliku `LICENSE`.

@@ -1,0 +1,2 @@
+# Konfiguracja (zawiera dostęp do .env i bazy) - niedostępna z weba.
+Require all denied

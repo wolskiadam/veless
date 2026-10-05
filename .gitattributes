@@ -1,0 +1,2 @@
+# Skrypty uruchamiane w kontenerach Linux muszą mieć końce linii LF (także po pobraniu na Windows).
+*.sh text eol=lf

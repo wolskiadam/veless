@@ -1,0 +1,21 @@
+{
+    "name": "pase/middleware",
+    "description": "Middleware synchronizujący WooCommerce, Allegro i wFirma (PHP, shared hosting).",
+    "type": "project",
+    "require": {
+        "php": ">=8.1",
+        "ext-pdo": "*",
+        "ext-curl": "*",
+        "ext-json": "*",
+        "ext-dom": "*",
+        "ext-openssl": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Pase\\": "src/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}

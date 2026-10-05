@@ -1,0 +1,2 @@
+/* Przykładowe rozszerzenie: kolor ikony notatki na liście zamówień. */
+.order-indicator[data-kind="x_note"] { color:#7c3aed; }

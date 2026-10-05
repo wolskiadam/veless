@@ -1,0 +1,62 @@
+# Sandbox wtyczek: CRM na fikcyjnych danych, bez dostępu do internetu. Uruchamia go run.sh -
+# ręcznie nie trzeba. Zmienne (SBX_*) ustawia run.sh.
+#
+#   sink - „fałszywy internet”: DNS odpowiada jego adresem na każdą nazwę, a on zapisuje
+#          każde połączenie (HTTP, HTTPS odszyfrowane własnym CA, SMTP, inne porty),
+#   db   - MariaDB z dziennikiem zapytań (general_log), dane w pamięci,
+#   app  - CRM z testowaną wtyczką (kod z kopii roboczej, nie z repozytorium).
+# Sieć jest wewnętrzna (internal): żaden kontener nie wyjdzie poza nią.
+networks:
+  sbx:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${SBX_SUBNET:-172.31.250.0/24}
+
+x-hardening: &hardening
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 512
+  mem_limit: 1g
+
+services:
+  sink:
+    <<: *hardening
+    image: ${SBX_IMAGE:-veless:local}
+    entrypoint: ["php", "/sandbox/sink.php", "${SBX_SINK_IP:-172.31.250.53}", "/out"]
+    volumes:
+      - ./:/sandbox:ro
+      - ${SBX_NET_DIR}:/out
+    networks:
+      sbx:
+        ipv4_address: ${SBX_SINK_IP:-172.31.250.53}
+
+  db:
+    <<: *hardening
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: crm
+      MARIADB_USER: crm
+      MARIADB_PASSWORD: ${SBX_DB_PASS}
+      MARIADB_ROOT_PASSWORD: ${SBX_DB_ROOT_PASS}
+    command: ["--general-log=0", "--log-output=TABLE"]
+    tmpfs: ["/var/lib/mysql"]
+    volumes:
+      - ${SBX_WORK}/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      retries: 60
+    networks: [sbx]
+
+  app:
+    <<: *hardening
+    image: ${SBX_IMAGE:-veless:local}
+    depends_on:
+      db: { condition: service_healthy }
+      sink: { condition: service_started }
+    # DNS rdzenia Dockera rozwiązuje db/sink, a każdą inną nazwę przekazuje do sinka.
+    dns: ["${SBX_SINK_IP:-172.31.250.53}"]
+    volumes:
+      - ${SBX_WORK}:/var/www/crm
+      - ./:/sandbox:ro
+    networks: [sbx]

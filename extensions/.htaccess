@@ -1,0 +1,3 @@
+# Kod wtyczek/rozszerzeń i tłumaczenia - ładowane przez include, nigdy wprost z weba.
+# (Pliki .js/.css rozszerzeń są wstawiane do strony przez Hooks::assetTags, nie pobierane przez HTTP.)
+Require all denied

@@ -1,0 +1,176 @@
+name: Build Veless app (Windows + Mac)
+
+# Buduje program Veless do drukowania (agent-app/) na Windows (.exe) i Macu (.app w zip),
+# a potem (opcjonalnie, zob. job publish) wgrywa oba pliki na serwer do storage/agent-builds/ razem z manifest.json.
+# Panel (Konfiguracja → Drukowanie) daje je do pobrania, a zainstalowane programy
+# same się z nich aktualizują (public/agent_update.php).
+#
+# Uruchamia się po zmianie w agent-app/ na main albo ręcznie: Actions → Run workflow.
+# Nową wersję programu wydaje się, podnosząc VERSION w agent-app/pase_agent/__init__.py.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'agent-app/**'
+      - '.github/workflows/build-agent-app.yml'
+
+concurrency:
+  group: build-agent-app
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Zależności
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 >/dev/null
+          pip install -r agent-app/requirements.txt
+      - name: Testy programu
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python tests/agent_app_core.py
+          python tests/agent_app_gui.py
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest   # Apple Silicon (M1 i nowsze)
+            platform: macos
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: agent-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Zależności
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Ikony
+        run: python build_tools/make_icons.py build
+
+      - name: Zbuduj Veless.exe (Windows)
+        if: matrix.platform == 'windows'
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed \
+            --name Veless --icon build/icon.ico \
+            --hidden-import win32print --hidden-import win32ui --hidden-import win32con \
+            --collect-all pypdfium2 \
+            main.py
+          mkdir -p ../out
+          cp dist/Veless.exe ../out/Veless-windows.exe
+
+      - name: Zbuduj Veless.app (Mac)
+        if: matrix.platform == 'macos'
+        run: |
+          pyinstaller --noconfirm --clean --windowed \
+            --name "Veless" --icon build/icon.icns \
+            --osx-bundle-identifier pl.crm.agent \
+            --collect-all pypdfium2 \
+            main.py
+          APP="dist/Veless.app"
+          VERSION=$(python -c "import pase_agent; print(pase_agent.VERSION)")
+          # Ikona tylko na górnym pasku, bez ikony w Docku.
+          plutil -replace LSUIElement -bool true "$APP/Contents/Info.plist"
+          plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+          plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
+          # Po zmianie Info.plist podpis (ad-hoc, bez płatnego certyfikatu) trzeba odnowić.
+          codesign --force --deep --sign - "$APP"
+          mkdir -p ../out
+          ditto -c -k --sequesterRsrc --keepParent "$APP" ../out/Veless-macos.zip
+
+      - name: Szybki test uruchomienia
+        run: |
+          if [ "${{ matrix.platform }}" = windows ]; then
+            ./dist/Veless.exe --version || true
+          else
+            "dist/Veless.app/Contents/MacOS/Veless" --version
+          fi
+          ls -la ../out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-${{ matrix.platform }}
+          path: out/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    # Wgrywanie na własny serwer jest opcjonalne: ustaw zmienną repozytorium PUBLISH_AGENT=1
+    # oraz sekrety FTP_SERVER, FTP_USERNAME, FTP_PASSWORD, FTP_SERVER_DIR.
+    if: ${{ vars.PUBLISH_AGENT == '1' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-ftp
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: manifest.json (wersja + sumy SHA-256)
+        run: |
+          VERSION=$(python3 -c "import sys; sys.path.insert(0,'agent-app'); import pase_agent; print(pase_agent.VERSION)")
+          python3 - "$VERSION" <<'PY'
+          import hashlib, json, os, sys, time
+          files = {"windows": "Veless-windows.exe", "macos": "Veless-macos.zip"}
+          manifest = {"version": sys.argv[1], "built_at": int(time.time()),
+                      "commit": os.environ["GITHUB_SHA"][:7], "files": {}}
+          for platform, name in files.items():
+              path = os.path.join("out", name)
+              data = open(path, "rb").read()
+              manifest["files"][platform] = {"file": name, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+          json.dump(manifest, open("out/manifest.json", "w"), indent=2)
+          print(json.dumps(manifest, indent=2))
+          PY
+      # Wgrywanie przez lftp: ponawia po zerwanym połączeniu, pliki idą pod tymczasową nazwą
+      # i są podmieniane dopiero w całości, a manifest.json na końcu - program nigdy nie
+      # zobaczy nowej wersji, zanim jej plik nie będzie kompletny.
+      - name: Wgraj na serwer (storage/agent-builds/)
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          LFTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_SERVER_DIR: ${{ secrets.FTP_SERVER_DIR }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp >/dev/null
+          DIR="${FTP_SERVER_DIR%/}/storage/agent-builds"
+          cat > /tmp/upload.lftp <<EOF
+          set cmd:fail-exit yes
+          set ftp:ssl-allow no
+          set ftp:passive-mode on
+          set net:timeout 60
+          set net:max-retries 8
+          set net:reconnect-interval-base 15
+          set net:reconnect-interval-max 60
+          open --env-password -u "$FTP_USERNAME" "$FTP_SERVER"
+          mkdir -p -f "$DIR"
+          cd "$DIR"
+          put out/Veless-windows.exe -o Veless-windows.exe.part
+          rm -f Veless-windows.exe
+          mv Veless-windows.exe.part Veless-windows.exe
+          put out/Veless-macos.zip -o Veless-macos.zip.part
+          rm -f Veless-macos.zip
+          mv Veless-macos.zip.part Veless-macos.zip
+          put out/manifest.json -o manifest.json
+          cls -l
+          EOF
+          sed -i 's/^ *//' /tmp/upload.lftp
+          lftp -f /tmp/upload.lftp

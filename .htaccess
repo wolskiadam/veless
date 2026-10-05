@@ -1,0 +1,18 @@
+# =====================================================================
+#  ZABEZPIECZENIE katalogu głównego /pase/.
+#  Sytuacja: cały projekt wgrany pod publiczny URL (/pase/), więc bez tego
+#  pliku .env, src/, config/ byłyby dostępne z przeglądarki.
+#
+#  Działa tylko aplikacja spod /pase/public/. Reszta katalogów i pliki
+#  wrażliwe są tu blokowane. Podkatalog public/ ma własny .htaccess i NIE
+#  dziedziczy blokad z poniższych <Directory>-niezależnych reguł plikowych
+#  poza tymi, które jawnie wymieniamy.
+# =====================================================================
+
+# Wyłącz listowanie katalogów
+Options -Indexes
+
+# Twardo zablokuj pliki wrażliwe (dowolny katalog, w tym ten główny)
+<FilesMatch "(^\.env)|(\.env\.example$)|(\.log$)|(\.lock$)|(ADMIN_PASSWORD\.txt$)|(composer\.(json|lock)$)|(\.md$)|(\.sql$)|(\.ftp-deploy-sync-state\.json$)">
+    Require all denied
+</FilesMatch>

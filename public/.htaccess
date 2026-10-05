@@ -1,0 +1,16 @@
+# Ochrona na shared hostingu: document root wskazuje na ten katalog (public/).
+# Pliki .env, src/, config/, cli/ leżą POZA tym katalogiem i są nieosiągalne z weba.
+
+# Blokuj listowanie katalogów
+Options -Indexes
+
+# Wymuś brak dostępu do ewentualnych plików ukrytych
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# (Opcjonalnie) ładne URL-e dla webhooków bez rozszerzenia .php:
+# RewriteEngine On
+# RewriteRule ^webhook/allegro/?$  webhook_allegro.php [L]
+# RewriteRule ^webhook/woo/?$      webhook_woo.php      [L]
+# RewriteRule ^auth/allegro/callback/?$ auth_allegro_callback.php [L]

@@ -1,0 +1,123 @@
+name: CRM sales and security tests
+on:
+  workflow_dispatch:
+  pull_request:
+  # Wywoływane też przez deploy.yml przed każdym wdrożeniem na main.
+  workflow_call:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: isolated-test-only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pisolated-test-only"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, pdo_sqlite, mbstring, dom, curl, openssl, zip, gd
+          # Bez Xdebug/PCOV: przy nich PHP ostrzega przy starcie ("JIT is incompatible..."),
+          # a test HTTP 2FA traktuje każde ostrzeżenie PHP w logu serwera jako błąd.
+          coverage: none
+      - run: php tests/security.php
+      - run: php tests/two_factor.php
+      - run: php tests/two_factor_http.php
+      - run: php tests/secret_store.php
+      - run: php tests/plugin_sandbox_scan.php
+      - run: php tests/site_download_http.php
+      - run: php tests/plugin_sandbox_report.php
+      - run: php tests/quick_login_http.php
+      - run: node tests/two_factor_ui.js
+      - run: php tests/operational_health.php
+      - run: php tests/sales_workflow.php
+      - run: php tests/invoice_data.php
+      - run: php tests/backup_restore.php
+      - run: php tests/backup_cli.php
+      - run: php tests/section_backup.php
+      - run: php tests/agent_builds.php
+      - run: php tests/packing.php
+      - run: php tests/packing_http.php
+      - run: php tests/pickup_point.php
+      - run: php tests/carrier_label.php
+      - run: php tests/delivery_progress.php
+      - run: php tests/shipment_status_filter.php
+      - run: php tests/text_links.php
+      - run: php tests/blpaczka.php
+      - run: php tests/warehouse_locations.php
+      - run: php tests/location_picker_http.php
+      - run: php tests/ui_scale_http.php
+      - run: php tests/reply_templates_http.php
+      - run: php tests/allegro_order_message.php
+      - run: php tests/page_permissions_http.php
+      - run: php tests/process_control.php
+      - run: python3 tests/print_agent.py
+      - run: php tests/allegro_offer_issues.php
+      - run: php tests/allegro_offer_payload.php
+      - run: php tests/allegro_live_offer.php
+      - run: php tests/allegro_main_photo.php
+      - run: php tests/allegro_ads.php
+      - run: php tests/allegro_dashboard.php
+      - run: php tests/order_returns.php
+      - run: php tests/wfirma_receipts.php
+      - run: php tests/invoice_email.php
+      - run: php tests/allegro_feedback.php
+      - run: php tests/customers.php
+      - run: php tests/order_margins.php
+      - run: php tests/order_margins_http.php
+      - run: php tests/low_stock.php
+      - run: php tests/woo_custom_fields.php
+      - run: php tests/woo_custom_fields_http.php
+      - run: php tests/product_name_http.php
+      - run: php tests/actual_stock.php
+      - run: php tests/gs1.php
+      - run: php tests/payu.php
+      - run: php tests/payu_http.php
+      - run: php tests/payu_payments.php
+      - run: php tests/payu_payments_http.php
+      - run: php tests/tiktokshop.php
+      - run: php tests/order_merge.php
+      - run: php tests/order_merge_http.php
+      - run: php tests/email_log.php
+      - run: php tests/email_log_http.php
+      - run: php tests/order_payment.php
+      - run: php tests/order_payment_http.php
+      - run: php tests/manual_orders.php
+      - run: php tests/manual_orders_http.php
+      - run: php tests/virtual_products.php
+      - run: php tests/automation_actions.php
+      - run: php tests/manual_shipment_cost.php
+      - run: php tests/shipment_tracking.php
+      - run: php tests/extensions.php
+      - run: php tests/extensions_http.php
+      - run: php tests/document_concurrency.php
+      - run: php tests/order_list_sort.php
+      - run: php tests/order_channel_icons.php
+      - run: php tests/order_icon_details.php
+      - run: php tests/order_icons_http.php
+      - run: php tests/sales_mysql.php
+        env:
+          CRM_TEST_MYSQL: '1'
+          CRM_TEST_MYSQL_USER: root
+          CRM_TEST_MYSQL_PASSWORD: isolated-test-only
+      - run: php tests/local_mode_mysql.php
+        env:
+          CRM_TEST_MYSQL: '1'
+          CRM_TEST_MYSQL_USER: root
+          CRM_TEST_MYSQL_PASSWORD: isolated-test-only
+      - run: php tests/handover_mysql.php
+        env:
+          CRM_TEST_MYSQL: '1'
+          CRM_TEST_MYSQL_USER: root
+          CRM_TEST_MYSQL_PASSWORD: isolated-test-only
+      - run: php tests/full_system_package.php
+        env:
+          CRM_TEST_MYSQL: '1'
+          CRM_TEST_MYSQL_USER: root
+          CRM_TEST_MYSQL_PASSWORD: isolated-test-only

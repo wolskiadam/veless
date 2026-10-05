@@ -1,0 +1,43 @@
+# Veless - instalacja lokalna (na własnym komputerze), APP_MODE=local.
+# Start: ./docker/install.sh (Linux/Mac) albo docker\install.ps1 (Windows).
+# Hasła bazy bierze z .env (tworzy je instalator). Dane: dane/mysql + storage/.
+services:
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASS}
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    volumes:
+      - ./dane/mysql:/var/lib/mysql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+
+  app:
+    build: .
+    image: veless:local
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    # Domyślnie tylko ten komputer. Pakowanie z telefonu w tej samej sieci Wi-Fi:
+    # CRM_BIND=0.0.0.0 w .env (wtedy panel jest widoczny w całej sieci lokalnej).
+    ports:
+      - "${CRM_BIND:-127.0.0.1}:${CRM_PORT:-8081}:80"
+    volumes:
+      - ./:/var/www/crm
+
+  worker:
+    image: veless:local
+    pull_policy: never   # ten sam obraz co app, budowany lokalnie
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+      app: { condition: service_started }
+    command: ["sh", "/var/www/crm/docker/worker.sh"]
+    volumes:
+      - ./:/var/www/crm

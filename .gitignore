@@ -1,0 +1,47 @@
+# === Dane wrażliwe — NIGDY na GitHub ===
+/.env
+/.env.*
+!/.env.example
+/storage/*.log
+/storage/*.lock
+/storage/*.txt
+/storage/ADMIN_PASSWORD.txt
+/storage/security/*.json
+/storage/security/*.key
+
+# Zależności / build
+/vendor/
+/node_modules/
+
+# System
+.DS_Store
+Thumbs.db
+*.swp
+
+# Dane robocze systemu (tworzone na serwerze, nie są kodem)
+/storage/sessions/
+/storage/stats/
+/storage/uploads/
+/storage/labels/
+/storage/documents/
+/storage/backups/
+/storage/cache/
+/storage/logs/
+/storage/version.json
+
+# Pliki tymczasowe z pracy nad kodem
+/_to_delete_tmp_stage/
+
+# Python (agent drukarki)
+__pycache__/
+*.pyc
+
+# Wysyłka na żądanie (pliki robocze)
+/.push-request
+/.push-result
+
+# Znacznik wdrożenia - tworzony przez GitHub Actions przy wgrywaniu na serwer
+/config/build.json
+
+# Instalacja lokalna w Dockerze (baza danych)
+/dane/

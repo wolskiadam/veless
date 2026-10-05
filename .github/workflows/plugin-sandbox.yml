@@ -1,0 +1,111 @@
+name: Sandbox wtyczek
+
+# Każda zmiana wtyczki (integrations/, extensions/, examples/extensions/) przechodzi przez sandbox:
+# skan kodu + uruchomienie w CRM w Dockerze na fikcyjnych danych, bez internetu, z „kanarkami”
+# zamiast tokenów. Raport jest w podsumowaniu przebiegu i w artefakcie „raporty-sandboxu”.
+# Wynik „odrzucona” zatrzymuje PR. „Do przeglądu” i „bez zastrzeżeń” to wciąż nie zgoda: wtyczkę
+# do katalogu dopuszcza człowiek po przeczytaniu kodu i raportu.
+#
+# Ręcznie: Actions → „Sandbox wtyczek” → Run workflow, ścieżka do wtyczki w repozytorium (katalog albo .zip).
+# Lokalnie: sh docker/sandbox/run.sh <katalog-wtyczki | wtyczka.zip>  (opis: docker/sandbox/README.md).
+
+on:
+  pull_request:
+    paths:
+      - 'integrations/**'
+      - 'extensions/**'
+      - 'examples/extensions/**'
+      - 'docker/sandbox/**'
+      - 'tests/fixtures/sandbox/**'
+      - '.github/workflows/plugin-sandbox.yml'
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: 'Ścieżka do wtyczki w repozytorium (katalog albo plik .zip)'
+        required: true
+
+# Kod z PR (także z forka) dostaje tylko odczyt repozytorium i żadnych sekretów.
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-sandbox-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Pobierz kod (PR)
+        uses: actions/checkout@v4
+        with:
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Sandbox, rdzeń CRM i obraz Dockera bierzemy z gałęzi docelowej, nie z PR: PR, który przy okazji
+      # „poprawia” sandbox albo rdzeń, nie może sam sobie wystawić czystego raportu. Gdy gałąź docelowa
+      # nie ma jeszcze sandboxu (PR, który go wprowadza) - bierzemy go z PR.
+      - name: Pobierz gałąź docelową (sandbox i rdzeń)
+        uses: actions/checkout@v4
+        with:
+          path: base
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Wybierz wtyczki do sprawdzenia
+        id: pick
+        env:
+          INPUT_PLUGIN: ${{ github.event.inputs.plugin }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ ! -f base/docker/sandbox/run.sh ]; then
+            echo "Gałąź docelowa nie ma jeszcze sandboxu - używam sandboxu i rdzenia z PR."
+            rm -rf base && cp -R pr base
+          fi
+          if [ -n "$INPUT_PLUGIN" ]; then
+            printf '%s\n' "$INPUT_PLUGIN" > plugins.txt
+          else
+            git -C pr diff --name-only "$BASE_SHA"...HEAD \
+              | sed -nE 's#^((integrations|extensions)/[^/]+)/.*#\1#p; s#^(examples/extensions/[^/]+)/.*#\1#p' \
+              | sort -u > candidates.txt
+            : > plugins.txt
+            while read -r d; do [ -f "pr/$d/register.php" ] && echo "$d" >> plugins.txt || true; done < candidates.txt
+          fi
+          echo "Wtyczki do sprawdzenia:"; cat plugins.txt || true
+
+      - name: Zbuduj obraz CRM
+        run: docker build -q -t veless:local base
+
+      - name: Test samego sandboxu (złośliwa wtyczka musi zostać odrzucona)
+        run: sh base/docker/sandbox/run.sh --oczekuj-odrzucenia base/tests/fixtures/sandbox/zlodziej "$RUNNER_TEMP/raporty/_test-sandboxu"
+
+      - name: Sandbox
+        run: |
+          failed=0
+          while read -r p; do
+            [ -n "$p" ] || continue
+            name="$(echo "$p" | tr '/' '_')"
+            echo "::group::$p"
+            code=0
+            sh base/docker/sandbox/run.sh "pr/$p" "$RUNNER_TEMP/raporty/$name" || code=$?
+            echo "::endgroup::"
+            if [ -f "$RUNNER_TEMP/raporty/$name/raport.md" ]; then
+              cat "$RUNNER_TEMP/raporty/$name/raport.md" >> "$GITHUB_STEP_SUMMARY"
+              echo >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "### $p: sandbox nie wygenerował raportu (kod $code)" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            [ "$code" = 0 ] || failed=1
+          done < plugins.txt
+          [ -s plugins.txt ] || echo "Brak zmienionych wtyczek - sprawdzono tylko sam sandbox." >> "$GITHUB_STEP_SUMMARY"
+          exit $failed
+
+      - name: Zapisz raporty
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raporty-sandboxu
+          path: ${{ runner.temp }}/raporty/*/raport.*
+          if-no-files-found: ignore

@@ -1,0 +1,12 @@
+# Panel admina. Blokuj bezpośredni dostęp do plików includowanych
+# (sama logika - bez sesji - i tak by je odrzuciła, ale lepiej zablokować z serwera).
+
+Options -Indexes
+
+<FilesMatch "^(db_admin|auth|bootstrap_admin|header|footer|_orders_query|_orders_table|_auth_card|_allegro_feedback)\.php$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

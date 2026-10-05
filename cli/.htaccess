@@ -1,0 +1,2 @@
+# Skrypty CLI (worker, refresh tokenów, instalator) - uruchamiane przez cron/SSH, nie z weba.
+Require all denied

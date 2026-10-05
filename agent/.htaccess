@@ -1,0 +1,3 @@
+# Katalog z programem agenta druku - pobierany przez panel
+# (public/admin/agent_download.php czyta go z dysku), nie bezposrednio z weba.
+Require all denied

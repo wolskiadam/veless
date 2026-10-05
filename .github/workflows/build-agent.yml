@@ -1,0 +1,53 @@
+name: Build Veless print agent (script) (Windows .exe)
+
+# Buduje jednoplikowy PaseAgent.exe na maszynie z Windows (GitHub Actions).
+# Uruchomienie: zakladka Actions -> "Build Veless print agent (script)" -> Run workflow,
+# automatycznie po zmianie agent/print_agent.py na main, albo po tagu "agent-v*".
+
+on:
+  workflow_dispatch:
+  # Każda zmiana programu agenta na main buduje od razu nowy PaseAgent.exe (artefakt w Actions);
+  # tag agent-v* dodatkowo dołącza exe do wydania (filtr ścieżek nie dotyczy tagów).
+  push:
+    branches: [main]
+    tags:
+      - 'agent-v*'
+    paths:
+      - 'agent/print_agent.py'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Pobierz repozytorium
+        uses: actions/checkout@v4
+
+      - name: Ustaw Pythona
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Zainstaluj zaleznosci
+        run: pip install requests pywin32 pypdfium2 Pillow pyinstaller
+
+      - name: Zbuduj exe
+        run: >
+          pyinstaller --onefile --console
+          --name PaseAgent
+          --hidden-import win32print
+          --collect-all pypdfium2
+          agent/print_agent.py
+
+      - name: Opublikuj plik do pobrania
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaseAgent-exe
+          path: dist/PaseAgent.exe
+          if-no-files-found: error
+
+      - name: Dolacz exe do release (tylko dla tagow agent-v*)
+        if: startsWith(github.ref, 'refs/tags/agent-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PaseAgent.exe

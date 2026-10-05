@@ -1,0 +1,5 @@
+# Konfiguracja, biblioteka i dane nie są dostępne z przeglądarki.
+<FilesMatch "^(config\.php|config\.example\.php|lib\.php|README\.md)$">
+  Require all denied
+</FilesMatch>
+Options -Indexes

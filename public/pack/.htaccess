@@ -1,0 +1,6 @@
+# Stanowisko pakowania na telefonie. Pliki zaczynające się od „_” są tylko dołączane.
+Options -Indexes
+
+<FilesMatch "^[_.]">
+    Require all denied
+</FilesMatch>

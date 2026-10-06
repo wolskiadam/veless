@@ -46,4 +46,13 @@ foreach (D::LEGEND as $entry) {
     check(isset(D::ICON_PATHS[$entry['kind']]), 'legend icon exists: ' . $entry['label']);
 }
 
+// Uwaga kupującego: Woo customer_note, Allegro messageToSeller.
+use Pase\Services\OrderIndicators as I;
+check(I::customerNote(['customer_note' => "  Proszę zostawić u sąsiada \n"]) === 'Proszę zostawić u sąsiada', 'woo note trimmed');
+check(I::customerNote(['messageToSeller' => 'Na prezent']) === 'Na prezent', 'allegro note');
+check(I::customerNote(['customer_note' => '']) === '' && I::note(['customer_note' => '   ']) === null, 'empty note = no icon');
+$n = I::note(['customer_note' => "Linia 1\nLinia 2"]);
+check($n !== null && $n['state'] === 'note' && $n['label'] === 'Uwaga od klienta: Linia 1 Linia 2' && !empty($n['literal']), 'note icon label carries text');
+check(mb_strlen(I::note(['customer_note' => str_repeat('x', 500)])['label']) < 330, 'long note shortened in icon');
+
 echo "\n{$checks} checks passed\n";

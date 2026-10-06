@@ -16,6 +16,7 @@ final class OrderIconDetails
         'payment' => '<path d="M12 3v18m5-14H9a3 3 0 0 0 0 6h6a3 3 0 0 1 0 6H6"/>',
         'invoice' => '<path d="M6 3h9l4 4v14l-3-2-3 2-3-2-4 2V3Z"/><path d="M14 3v5h5M9 11h7M9 15h7"/>',
         'shipping' => '<path d="M3 5h11v12H3zM14 10h4l3 4v3h-7"/><circle cx="7" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
+        'note' => '<path d="M4 5h16v11H9l-5 4V5Z"/><path d="M8 9h8M8 12h5"/>',
     ];
 
     /** Skróty dopisywane do podobnych ikon faktury i paragonu. */
@@ -45,6 +46,7 @@ final class OrderIconDetails
         ['kind' => 'shipping', 'state' => 'transit', 'label' => 'orders.indicator.shipping_in_transit'],
         ['kind' => 'shipping', 'state' => 'ok', 'label' => 'orders.indicator.shipping_delivered'],
         ['kind' => 'shipping', 'state' => 'bad', 'label' => 'orders.indicator.shipping_problem'],
+        ['kind' => 'note', 'state' => 'note', 'label' => 'Klient dopisał uwagę do zamówienia', 'literal' => true],
     ];
 
     private const DOC_LABELS = [

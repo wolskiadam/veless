@@ -341,19 +341,20 @@ require __DIR__ . '/header.php';
         return date('d.m', strtotime($key));
     };
 ?>
-<h2 class="mg-h">Marża <span>netto, zamówienia w PLN, bez anulowanych i zwróconych<?= $marginOtherCurrency ? ' — filtr waluty ' . htmlspecialchars($fCurrency) . ' nie dotyczy marży' : '' ?></span></h2>
+<?php $nt = \Pase\Services\CompanySettings::netSuffix($pdo); ?>
+<h2 class="mg-h">Marża <span><?= $nt !== '' ? 'netto, ' : '' ?>zamówienia w PLN, bez anulowanych i zwróconych<?= $marginOtherCurrency ? ' — filtr waluty ' . htmlspecialchars($fCurrency) . ' nie dotyczy marży' : '' ?></span></h2>
 <?php if ($mt['orders'] === 0): ?>
     <div class="card"><p style="color:var(--ink-2)">Brak zamówień w PLN w tym zakresie.</p></div>
 <?php else: ?>
 <div class="mg-tiles">
-    <div class="card mg-tile"><div class="mg-lbl">Sprzedaż produktów netto</div><div class="mg-num"><?= $money($mt['revenue']) ?></div><div class="mg-sub"><?= $mt['orders'] ?> zamówień, <?= $mt['qty'] ?> szt.</div></div>
+    <div class="card mg-tile"><div class="mg-lbl">Sprzedaż produktów<?= $nt ?></div><div class="mg-num"><?= $money($mt['revenue']) ?></div><div class="mg-sub"><?= $mt['orders'] ?> zamówień, <?= $mt['qty'] ?> szt.</div></div>
     <div class="card mg-tile"><div class="mg-lbl">Koszt towaru</div><div class="mg-num"><?= $money($mt['cost']) ?></div><div class="mg-sub">z pozycji z kosztem zakupu</div></div>
     <div class="card mg-tile"><div class="mg-lbl">Marża na towarze</div><div class="mg-num<?= $tone($mt['margin']) ?>"><?= $money($mt['margin']) ?></div><div class="mg-sub"><?= $pct($mt['margin_pct']) ?> sprzedaży z kosztem</div></div>
     <div class="card mg-tile"><div class="mg-lbl">Po opłatach Allegro</div><div class="mg-num<?= $tone($mt['margin_after_fees']) ?>"><?= $money($mt['margin_after_fees']) ?></div><div class="mg-sub"><?= $pct($mt['margin_after_fees_pct']) ?> · opłaty <?= $money($mt['fees']) ?></div></div>
 </div>
 <?php if ($mt['coverage_pct'] !== null && $mt['coverage_pct'] < 100): ?>
     <div class="flash <?= $mt['coverage_pct'] < 80 ? 'err' : 'ok' ?> mg-cover">
-        Koszt zakupu znamy dla <b><?= $pct($mt['coverage_pct']) ?></b> sprzedaży netto. Pozycje bez kosztu
+        Koszt zakupu znamy dla <b><?= $pct($mt['coverage_pct']) ?></b> sprzedaży<?= $nt ?>. Pozycje bez kosztu
         (<?= $money($mt['revenue'] - $mt['revenue_costed']) ?>) nie wchodzą do marży —
         <?php if (canOpenPage('product_costs.php')): ?><a href="product_costs.php?only=missing">uzupełnij koszty zakupu</a><?php else: ?>poproś o uzupełnienie kosztów zakupu<?php endif; ?>.
     </div>
@@ -364,7 +365,7 @@ require __DIR__ . '/header.php';
         <h3 class="mg-t">Kanały sprzedaży</h3>
         <div class="mg-scroll">
         <table class="mg-table">
-            <tr><th>Kanał</th><th>Sprzedaż netto</th><th>Koszt</th><th>Marża</th><th>%</th><th>Opłaty</th><th>Po opłatach</th></tr>
+            <tr><th>Kanał</th><th>Sprzedaż<?= $nt ?></th><th>Koszt</th><th>Marża</th><th>%</th><th>Opłaty</th><th>Po opłatach</th></tr>
             <?php foreach ($margin['channels'] as $c): ?>
                 <tr>
                     <td><?= htmlspecialchars((string) $c['label']) ?> <span class="mg-dim"><?= $c['orders'] ?> zam.</span></td>
@@ -383,7 +384,7 @@ require __DIR__ . '/header.php';
         <h3 class="mg-t"><?= $margin['period_format'] === 'Y-m' ? 'Miesiące' : 'Dni' ?></h3>
         <div class="mg-scroll">
         <table class="mg-table">
-            <tr><th>Okres</th><th>Sprzedaż netto</th><th>Marża</th><th>%</th><th>Po opłatach</th></tr>
+            <tr><th>Okres</th><th>Sprzedaż<?= $nt ?></th><th>Marża</th><th>%</th><th>Po opłatach</th></tr>
             <?php foreach (array_reverse($margin['periods'], true) as $key => $pr): ?>
                 <tr>
                     <td><?= htmlspecialchars($plDate((string) $key)) ?></td>
@@ -402,7 +403,7 @@ require __DIR__ . '/header.php';
     <h3 class="mg-t">Produkty <span class="mg-dim">od największej sprzedaży<?= count($margin['products']) > 100 ? ', pierwsze 100 z ' . count($margin['products']) : '' ?></span></h3>
     <div class="mg-scroll mg-tall">
     <table class="mg-table">
-        <tr><th>Produkt</th><th>Szt.</th><th>Sprzedaż netto</th><th>Koszt</th><th>Marża</th><th>%</th></tr>
+        <tr><th>Produkt</th><th>Szt.</th><th>Sprzedaż<?= $nt ?></th><th>Koszt</th><th>Marża</th><th>%</th></tr>
         <?php foreach (array_slice($margin['products'], 0, 100) as $pr):
             $label = trim((string) ($pr['name'] ?? '')) ?: (string) ($pr['sku'] ?? '—'); ?>
             <tr>
@@ -420,8 +421,13 @@ require __DIR__ . '/header.php';
         <?php endforeach; ?>
     </table>
     </div>
+    <?php if (!empty($margin['vat_payer'])): ?>
     <p class="mg-dim" style="margin-top:10px">Przychód bez dostawy i bez VAT (ceny bez podatku w zamówieniu dzielimy przez <?= (int) $margin['vat'] ?>%). Koszt zakupu jest zapisywany na pozycjach w chwili przyjścia zamówienia.
         Opłaty Allegro to prowizja i promowanie przypisane do zamówienia w rozliczeniach Allegro (netto, bez opłat za dostawę); w „po opłatach” liczymy tylko część przypadającą na pozycje z kosztem.</p>
+    <?php else: ?>
+    <p class="mg-dim" style="margin-top:10px">Firma bez VAT (Konfiguracja → Firma): przychód to kwota zapłacona przez klienta bez dostawy, koszt zakupu i opłaty Allegro to kwoty faktycznie zapłacone. Koszt zakupu jest zapisywany na pozycjach w chwili przyjścia zamówienia.
+        Opłaty Allegro to prowizja i promowanie przypisane do zamówienia w rozliczeniach Allegro (bez opłat za dostawę); w „po opłatach” liczymy tylko część przypadającą na pozycje z kosztem.</p>
+    <?php endif; ?>
 </div>
 <?php endif; ?>
 

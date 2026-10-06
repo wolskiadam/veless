@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEditPage('product_costs') && ($_
         $flashErr = 'Zła kwota kosztu zakupu.';
     } else {
         (new \Pase\Services\OrderMargins($pdo))->setCosts([$id => $c]);
-        $flashOk = $c === null ? 'Usunięto koszt zakupu.' : 'Zapisano koszt zakupu: ' . number_format($c, 2, ',', ' ') . ' zł netto.';
+        $flashOk = $c === null ? 'Usunięto koszt zakupu.' : 'Zapisano koszt zakupu: ' . number_format($c, 2, ',', ' ') . ' zł' . \Pase\Services\CompanySettings::netSuffix($pdo) . '.';
     }
 }
 // Minimalny stan (alert niskiego stanu); puste = próg domyślny z listy produktów.
@@ -471,7 +471,7 @@ try {
             </td></tr>
             <tr><th>Cena (CRM)</th><td><?= htmlspecialchars((string)($p['pase_price'] ?? '—')) ?> zł</td></tr>
             <?php if ($canSeeCost): $pc = $p['purchase_cost'] ?? null; ?>
-            <tr><th>Koszt zakupu netto</th><td>
+            <tr><th>Koszt zakupu<?= \Pase\Services\CompanySettings::netSuffix($pdo) ?></th><td>
                 <?php if (canEditPage('product_costs')): ?>
                     <form method="post" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0">
                         <input type="hidden" name="csrf" value="<?= csrfToken() ?>">

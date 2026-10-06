@@ -88,6 +88,7 @@ final class PagePermissions
                 'print_templates.php', 'print_template_image.php', 'print_asset.php', 'print_asset_image.php', 'print_asset_preview.php', 'print_drop.php']],
             'email_settings' => ['label' => 'E-mail (SMTP)', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['email_settings.php']],
             'client_settings' => ['label' => 'Strona klienta', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['client_settings.php']],
+            'company'       => ['label' => 'Firma', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['company.php']],
             'sync_settings' => ['label' => 'Synchronizacja', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['sync_settings.php']],
             'statuses' => ['label' => 'Statusy zamówień', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['statuses.php']],
             'printing' => ['label' => 'Drukowanie', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['printing.php', 'agent_download.php', 'agent_app_download.php']],

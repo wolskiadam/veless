@@ -28,7 +28,7 @@ final class Demo
         'users.php', 'security.php', 'plugins.php', 'ext.php',
         'integrations.php', 'integration_edit.php', 'allegro_connect.php', 'tiktokshop_connect.php',
         'allegro_settings.php', 'email_settings.php', 'sync_settings.php', 'client_settings.php',
-        'payu.php', 'payu_refund.php', 'gs1.php', 'login_quick.php',
+        'payu.php', 'payu_refund.php', 'gs1.php', 'login_quick.php', 'company.php',
     ];
 
     public static function on(): bool

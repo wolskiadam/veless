@@ -149,4 +149,24 @@ check((new M($pdo))->defaultVat() === 23, 'default VAT 23% without wFirma');
 $pdo->exec("INSERT INTO integration_accounts (id, type, name, config) VALUES (5, 'wfirma', 'wFirma', '{\"default_vat\":\"zw\"}')");
 check((new M($pdo))->defaultVat() === 0, 'VAT-exempt wFirma: gross = net');
 
+// Firma bez VAT (Konfiguracja → Firma): bez dzielenia przez VAT, koszty z migawek zostają.
+$pdo->exec('DELETE FROM integration_accounts WHERE id = 5');
+$pdo->exec('CREATE TABLE settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)');
+check(\Pase\Services\CompanySettings::isVatPayer($pdo) && \Pase\Services\CompanySettings::netSuffix($pdo) === ' netto', 'VAT payer by default');
+$pdo->exec('UPDATE products SET purchase_cost = 99 WHERE id = 3');
+\Pase\Services\CompanySettings::setVatPayer($pdo, false);
+$nv = new M($pdo);
+check(!$nv->vatPayer() && $nv->defaultVat() === 0 && \Pase\Services\CompanySettings::netSuffix($pdo) === '', 'non-VAT company: no VAT rate, no "netto" label');
+check($nv->pendingCount() === 5 && $nv->syncPending() === 5 && $nv->syncPending() === 0, 'switching VAT status re-snapshots every order once');
+check(near((float) $line(9000000001, 0)['revenue_net'], 61.5) && near((float) $line(9000000002, 0)['revenue_net'], 49.2), 'non-VAT company: Allegro revenue is the price the customer paid');
+check((float) $line(9000000001, 0)['unit_cost'] === 20.0, 'non-VAT company: cost from the order time is kept');
+check(near((float) $line(1, 0)['revenue_net'], 40.0), 'non-VAT company: locally edited line taken as entered');
+$t = $nv->report('2026-09-01', '2026-09-30')['total'];
+check(near($t['fees'], 18.45) && $nv->report('2026-09-01', '2026-09-30')['vat_payer'] === false, 'non-VAT company: Allegro fees not divided by VAT');
+\Pase\Services\CompanySettings::setVatPayer($pdo, false);
+check((new M($pdo))->pendingCount() === 0, 'saving the same VAT status does not re-snapshot');
+\Pase\Services\CompanySettings::setVatPayer($pdo, true);
+$pv = new M($pdo);
+check($pv->syncPending() === 5 && near((float) $line(9000000001, 0)['revenue_net'], 50.0) && near($pv->report('2026-09-01', '2026-09-30')['total']['fees'], 15.0), 'back to VAT payer: net amounts again');
+
 echo "PASS: $checks order margin checks\n";

@@ -77,6 +77,7 @@ final class AdminMenu
             'config' => [
                 'label' => t('nav.config'),
                 'items' => [
+                    ['href' => 'company.php',         'label' => t('nav.company'), 'desc' => ''],
                     ['href' => 'automations.php',     'label' => t('nav.automations'), 'desc' => ''],
                     ['href' => 'templates.php',       'label' => t('nav.templates'), 'desc' => ''],
                     ['href' => 'email_templates.php', 'label' => t('nav.email_tpl'), 'desc' => ''],

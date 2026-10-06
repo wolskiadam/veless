@@ -27,6 +27,9 @@ use Pase\Support\AllegroOrderMapper;
  * Opłaty Allegro: wpisy rozliczeń z numerem zamówienia (prowizja, opłaty za promowanie przy sprzedaży)
  * zapisujemy przy odświeżaniu Dashboardu Allegro. Liczymy grupy 'mandatory' i 'promo'; opłaty za dostawę
  * pomijamy, bo przychód z dostawy też jest poza marżą. Kwoty z Allegro są brutto, dzielimy przez 1,23.
+ *
+ * Firma bez VAT (CompanySettings::isVatPayer() = false): nic nie dzielimy przez VAT - przychód to cena z zamówienia
+ * (z ewentualnym podatkiem), koszt zakupu i opłaty Allegro to kwoty faktycznie zapłacone.
  */
 final class OrderMargins
 {
@@ -38,10 +41,26 @@ final class OrderMargins
     public const FEES_BACKFILL_KEY = 'margin_fees_backfilled';
 
     private ?int $vat;
+    private ?bool $vatPayer = null;
 
     public function __construct(private readonly PDO $pdo, ?int $defaultVat = null)
     {
         $this->vat = $defaultVat;
+    }
+
+    public function vatPayer(): bool
+    {
+        return $this->vatPayer ??= CompanySettings::isVatPayer($this->pdo);
+    }
+
+    /** Po zmianie statusu VAT: wszystkie migawki do ponownego zapisu (koszty pozycji zostają, patrz snapshot()). */
+    public function markAllStale(): void
+    {
+        try {
+            $this->pdo->exec("UPDATE margin_orders SET src_edited = 'vat-changed'");
+        } catch (\Throwable) {
+            // brak tabeli - nie ma czego przeliczać
+        }
     }
 
     public static function migrate(PDO $pdo): void
@@ -293,6 +312,9 @@ final class OrderMargins
 
     public function defaultVat(): int
     {
+        if ($this->vat === null && !$this->vatPayer()) {
+            $this->vat = 0;
+        }
         if ($this->vat === null) {
             $this->vat = 23;
             try {
@@ -314,6 +336,9 @@ final class OrderMargins
     {
         $total = (float) ($li['total'] ?? 0);
         $tax = isset($li['total_tax']) && is_numeric($li['total_tax']) ? (float) $li['total_tax'] : 0.0;
+        if (!$this->vatPayer()) {
+            return round($total + $tax, 2);   // bez VAT: przychód to cała kwota od klienta
+        }
         // $orderTaxed: pozycja z lokalnej edycji (bez total_tax) w zamówieniu, którego ceny sklep podał netto.
         if ($tax > 0 || ($orderTaxed && !isset($li['total_tax']))) {
             return round($total, 2);
@@ -559,7 +584,7 @@ final class OrderMargins
                 WHERE allegro_order_id IN ($in) AND fee_group IN ($groups) GROUP BY allegro_order_id");
             $f->execute($chunk);
             foreach ($f->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                $fees[(string) $r['allegro_order_id']] = round(-(float) $r['s'] / (1 + self::ALLEGRO_FEE_VAT / 100), 2);
+                $fees[(string) $r['allegro_order_id']] = round(-(float) $r['s'] / ($this->vatPayer() ? 1 + self::ALLEGRO_FEE_VAT / 100 : 1), 2);
             }
         }
 
@@ -642,6 +667,7 @@ final class OrderMargins
             'periods' => $byPeriod,
             'period_format' => $periodFmt,
             'vat' => $this->defaultVat(),
+            'vat_payer' => $this->vatPayer(),
         ];
     }
 }

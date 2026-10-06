@@ -94,6 +94,8 @@ $cov = $svc->coverage();
 $since = date('Y-m-d', strtotime('-90 days'));
 $missingSold = $svc->soldWithoutCost($since . ' 00:00:00', 15);
 $vatNote = $svc->defaultVat();
+$vatPayer = $svc->vatPayer();
+$nt = $vatPayer ? ' netto' : '';
 
 $qs = $_GET;
 $link = static function (int $p) use ($qs): string { $qs['p'] = $p; return 'product_costs.php?' . http_build_query($qs); };
@@ -132,7 +134,7 @@ require __DIR__ . '/header.php';
     </form>
     <?php endif; ?>
     <table>
-        <tr><th>SKU</th><th>Nazwa</th><th class="pc-num">Cena sprzedaży</th><th class="pc-num">Koszt zakupu netto</th><th class="pc-num" title="Orientacyjnie: cena z CRM bez VAT minus koszt">Marża</th></tr>
+        <tr><th>SKU</th><th>Nazwa</th><th class="pc-num">Cena sprzedaży</th><th class="pc-num">Koszt zakupu<?= $nt ?></th><th class="pc-num" title="Orientacyjnie: cena z CRM<?= $vatPayer ? ' bez VAT' : '' ?> minus koszt">Marża</th></tr>
         <?php if ($rows === []): ?>
             <tr><td colspan="5" class="pc-muted">Brak produktów.</td></tr>
         <?php endif; ?>
@@ -164,7 +166,7 @@ require __DIR__ . '/header.php';
     <?php $pagerPage = $page; $pagerPages = $pages; $pagerLink = $link; require __DIR__ . '/_pager.php'; ?>
     <?php if ($canEdit && $rows !== []): ?>
         <p style="margin-top:12px"><button class="btn" type="submit" form="costForm">💾 Zapisz koszty</button>
-        <span class="pc-muted">Puste pole = brak kosztu (produkt nie wchodzi do marży). Marża w tabeli liczona od ceny z CRM bez <?= (int) $vatNote ?>% VAT.</span></p>
+        <span class="pc-muted">Puste pole = brak kosztu (produkt nie wchodzi do marży). Marża w tabeli liczona od ceny z CRM<?= $vatPayer ? ' bez ' . (int) $vatNote . '% VAT' : '' ?>.</span></p>
     <?php endif; ?>
 </div>
 
@@ -175,7 +177,7 @@ require __DIR__ . '/header.php';
         <div class="pc-bar"><i style="width:<?= round($pct, 1) ?>%"></i></div>
         <div class="pc-muted"><?= $cov['with_cost'] ?> z <?= $cov['total'] ?> produktów ma koszt zakupu (<?= number_format($pct, 0) ?>%).</div>
         <?php if ($missingSold !== []): ?>
-            <p style="margin:14px 0 6px"><strong>Sprzedane bez kosztu (90 dni)</strong><br><span class="pc-muted">Tych pozycji Statystyki nie liczą do marży. Od największej sprzedaży netto.</span></p>
+            <p style="margin:14px 0 6px"><strong>Sprzedane bez kosztu (90 dni)</strong><br><span class="pc-muted">Tych pozycji Statystyki nie liczą do marży. Od największej sprzedaży<?= $nt ?>.</span></p>
             <table>
                 <?php foreach ($missingSold as $m): ?>
                     <tr>
@@ -210,8 +212,13 @@ require __DIR__ . '/header.php';
         <ul class="pc-muted" style="padding-left:18px;margin:8px 0 0">
             <li>Koszt z chwili przyjścia zamówienia zostaje na jego pozycjach — zmiana kosztu dziś nie zmienia marży z przeszłości.</li>
             <li>Pozycja bez kosztu dostaje go, gdy go wpiszesz, i dopiero wtedy wchodzi do marży.</li>
+            <?php if ($vatPayer): ?>
             <li>Przychód liczymy netto (bez dostawy); ceny bez VAT w zamówieniu dzielimy przez <?= (int) $vatNote ?>% (stawka domyślna z wFirma).</li>
             <li>Od zamówień z Allegro odejmujemy prowizję i opłaty za promowanie przypisane do zamówienia (netto).</li>
+            <?php else: ?>
+            <li>Firma bez VAT (Konfiguracja → Firma): przychód to kwota zapłacona przez klienta (bez dostawy), a koszt zakupu wpisujesz taki, jaki faktycznie płacisz.</li>
+            <li>Od zamówień z Allegro odejmujemy prowizję i opłaty za promowanie przypisane do zamówienia (kwoty z faktury Allegro).</li>
+            <?php endif; ?>
         </ul>
         <?php if ($canEdit): ?>
         <form method="post" style="margin-top:12px" onsubmit="return confirm('Przeliczyć marżę WSZYSTKICH zamówień z bieżącymi kosztami? Koszty z chwili zamówienia zostaną nadpisane.')">

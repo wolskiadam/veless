@@ -146,6 +146,7 @@ return [
     'nav.email_smtp'   => '📧 E-mail (SMTP)',
     'nav.client_page'  => '👤 Strona klienta',
     'nav.sync'         => '🔄 Synchronizacja',
+    'nav.company'      => '🏢 Firma',
     'nav.statuses'     => '🏷️ Statusy zamówień',
     'nav.printing'     => '🖨️ Drukowanie',
     'nav.integrations' => '🔌 Integracje',

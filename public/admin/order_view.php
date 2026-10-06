@@ -942,6 +942,35 @@ require __DIR__ . '/header.php';
 </div>
 <?php endif; ?>
 
+<?php
+// Uwagi kupującego (Woo: customer_note, Allegro: messageToSeller) - także z zamówień dołączonych do tej paczki.
+$customerNotes = [];
+$ownNote = \Pase\Services\OrderIndicators::customerNote($o);
+if ($ownNote !== '') {
+    $customerNotes[] = ['from' => null, 'text' => $ownNote];
+}
+foreach ($absorbedOrders as $ab) {
+    $abNote = \Pase\Services\OrderIndicators::customerNote(json_decode((string) ($ab['payload'] ?? ''), true) ?: []);
+    if ($abNote !== '') {
+        $customerNotes[] = ['from' => $ab, 'text' => $abNote];
+    }
+}
+?>
+<?php if ($customerNotes !== []): ?>
+<div class="note-alert" id="customer-note" role="note">
+    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><?= \Pase\Services\OrderIconDetails::ICON_PATHS['note'] ?></svg>
+    <div style="flex:1;min-width:220px">
+        <strong>Uwaga od klienta</strong>
+        <?php foreach ($customerNotes as $cn): ?>
+            <?php if ($cn['from'] !== null): ?>
+                <div class="note-from">Z dołączonego zamówienia <a href="order_view.php?id=<?= (int) $cn['from']['woo_order_id'] ?>"><?= htmlspecialchars(\Pase\Services\OrderMerge::label($cn['from'])) ?></a>:</div>
+            <?php endif; ?>
+            <div class="note-text"><?= nl2br(htmlspecialchars($cn['text'])) ?></div>
+        <?php endforeach; ?>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php if (canEdit()): ?>
 <p style="color:#888;font-size:12px;margin:0 0 10px">💡 Sekcje możesz przeciągać za uchwyt <strong>⠿</strong> i układać po swojemu — układ zapamiętuje się dla Twojego konta.</p>
 <?php endif; ?>
@@ -2079,6 +2108,12 @@ require __DIR__ . '/header.php';
 <style>
     .invoice-alert { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin:0 0 14px; padding:14px 18px; border-radius:12px; background:#fff1d6; color:#7a4500; border:1px solid #f3c56b; }
     .invoice-alert strong { font-size:16px; display:block; margin-bottom:2px; }
+    .note-alert { display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap; margin:0 0 14px; padding:14px 18px; border-radius:12px; background:#fdf6d3; color:#5c4400; border:1px solid #e9c94a; }
+    .note-alert strong { font-size:16px; display:block; margin-bottom:4px; }
+    .note-alert .note-text { font-size:15px; line-height:1.45; white-space:normal; overflow-wrap:anywhere; }
+    .note-alert .note-text + .note-from { margin-top:8px; }
+    .note-alert .note-from { font-size:13px; opacity:.85; }
+    .note-alert a { color:inherit; text-decoration:underline; text-underline-offset:3px; }
     .merge-alert { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin:0 0 14px; padding:12px 18px; border-radius:12px; background:#eef0f6; color:#374151; border:1px solid #d5d9e4; }
     .merge-alert strong { font-size:15px; }
     .merge-alert a { color:inherit; text-decoration:underline; text-underline-offset:3px; }

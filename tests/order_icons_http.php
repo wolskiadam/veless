@@ -94,15 +94,15 @@ try {
         remote_id TEXT, status TEXT DEFAULT 'issued', message TEXT, created_at TEXT, updated_at TEXT)");
     foreach ([\Pase\Services\OrderReturns::class, \Pase\Services\AllegroFeedback::class, \Pase\Services\Customers::class,
         \Pase\Services\DocumentIssueGuard::class, \Pase\Services\OrderMerge::class, \Pase\Services\OrderPayment::class] as $svc) { $svc::migrate($pdo); }
-    $order = static fn(string $street, array $items, float $total): string => json_encode([
+    $order = static fn(string $street, array $items, float $total, string $note = ''): string => json_encode([
         'status' => 'on-hold', 'payment_method' => 'blik', 'payment_method_title' => 'Blik', 'date_paid' => null, 'total' => (string) $total,
         'billing' => ['first_name' => 'Anna', 'last_name' => 'Kowalska', 'email' => 'anna@example.com', 'address_1' => $street, 'postcode' => '00-001', 'city' => 'Warszawa'],
         'shipping' => ['first_name' => 'Anna', 'last_name' => 'Kowalska', 'address_1' => $street, 'postcode' => '00-001', 'city' => 'Warszawa'],
-        'line_items' => $items, 'shipping_lines' => [['method_title' => 'Kurier', 'total' => '15.00']]]);
+        'line_items' => $items, 'shipping_lines' => [['method_title' => 'Kurier', 'total' => '15.00']], 'customer_note' => $note]);
     $oins = $pdo->prepare('INSERT INTO woo_orders (woo_order_id, integration_id, pase_number, order_number, status, pase_status, currency, total, customer_name, customer_email, date_created, imported_at, payload)
         VALUES (?,1,?,?,?,?,?,?,?,?,?,?,?)');
     $oins->execute([501, 11, '501', 'processing', 'new', 'PLN', 114.8, 'Anna Kowalska', 'anna@example.com', '2026-09-20 10:00:00', '2026-09-20 10:01:00',
-        $order('Lipowa 1', [['product_id' => 1, 'sku' => 'GB-1L', 'name' => 'GINGERBREAD 1l', 'quantity' => 2, 'price' => 49.9, 'total' => '99.80']], 114.8)]);
+        $order('Lipowa 1', [['product_id' => 1, 'sku' => 'GB-1L', 'name' => 'GINGERBREAD 1l', 'quantity' => 2, 'price' => 49.9, 'total' => '99.80']], 114.8, "Proszę o paczkę bez ulotek <b>\nDziękuję")]);
     $oins->execute([502, 12, '502', 'processing', 'new', 'PLN', 54.9, 'Anna Kowalska', 'anna@example.com', '2026-09-21 10:00:00', '2026-09-21 10:01:00',
         $order('Polna 2', [['product_id' => 2, 'sku' => 'MW-1L', 'name' => 'MULLED WINE 1l', 'quantity' => 1, 'price' => 39.9, 'total' => '39.90']], 54.9)]);
 
@@ -128,12 +128,19 @@ try {
     ok(str_contains($list['body'], '>Dostawa<') && str_contains($list['body'], 'class="carrier-logo" title="InPost')
         && str_contains($list['body'], '<span class="carrier-other-name">Kurier</span>'), 'Delivery column shows the carrier');
     ok(str_contains($list['body'], 'class="source-logo"'), 'Source has a channel icon');
+    // Uwaga kupującego z WooCommerce (customer_note): ikona z treścią tylko przy zamówieniu, które ją ma.
+    ok(substr_count($list['body'], 'data-kind="note"') === 1
+        && str_contains($list['body'], 'title="Uwaga od klienta: Proszę o paczkę bez ulotek &lt;b&gt; Dziękuję"')
+        && str_contains($list['body'], 'href="order_view.php?id=501#customer-note"'), 'Customer note icon on the order list');
     $sorted = request($boss, 'admin/index.php?sort=delivery&dir=asc');
     ok($sorted['status'] === 200 && strpos($sorted['body'], 'data-order-id="501"') < strpos($sorted['body'], 'data-order-id="502"'), 'Sorted by delivery ascending');
     $sorted = request($boss, 'admin/index.php?sort=delivery&dir=desc');
     ok($sorted['status'] === 200 && strpos($sorted['body'], 'data-order-id="502"') < strpos($sorted['body'], 'data-order-id="501"')
         && str_contains($sorted['body'], 'aria-sort="descending"'), 'Sorted by delivery descending');
 
+    $view = request($boss, 'admin/order_view.php?id=501');
+    ok($view['status'] === 200 && str_contains($view['body'], 'id="customer-note"')
+        && str_contains($view['body'], 'Proszę o paczkę bez ulotek &lt;b&gt;<br />'), 'Customer note shown on the order page');
     $r = request($boss, 'admin/order_icons.php?id=501');
     $j = $r['json'];
     ok($r['status'] === 200 && ($j['documents'][0]['number'] ?? null) === 'PAR 168/2026' && $j['documents'][0]['url'] === 'https://wfirma.pl/invoices/view/98765', 'Receipt number and wFirma link');

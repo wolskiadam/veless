@@ -184,6 +184,7 @@ $PAGE_HEAD = <<<'CSS'
     .order-indicator.bad { background:#fce8e6; color:#c5221f; }
     .order-indicator.info { background:var(--accent-soft); color:var(--accent-ink); }
     .order-indicator.muted { background:#eef0f6; color:#6b7280; }
+    .order-indicator.note { background:#fdf0b5; color:#7a5a00; box-shadow:inset 0 0 0 1px #e9c94a; }
     /* Opłacone częściowo: pół zielone, pół pomarańczowe. Wysłane / w drodze: niebieskie (zielone dopiero po doręczeniu). */
     .order-indicator.partial { background:linear-gradient(135deg, #cdebd6 0 50%, #ffe2ad 50% 100%); color:#4d5a12; }
     .order-indicator.transit { background:#e3edfb; color:#1d5fb8; }
@@ -565,7 +566,7 @@ unset($searchHidden['q'], $searchHidden['p']);
 (function () {
     var ICONS = <?= json_encode(\Pase\Services\OrderIconDetails::ICON_PATHS, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG) ?>;
     var ICON_TEXT = <?= json_encode(\Pase\Services\OrderIconDetails::ICON_TEXT, JSON_HEX_TAG) ?>;
-    var KIND_TITLES = { payment: 'Płatność', invoice: 'Faktura', receipt: 'Paragon', shipping: 'Wysyłka' };
+    var KIND_TITLES = { payment: 'Płatność', invoice: 'Faktura', receipt: 'Paragon', shipping: 'Wysyłka', note: 'Uwaga klienta' };
     var dialog = document.getElementById('orderIconsDialog');
     var body = document.getElementById('orderIconsBody');
     var allBox = document.getElementById('orderIconsAll');
@@ -715,7 +716,7 @@ unset($searchHidden['q'], $searchHidden['p']);
     function open(container) {
         var id = container.getAttribute('data-order-id');
         var rowIcons = [].map.call(container.querySelectorAll('.order-indicator'), function (a) {
-            var state = ['ok', 'partial', 'transit', 'warn', 'bad', 'info', 'muted'].filter(function (s) { return a.classList.contains(s); })[0] || 'muted';
+            var state = ['ok', 'partial', 'transit', 'warn', 'bad', 'info', 'note', 'muted'].filter(function (s) { return a.classList.contains(s); })[0] || 'muted';
             // svg: ikona rozszerzenia (spoza ICONS) - przenosimy ją z listy do okienka.
             var svg = a.querySelector('svg');
             return { kind: a.getAttribute('data-kind'), state: state, label: a.getAttribute('data-legend') || a.getAttribute('title') || '', svg: svg ? svg.innerHTML : '' };

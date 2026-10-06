@@ -237,6 +237,12 @@ if (!function_exists('sourceBadge')) {
                         if (isset($mi['into']) && isset($indicators['shipping']) && !in_array($indicators['shipping']['state'], ['ok', 'transit', 'muted'], true)) {
                             $indicators['shipping'] = ['state' => 'info', 'label' => 'Wysyłka razem z zamówieniem ' . $mi['into']['label'], 'literal' => true];
                         }
+                        // Uwaga kupującego (Woo: customer_note, Allegro: messageToSeller) - klik prowadzi do treści na karcie zamówienia.
+                        $payloadForNote = $payload ?? json_decode($r['payload'] ?? '{}', true);
+                        $noteIndicator = \Pase\Services\OrderIndicators::note(is_array($payloadForNote) ? $payloadForNote : []);
+                        if ($noteIndicator !== null) {
+                            $indicators['note'] = $noteIndicator + ['href' => 'order_view.php?id=' . (int)$r['woo_order_id'] . '#customer-note'];
+                        }
                         // Rozszerzenia mogą zmienić stan ikon albo dodać własne (z polem 'icon' = ścieżki SVG 24x24).
                         $indicators = \Pase\Plugin\Hooks::applyFilters('orders.indicators', $indicators, $r);
                         // Te same ikony rysuje okienko „Opis ikon zamówienia” (order_icons.php).

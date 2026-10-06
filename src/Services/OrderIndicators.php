@@ -153,6 +153,33 @@ final class OrderIndicators
         return self::indicator('warn', 'receipt_missing');
     }
 
+    /**
+     * Uwaga kupującego do zamówienia: WooCommerce/TikTok/ręczne - customer_note,
+     * Allegro - messageToSeller („Uwagi do zakupu”). Pusty tekst, gdy klient nic nie napisał.
+     */
+    public static function customerNote(array $payload): string
+    {
+        $note = $payload['customer_note'] ?? $payload['messageToSeller'] ?? '';
+        return is_string($note) ? trim($note) : '';
+    }
+
+    /**
+     * Ikona „Uwaga od klienta” na liście zamówień (null, gdy uwagi nie ma).
+     * Etykieta niesie treść uwagi - widać ją po najechaniu i w okienku opisu ikon.
+     */
+    public static function note(array $payload): ?array
+    {
+        $note = self::customerNote($payload);
+        if ($note === '') {
+            return null;
+        }
+        $text = preg_replace('/\s+/u', ' ', $note) ?? $note;
+        if (mb_strlen($text) > 300) {
+            $text = rtrim(mb_substr($text, 0, 299)) . '…';
+        }
+        return ['state' => 'note', 'label' => 'Uwaga od klienta: ' . $text, 'literal' => true];
+    }
+
     private static function indicator(string $state, string $label): array
     {
         return ['state' => $state, 'label' => 'orders.indicator.' . $label];

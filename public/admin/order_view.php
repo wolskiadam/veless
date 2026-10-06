@@ -2710,11 +2710,13 @@ foreach ($absorbedOrders as $ab) {
             })
                 .then(function (r) { return r.json(); })
                 .then(function (data) {
-                    a.textContent = label;
                     if (data.ok) {
-                        var copies = (data.jobs && data.jobs > 1) ? (' — ' + data.jobs + ' kopie') : '';
-                        alert('Wysłano do agenta druku (zadanie #' + data.job_id + copies + '). Sprawdź, czy program na komputerze z drukarką jest uruchomiony.');
+                        // Bez okienka: potwierdzenie na chwilę w samym przycisku.
+                        var copies = (data.jobs && data.jobs > 1) ? (' (' + data.jobs + ' kopie)') : '';
+                        a.textContent = '✅ Wysłano' + copies;
+                        setTimeout(function () { a.textContent = label; }, 2500);
                     } else {
+                        a.textContent = label;
                         alert('Nie udało się wysłać: ' + (data.error || 'nieznany błąd'));
                     }
                 })

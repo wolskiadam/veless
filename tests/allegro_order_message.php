@@ -61,4 +61,14 @@ $noToken = new \Pase\Services\AllegroMessaging(new class {
 });
 ok(str_contains($err(fn() => M::send($noToken, $order, 'x')), 'Brak tokenu Allegro'), 'Without an Allegro connection nothing is sent and the operator sees why');
 
+// Goły adres sklepu („sklep.pl”, „https://sklep.pl/”) Allegro zatrzymuje; link do konkretnej strony (zamówienie z tokenem) przepuszcza.
+ok(M::bareAddresses("Szczegóły: https://sklep.example.pl/zamowienie.php?token=abc123\n\nPozdrawiamy\nLumio") === [], 'Order page link with a token is not a bare address');
+ok(M::bareAddresses("Pozdrawiamy\nlumio.pl") === ['lumio.pl'], 'Shop name written as a domain is a bare address');
+ok(M::bareAddresses('Zapraszamy na https://lumio.pl/ oraz www.lumio.eu.') === ['https://lumio.pl/', 'www.lumio.eu'], 'Homepage links with and without protocol are found');
+ok(M::bareAddresses('Śledzenie: https://inpost.pl/sledzenie-przesylek?number=1, opinia: https://g.page/r/ABC/review, kontakt@lumio.pl, allegro.pl, 12.50 zł, faktura.pdf') === [],
+    'Tracking and review links, e-mails, Allegro, amounts and file names are not flagged');
+$before = count($fake->sent);
+ok(str_contains($err(fn() => M::send($fake, $order, "Dziękujemy!\nlumio.pl")), 'Allegro zatrzyma') && count($fake->sent) === $before,
+    'A message with a bare shop address is not sent and the operator sees why');
+
 echo "Wszystkie testy przeszły ({$checks}).\n";

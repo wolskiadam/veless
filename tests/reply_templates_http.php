@@ -167,7 +167,7 @@ try {
     // Zamówienie z Allegro: odpowiedź idzie przez Centrum wiadomości Allegro, nie e-mailem (wysyłka: tests/allegro_order_message.php).
     $pdo->exec("INSERT INTO woo_orders (woo_order_id, integration_id, pase_number, order_number, status, pase_status, currency, total, customer_name, customer_email, date_created, imported_at, payload)
         VALUES (9000000517, 1, 517, 'cf-517', 'processing', 'new', 'PLN', 50, 'Darek', 'x@allegromail.pl', '2026-10-04 10:00:00', '2026-10-04 10:01:00', "
-        . $pdo->quote(json_encode(['id' => 'cf-517', 'buyer' => ['login' => 'dareklim'], 'lineItems' => []])) . ")");
+        . $pdo->quote(json_encode(['id' => 'cf-517', 'buyer' => ['login' => 'kupujacy_test'], 'lineItems' => []])) . ")");
     $ap = request($boss, 'admin/order_view.php?id=9000000517');
     ok($ap['status'] === 200 && str_contains($ap['body'], 'Centrum wiadomości Allegro') && !str_contains($ap['body'], 'jest wysyłana e-mailem do klienta'), 'Allegro order says the reply goes via Allegro messages');
 

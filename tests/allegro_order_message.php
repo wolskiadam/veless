@@ -30,13 +30,13 @@ $fake = new class {
     }
 };
 
-$order = ['woo_order_id' => 9000000517, 'order_number' => 'cf-517', 'payload' => json_encode(['id' => 'cf-517', 'buyer' => ['login' => 'dareklim', 'email' => 'x@allegromail.pl']])];
+$order = ['woo_order_id' => 9000000517, 'order_number' => 'cf-517', 'payload' => json_encode(['id' => 'cf-517', 'buyer' => ['login' => 'kupujacy_test', 'email' => 'x@allegromail.pl']])];
 ok(M::isAllegro($order) && !M::isAllegro(['woo_order_id' => 501]), 'Allegro orders are recognised by their CRM number');
-ok(M::buyerLogin($order) === 'dareklim' && M::checkoutFormId($order) === 'cf-517', 'Buyer login and checkout form id come from the order');
+ok(M::buyerLogin($order) === 'kupujacy_test' && M::checkoutFormId($order) === 'cf-517', 'Buyer login and checkout form id come from the order');
 
 $text = "Zamówienie jest w trakcie realizacji.\n\nZamówienie dotyczy produktów:\n\n2 × Dymna Świeca Zapachowa";
 M::send($fake, $order, $text);
-ok(count($fake->sent) === 1 && $fake->sent[0]['text'] === $text && $fake->sent[0]['login'] === 'dareklim' && $fake->sent[0]['orderId'] === 'cf-517',
+ok(count($fake->sent) === 1 && $fake->sent[0]['text'] === $text && $fake->sent[0]['login'] === 'kupujacy_test' && $fake->sent[0]['orderId'] === 'cf-517',
     'The full text goes to the buyer, attached to the order');
 
 $fake->sent = [];

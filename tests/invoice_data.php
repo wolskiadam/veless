@@ -21,12 +21,12 @@ function fails(callable $fn, string $contains = ''): bool {
 }
 
 // --- NIP ---
-check(InvoiceData::validNip('1234563218') && !InvoiceData::validNip('8761767528') && !InvoiceData::validNip('123') && !InvoiceData::validNip('0000000000'), 'NIP checksum');
+check(InvoiceData::validNip('1234563218') && !InvoiceData::validNip('1234563219') && !InvoiceData::validNip('123') && !InvoiceData::validNip('0000000000'), 'NIP checksum');
 check(InvoiceData::normalizeNip('PL 123-456-32-18') === '1234563218' && InvoiceData::formatNip('1234563218') === '123-456-32-18', 'NIP normalised and formatted');
 
 // --- oryginał ze sklepu ---
 $woo = ['billing' => ['first_name' => 'Anna', 'last_name' => 'Testowa', 'company' => '', 'address_1' => 'Testowa 77', 'address_2' => '',
-        'postcode' => '62-023', 'city' => 'Testowo', 'country' => 'PL', 'email' => 'l@example.invalid', 'phone' => '500'],
+        'postcode' => '00-950', 'city' => 'Testowo', 'country' => 'PL', 'email' => 'l@example.invalid', 'phone' => '500'],
     'meta_data' => [['key' => '_billing_nip', 'value' => '123-456-32-18']]];
 $d = InvoiceData::resolve($woo);
 check($d['name'] === 'Anna Testowa' && $d['nip'] === '123-456-32-18' && $d['wants'] && $d['requested'] === null && !$d['edited'], 'Woo: billing and NIP from meta, NIP means invoice');
@@ -40,10 +40,10 @@ check($d['company'] === 'Nowak Sp. z o.o.' && $d['address_1'] === 'Biurowa 5' &&
 
 // --- formularz ---
 $f = InvoiceData::fromForm(['wants' => '1', 'name' => '  Anna   Testowa ', 'company' => 'Pracownia Anna', 'address_1' => 'ul. Testowa 77',
-    'postcode' => '62-023', 'city' => 'Testowo', 'state' => 'wielkopolskie', 'country' => 'pl', 'nip' => '1234563218']);
+    'postcode' => '00-950', 'city' => 'Testowo', 'state' => 'wielkopolskie', 'country' => 'pl', 'nip' => '1234563218']);
 $saved = json_decode($f['json'], true);
 check($f['errors'] === [] && $saved['name'] === 'Anna Testowa' && $saved['nip'] === '123-456-32-18' && $saved['country'] === 'PL', 'Form cleaned, NIP formatted');
-check(InvoiceData::fromForm(['wants' => '1', 'name' => 'X', 'nip' => '8761767528', 'country' => 'PL'])['errors'] !== [], 'Wrong NIP rejected');
+check(InvoiceData::fromForm(['wants' => '1', 'name' => 'X', 'nip' => '1234563219', 'country' => 'PL'])['errors'] !== [], 'Wrong NIP rejected');
 check(InvoiceData::fromForm(['wants' => '1', 'name' => 'X', 'nip' => 'DE123456789', 'country' => 'DE'])['errors'] === [], 'Foreign VAT id not checked as Polish NIP');
 check(InvoiceData::fromForm(['wants' => '1', 'country' => 'PL'])['errors'] !== [], 'Invoice needs a name or company');
 $d = InvoiceData::resolve($woo, $f['json']);
@@ -75,7 +75,7 @@ $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE
 $pdo->exec('CREATE TABLE settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)');
 $settings = new SettingsRepository($pdo);
 $gusDane = '<root><dane><Regon>301234567</Regon><Nip>1234563218</Nip><StatusNip /><Nazwa>ŚWIECE ANNA TESTOWA</Nazwa><Wojewodztwo>WIELKOPOLSKIE</Wojewodztwo>'
-    . '<Powiat>poznański</Powiat><Gmina>Komorniki</Gmina><Miejscowosc>Testowo</Miejscowosc><KodPocztowy>62023</KodPocztowy><Ulica>ul. Testowa</Ulica>'
+    . '<Powiat>testowy</Powiat><Gmina>Wieś Testowa</Gmina><Miejscowosc>Testowo</Miejscowosc><KodPocztowy>00950</KodPocztowy><Ulica>ul. Testowa</Ulica>'
     . '<NrNieruchomosci>77</NrNieruchomosci><NrLokalu>2</NrLokalu><Typ>F</Typ><SilosID>1</SilosID><DataZakonczeniaDzialalnosci /><MiejscowoscPoczty>Testowo</MiejscowoscPoczty></dane></root>';
 $mtom = static fn(string $action, string $inner) => "--uuid:1\r\nContent-Type: application/xop+xml;charset=utf-8;type=\"application/soap+xml\"\r\n\r\n"
     . '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body><' . $action . 'Response xmlns="http://CIS/BIR/PUBL/2014/07"><'
@@ -93,7 +93,7 @@ $net = static function (string $method, string $url, array $headers, ?string $bo
     }
     if (str_contains($url, '1234563218')) {
         return [200, json_encode(['result' => ['subject' => ['name' => 'ŚWIECE ANNA TESTOWA', 'nip' => '1234563218', 'regon' => '301234567',
-            'statusVat' => 'Czynny', 'workingAddress' => 'UL. TESTOWA 77/2, 62-023 TESTOWO']]])];
+            'statusVat' => 'Czynny', 'workingAddress' => 'UL. TESTOWA 77/2, 00-950 TESTOWO']]])];
     }
     return [200, json_encode(['result' => ['subject' => null]])];
 };
@@ -101,13 +101,13 @@ $lookup = new CompanyLookup($settings, $net);
 check(fails(fn() => $lookup->byNip('123'), 'poprawny NIP') && $calls === [], 'Invalid NIP stopped before any request');
 $c = $lookup->byNip('123-456-32-18');
 check($c['source'] === 'Biała lista VAT' && $c['company'] === 'ŚWIECE ANNA TESTOWA' && $c['address_1'] === 'ul. Testowa 77/2'
-    && $c['postcode'] === '62-023' && $c['city'] === 'Testowo' && str_contains($calls[0][1], 'wl-api.mf.gov.pl/api/search/nip/1234563218?date='), 'Without GUS key: White List (MF) used, address split');
+    && $c['postcode'] === '00-950' && $c['city'] === 'Testowo' && str_contains($calls[0][1], 'wl-api.mf.gov.pl/api/search/nip/1234563218?date='), 'Without GUS key: White List (MF) used, address split');
 check(fails(fn() => $lookup->byNip('1234563218', 'gus'), 'Brak klucza'), 'GUS asked without a key: clear message');
 check(fails(fn() => $lookup->byNip('7811234563')) , 'Unknown company on the White List reported');
 $settings->setMany([CompanyLookup::SETTING_KEY => 'GOODKEY']);
 $calls = [];
 $c = $lookup->byNip('1234563218');
-check($c['source'] === 'GUS' && $c['company'] === 'ŚWIECE ANNA TESTOWA' && $c['address_1'] === 'ul. Testowa 77/2' && $c['postcode'] === '62-023'
+check($c['source'] === 'GUS' && $c['company'] === 'ŚWIECE ANNA TESTOWA' && $c['address_1'] === 'ul. Testowa 77/2' && $c['postcode'] === '00-950'
     && $c['state'] === 'wielkopolskie' && $c['regon'] === '301234567', 'GUS: company, street with flat, postcode, voivodeship');
 check(count($calls) === 3 && ($calls[1][2]['sid'] ?? '') === 'sid123' && str_contains($calls[0][3], '<wsa:Action>http://CIS/BIR/PUBL/2014/07/IUslugaBIRzewnPubl/Zaloguj</wsa:Action>')
     && str_contains($calls[1][3], '<dat:Nip>1234563218</dat:Nip>') && str_contains($calls[2][3], 'Wyloguj'), 'GUS session: login, search with sid, logout');
@@ -119,8 +119,8 @@ $calls = [];
 $c = $lookup->byNip('1234563218');
 check($c['source'] === 'Biała lista VAT', 'Rejected GUS key: White List still answers');
 $village = CompanyLookup::parseGus(str_replace(['<Ulica>ul. Testowa</Ulica>', '<NrLokalu>2</NrLokalu>', '<MiejscowoscPoczty>Testowo</MiejscowoscPoczty>'],
-    ['<Ulica></Ulica>', '<NrLokalu></NrLokalu>', '<MiejscowoscPoczty>Komorniki</MiejscowoscPoczty>'], $gusDane), '1234563218');
-check($village['address_1'] === 'Testowo 77' && $village['city'] === 'Komorniki', 'Village without streets: place + number, postal town');
+    ['<Ulica></Ulica>', '<NrLokalu></NrLokalu>', '<MiejscowoscPoczty>Wieś Testowa</MiejscowoscPoczty>'], $gusDane), '1234563218');
+check($village['address_1'] === 'Testowo 77' && $village['city'] === 'Wieś Testowa', 'Village without streets: place + number, postal town');
 $down = new CompanyLookup($settings, static fn() => [0, '']);
 check(fails(fn() => $down->byNip('1234563218'), 'Brak połączenia'), 'No network: readable error');
 $limit = new CompanyLookup(new SettingsRepository((function () { $p = new PDO('sqlite::memory:'); $p->exec('CREATE TABLE settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)'); return $p; })()),

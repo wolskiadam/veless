@@ -104,7 +104,7 @@ function pageShell(string $title, string $shopName, string $bodyHtml): void
     /* Timeline statusu */
     .steps { display:flex; gap:0; margin-top:6px; }
     .deliv-steps { margin-top:14px; }
-    .planned-ship { display:inline-block; margin:10px 0 0; padding:6px 14px; border-radius:999px; background:var(--accent-soft); color:var(--accent-ink); font-weight:600; font-size:14px; }
+    .planned-ship { margin:4px 0 0; font-weight:600; font-size:15px; color:var(--ink); }
     /* Status dostawy - mapa */
     .deliv-stage { margin-bottom:12px; }
     .deliv-stage-label { display:inline-block; padding:5px 14px; border-radius:999px; background:var(--accent-soft); color:var(--accent-ink); font-weight:600; font-size:14px; }
@@ -508,9 +508,6 @@ ob_start();
             <div>
                 <h1 style="margin-bottom:2px"><?= $e(t('client.order', ['order' => $orderLabel])) ?></h1>
                 <p class="muted"><?= $e($fmtDate($orderTs)) ?></p>
-                <?php if ($plannedShip !== null): ?>
-                <p class="planned-ship">🚚 <?= $e(t('client.planned_ship', ['date' => date('d.m.Y', strtotime($plannedShip))])) ?></p>
-                <?php endif; ?>
             </div>
             <span class="pill" style="background:<?= $e($statusColor) ?>"><?= $e($statusLabel) ?></span>
         </div>
@@ -591,6 +588,9 @@ ob_start();
             <div class="deliv-stage">
                 <span class="deliv-stage-label"><?= $e($deliveryLabel) ?></span>
             </div>
+            <?php if ($plannedShip !== null): ?>
+            <p class="planned-ship">🚚 <?= $e(t('client.planned_ship', ['date' => date('d.m.Y', strtotime($plannedShip))])) ?></p>
+            <?php endif; ?>
 
             <!-- Informacje o przesyłce -->
             <div class="deliv-info">

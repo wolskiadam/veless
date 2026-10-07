@@ -24,6 +24,8 @@ return [
     'client.verify.later'      => 'Try again later.',
 
     'client.order'             => 'Order {order}',
+
+    'client.planned_ship'      => 'Your order will be shipped on {date}.',
     'client.products'          => 'Products',
     'client.qty'               => '{n} pcs',
     'client.total'             => 'Total',

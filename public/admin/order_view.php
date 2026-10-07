@@ -170,6 +170,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             (new \Pase\Services\AuditTrail($pdo))->changeOrder($wooOrderId, 'order.no_shipping_changed', ['no_shipping' => $flag]);
         }
         $flashOk = $flag ? 'Oznaczono jako zamówienie wirtualne - nie wymaga wysyłki.' : 'Zamówienie znów wymaga wysyłki.';
+    } elseif ($act === 'set_planned_ship_date') {
+        // Planowana data nadania - tylko w CRM; klient widzi ją na swojej stronie zamówienia (Services\PlannedShipDate).
+        try {
+            $date = ($_POST['planned_reset'] ?? '') === '1' ? null
+                : \Pase\Services\PlannedShipDate::parse((string) ($_POST['planned_ship_date'] ?? ''));
+            (new \Pase\Services\PlannedShipDate($pdo))->set($wooOrderId, $date);
+            $flashOk = $date === null ? 'Usunięto planowaną datę nadania.'
+                : 'Planowana data nadania: ' . date('d.m.Y', strtotime($date)) . ' - klient zobaczy ją na swojej stronie zamówienia.';
+        } catch (\Throwable $e) {
+            $flashErr = 'Data nadania: ' . $e->getMessage();
+        }
     } elseif ($act === 'add_item') {
         $sku = trim($_POST['add_sku'] ?? '');
         $qty = max(1, (int) ($_POST['add_qty'] ?? 1));
@@ -1550,6 +1561,20 @@ foreach ($absorbedOrders as $ab) {
         </form>
         <?php elseif (!empty($row['no_shipping'])): ?><span class="pill muted">wirtualne</span><?php endif; ?>
     </div>
+
+    <?php $plannedShip = substr((string) ($row['planned_ship_date'] ?? ''), 0, 10); ?>
+    <?php if (canEdit()): ?>
+    <form method="post" class="planned-ship" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:13px"
+          title="Klient zobaczy na swojej stronie zamówienia: „Twoje zamówienie zostanie nadane …” (do czasu nadania paczki)">
+        <input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="action" value="set_planned_ship_date">
+        <label for="plannedShipDate">Planowana data nadania:</label>
+        <input type="date" id="plannedShipDate" name="planned_ship_date" value="<?= htmlspecialchars($plannedShip) ?>" style="padding:3px 6px;font-size:13px">
+        <button class="btn secondary" type="submit" style="padding:3px 10px;font-size:12px">Zapisz</button>
+        <?php if ($plannedShip !== ''): ?><button class="btn secondary" type="submit" name="planned_reset" value="1" style="padding:3px 8px;font-size:12px" title="Usuń datę">✕</button><?php endif; ?>
+    </form>
+    <?php elseif ($plannedShip !== ''): ?>
+    <div style="font-size:13px;margin-top:8px">Planowana data nadania: <strong><?= htmlspecialchars(date('d.m.Y', strtotime($plannedShip))) ?></strong></div>
+    <?php endif; ?>
 
     <?php if ($tiktokLink !== null):
         $ttState = (string) ($tiktokLink['tracking_state'] ?? '');

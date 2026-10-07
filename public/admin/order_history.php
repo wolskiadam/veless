@@ -20,7 +20,7 @@ $labels = [
     'order.items_restored' => 'Przywrócenie produktów ze sklepu', 'order.contact_changed' => 'Zmiana danych kontaktowych',
     'order.invoice_data_changed' => 'Zmiana danych do faktury',
     'order.lifecycle_changed' => 'Archiwum / kosz / przywrócenie', 'order.deleted' => 'Trwałe usunięcie zamówienia',
-    'order.payment_set' => 'Potwierdzenie wpłaty', 'order.created_manually' => 'Dodanie zamówienia ręcznie', 'order.no_shipping_changed' => 'Zamówienie wirtualne (bez wysyłki)', 'order.merged' => 'Scalenie zamówień', 'order.unmerged' => 'Odłączenie scalonego zamówienia',
+    'order.payment_set' => 'Potwierdzenie wpłaty', 'order.created_manually' => 'Dodanie zamówienia ręcznie', 'order.no_shipping_changed' => 'Zamówienie wirtualne (bez wysyłki)', 'order.planned_ship_date_changed' => 'Planowana data nadania', 'order.merged' => 'Scalenie zamówień', 'order.unmerged' => 'Odłączenie scalonego zamówienia',
     'return.created' => 'Zwrot towaru', 'return.restocked' => 'Zwrot przyjęty na stan',
     'return.correction_issued' => 'Korekta faktury (zwrot)', 'return.refunded' => 'Zwrot pieniędzy',
     'allegro.issue_reply' => 'Odpowiedź w dyskusji Allegro', 'allegro.rating_answer' => 'Odpowiedź na ocenę Allegro',

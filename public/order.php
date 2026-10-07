@@ -104,6 +104,7 @@ function pageShell(string $title, string $shopName, string $bodyHtml): void
     /* Timeline statusu */
     .steps { display:flex; gap:0; margin-top:6px; }
     .deliv-steps { margin-top:14px; }
+    .planned-ship { display:inline-block; margin:10px 0 0; padding:6px 14px; border-radius:999px; background:var(--accent-soft); color:var(--accent-ink); font-weight:600; font-size:14px; }
     /* Status dostawy - mapa */
     .deliv-stage { margin-bottom:12px; }
     .deliv-stage-label { display:inline-block; padding:5px 14px; border-radius:999px; background:var(--accent-soft); color:var(--accent-ink); font-weight:600; font-size:14px; }
@@ -384,6 +385,10 @@ $shippedPos   = $posOf('shipped');
 $pastShipped  = $paseStatus === 'shipped' || ($curStatusPos !== null && $shippedPos !== null
     && $curStatusPos > $shippedPos && !in_array($paseStatus, $negativeStatuses, true));
 
+// Planowana data nadania ustawiona na karcie zamówienia - pokazujemy do czasu nadania paczki.
+$plannedShip = \Pase\Services\PlannedShipDate::forClient($order, $hasShipment, $pastShipped,
+    (new DateTime('now', new DateTimeZone('Europe/Warsaw')))->format('Y-m-d'));
+
 // Czy zamówienie w ogóle ma dostawę fizyczną? Subskrypcje, dostępy i inne produkty wirtualne
 // nie mają metody wysyłki ani paczki - wtedy nie pokazujemy etapów dostawy ani adresu.
 $needsShipping = $shipments !== []
@@ -503,6 +508,9 @@ ob_start();
             <div>
                 <h1 style="margin-bottom:2px"><?= $e(t('client.order', ['order' => $orderLabel])) ?></h1>
                 <p class="muted"><?= $e($fmtDate($orderTs)) ?></p>
+                <?php if ($plannedShip !== null): ?>
+                <p class="planned-ship">🚚 <?= $e(t('client.planned_ship', ['date' => date('d.m.Y', strtotime($plannedShip))])) ?></p>
+                <?php endif; ?>
             </div>
             <span class="pill" style="background:<?= $e($statusColor) ?>"><?= $e($statusLabel) ?></span>
         </div>

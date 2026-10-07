@@ -198,4 +198,62 @@ check(count($returns->list('', 'Lawenda')) === 1, 'search by product');
 $actions = $pdo->query('SELECT action FROM audit_events WHERE order_id = ' . $allegroId . ' ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
 check(in_array('return.created', $actions, true) && in_array('return.restocked', $actions, true) && in_array('return.correction_issued', $actions, true) && in_array('return.refunded', $actions, true), 'every step is in the order history');
 
+
+// --- Panel zwrotów: stan pozycji, przyjęcie po pozycjach, statusy obsługi, wyszukiwanie po przesyłce ---
+$pdo->exec("UPDATE products SET pase_stock = 0 WHERE sku = 'WK-1'");
+$two = $returns->upsertAllegro(['id' => 'ret-3', 'orderId' => 'cf-1', 'status' => 'IN_TRANSIT', 'items' => [
+    ['offerId' => '111', 'name' => 'Świeca sojowa Lawenda', 'quantity' => 2, 'price' => ['amount' => '25.00']],
+    ['offerId' => '222', 'name' => 'Wosk do kominka', 'quantity' => 1, 'price' => ['amount' => '30.00']],
+], 'parcels' => [['waybill' => 'RET 999 888', 'carrierId' => 'INPOST']]]);
+check($returns->find($two)['handling_status'] === null && $returns->count('new') >= 1, 'new return has no handling status yet');
+check($returns->count('courier_transit') >= 1 && in_array($two, array_column($returns->list('courier_transit'), 'id'), false), 'return parcel in transit listed under courier status');
+$returns->setLineStatus($two, 0, 'accepted');
+$returns->setLineStatus($two, 1, 'damaged');
+check(R::acceptedToRestock($returns->find($two)['items']) === [0 => 2], 'only lines marked accepted go back to stock');
+$stockLaw = (int) $pdo->query("SELECT pase_stock FROM products WHERE sku='SW-LAW'")->fetchColumn();
+$returns->restock($two, [0 => 1]);
+check((int) $pdo->query("SELECT pase_stock FROM products WHERE sku='SW-LAW'")->fetchColumn() === $stockLaw + 1, 'partial restock of one unit');
+check($returns->find($two)['handling_status'] === 'received', 'restock marks the return as received by the warehouse');
+check(R::acceptedToRestock($returns->find($two)['items']) === [0 => 1], 'remaining accepted unit can be restocked later');
+check(throws(fn() => $returns->setLineStatus($two, 0, 'damaged'), 'już przyjęta na stan'), 'restocked line cannot be marked damaged');
+$returns->restock($two, R::acceptedToRestock($returns->find($two)['items']));
+check((int) $pdo->query("SELECT pase_stock FROM products WHERE sku='SW-LAW'")->fetchColumn() === $stockLaw + 2, 'second unit restocked, never more than returned');
+check((int) $pdo->query("SELECT pase_stock FROM products WHERE sku='WK-1'")->fetchColumn() === 0, 'damaged line not restocked');
+$returns->upsertAllegro(['id' => 'ret-3', 'orderId' => 'cf-1', 'status' => 'DELIVERED', 'items' => [
+    ['offerId' => '111', 'name' => 'Świeca sojowa Lawenda', 'quantity' => 2, 'price' => ['amount' => '25.00']],
+    ['offerId' => '222', 'name' => 'Wosk do kominka', 'quantity' => 1, 'price' => ['amount' => '30.00']],
+]]);
+$after = $returns->find($two)['items'];
+check($after[0]['restocked'] === 2 && $after[0]['line_status'] === 'accepted' && $after[1]['line_status'] === 'damaged', 'next Allegro sync keeps line state and restocked units');
+$returns->restock($two, [1 => 1]);
+check((int) $pdo->query("SELECT pase_stock FROM products WHERE sku='WK-1'")->fetchColumn() === 1 && $returns->find($two)['items'][1]['line_status'] === 'accepted', 'operator can still take the checked unit to stock');
+check(throws(fn() => $returns->restock($two), 'już przyjęty'), 'nothing left to restock');
+
+$returns->setHandling($two, 'rejected');
+check($returns->count('h_rejected') === 1 && !in_array($two, array_column($returns->list('open'), 'id'), false), 'rejected return leaves the to-do list');
+check(!in_array($two, array_column($returns->list('to_refund'), 'id'), false), 'rejected return is not waiting for a refund');
+check(throws(fn() => $returns->setHandling($two, 'xyz'), 'Nieznany'), 'unknown handling status rejected');
+check(in_array($two, array_column($returns->list('to_correct'), 'id'), false) === false, 'rejected return not waiting for a correction');
+check(in_array($mid, array_column($returns->list('refunded'), 'id'), false) && in_array($rid, array_column($returns->list('corrected'), 'id'), false), 'documents and money filters');
+foreach (R::filters() as $group => $fs) { foreach (array_keys($fs) as $k) { if ($k !== 'unclaimed') { $returns->count($k); } } }
+check(true, 'every sidebar filter runs');
+
+// Wyszukiwanie zamówienia po numerze przesyłki wysłanej do klienta i zwrotnej.
+$pdo->exec('ALTER TABLE woo_orders ADD COLUMN customer_email TEXT NULL');
+$pdo->exec('CREATE TABLE shipments (id INTEGER PRIMARY KEY, woo_order_id INTEGER, waybill_no TEXT, courier_code TEXT, tracking_status TEXT, tracking_at TEXT)');
+$pdo->exec("INSERT INTO shipments (woo_order_id, waybill_no, courier_code, tracking_status) VALUES (501, '6200 1234 5678', 'inpost', 'returned')");
+$byShip = $returns->findOrders('620012345678');
+check(count($byShip) === 1 && (int) $byShip[0]['woo_order_id'] === 501 && $byShip[0]['matched_by'] === 'numer przesyłki', 'order found by outgoing waybill, spaces ignored');
+$byRet = $returns->findOrders('ret999888');
+check(count($byRet) === 1 && (int) $byRet[0]['woo_order_id'] === $allegroId, 'order found by return parcel number');
+check((int) $returns->findOrders('11')[0]['woo_order_id'] === 501, 'order found by CRM number');
+check((int) $returns->findOrders('cf-1')[0]['woo_order_id'] === $allegroId, 'order found by Allegro order id');
+check(count($returns->findOrders('Anna')) === 1, 'order found by customer name');
+check($returns->findOrders('   ') === [], 'empty search finds nothing');
+check(in_array($mid, array_column($returns->list('', '6200 1234 5678'), 'id'), false), 'return list search matches outgoing waybill');
+check($returns->unclaimedParcels() === [], 'unclaimed parcel with a return already is not listed');
+$pdo->exec("INSERT INTO woo_orders VALUES (777, 2, 12, '777', 'PLN', 'Ola P', '{}', NULL, NULL)");
+$pdo->exec("INSERT INTO shipments (woo_order_id, waybill_no, courier_code, tracking_status) VALUES (777, 'X1', 'dpd', 'returned')");
+check(array_column($returns->unclaimedParcels(), 'woo_order_id') === [777], 'parcel returned to sender without a return is listed');
+
 echo "All $checks checks passed\n";

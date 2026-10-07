@@ -132,6 +132,8 @@ try {
     ok(str_contains($page['body'], 'Planowana data nadania: ' . $future->format('d.m.Y')) && str_contains($page['body'], 'value="' . $future->format('Y-m-d') . '"'), 'Admin sees the saved date');
     $pub = request($guest, 'order.php?token=' . $token . '&lang=pl');
     ok(str_contains($pub['body'], 'Twoje zamówienie zostanie nadane ' . $future->format('d.m.Y') . '.'), 'Customer sees the planned ship date');
+    $statusPos = strpos($pub['body'], '<h2>Status dostawy</h2>');
+    ok($statusPos !== false && strpos($pub['body'], 'zostanie nadane') > $statusPos, 'It is shown in the delivery status section');
     $pubEn = request(client(), 'order.php?token=' . $token . '&lang=en');
     ok(str_contains($pubEn['body'], 'Your order will be shipped on ' . $future->format('d.m.Y') . '.'), 'English customer page translates it');
 

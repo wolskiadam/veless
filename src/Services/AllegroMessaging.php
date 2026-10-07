@@ -13,11 +13,14 @@ use Pase\Support\Logger;
  */
 final class AllegroMessaging
 {
+    /** Centrum wiadomości w wersji beta.v1 — od 28.10.2026 Allegro obsługuje /messaging tylko w niej. */
+    private const MEDIA = 'application/vnd.allegro.beta.v1+json';
+
     /** @param object $client AllegroClient */
     public function __construct(private readonly object $client) {}
 
     /**
-     * Wiadomość do kupującego (nowy albo istniejący wątek z nim). POST /messaging/messages;
+     * Wiadomość do kupującego (nowy albo istniejący wątek z nim). POST /messaging/messages (beta.v1);
      * $orderId (checkoutForm) przypina wiadomość do zamówienia.
      * @param array<int,string> $attachmentIds id z uploadMessageAttachment()
      * @return array{ok:bool,message:string}
@@ -31,7 +34,7 @@ final class AllegroMessaging
         if ($attachmentIds !== []) {
             $body['attachments'] = array_map(static fn(string $id) => ['id' => $id], array_values($attachmentIds));
         }
-        $res = $this->request('POST', '/messaging/messages', 'application/vnd.allegro.public.v1+json', $body);
+        $res = $this->request('POST', '/messaging/messages', self::MEDIA, $body);
         if ($res === null) {
             return ['ok' => false, 'message' => 'Brak tokenu Allegro — połącz konto.'];
         }
@@ -45,7 +48,7 @@ final class AllegroMessaging
      */
     public function uploadMessageAttachment(string $fileName, string $contentType, string $bytes): array
     {
-        $res = $this->request('POST', '/messaging/message-attachments', 'application/vnd.allegro.public.v1+json',
+        $res = $this->request('POST', '/messaging/message-attachments', self::MEDIA,
             ['filename' => $fileName, 'size' => strlen($bytes)]);
         if ($res === null) {
             return ['ok' => false, 'id' => '', 'message' => 'Brak tokenu Allegro — połącz konto.'];
@@ -72,7 +75,7 @@ final class AllegroMessaging
         }
         $send = fn(string $t) => Http::request($method, rtrim($this->client->apiBase(), '/') . $path, [
             'Authorization'   => "Bearer {$t}",
-            'Accept'          => 'application/vnd.allegro.public.v1+json',
+            'Accept'          => self::MEDIA,
             'Content-Type'    => $contentType,
             'Accept-Language' => 'pl-PL',
         ] + $this->client->userAgentHeaders(), $body, 60);

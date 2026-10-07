@@ -10,6 +10,8 @@ use PDO;
  *
  * Cron (Scheduler) co SYNC_EVERY_MIN minut tylko pobiera i zapisuje dane:
  *   - GET /sale/issues          → tabela allegro_issues (dyskusje DISPUTE i reklamacje CLAIM),
+ *   - GET /messaging/threads?type=POST_PURCHASE_ISSUE (beta.v1) → ta sama tabela, typ PROBLEM
+ *     („Problemy z zakupem" — od 28.10.2026 zastępują nowe dyskusje i są tylko w Centrum wiadomości),
  *   - GET /sale/user-ratings    → tabela allegro_ratings (od ostatniej zmiany, pierwszy raz RATINGS_DAYS_BACK dni).
  * Każda wiadomość do kupującego (odpowiedź w dyskusji, odpowiedź na ocenę) idzie wyłącznie
  * po kliknięciu operatora w Wiadomościach — tutaj nic nie jest wysyłane automatycznie.
@@ -22,9 +24,13 @@ final class AllegroFeedback
     public const RATINGS_DAYS_BACK = 180;
     private const ISSUE_PAGES      = 5;   // do 500 najnowszych dyskusji i reklamacji
     private const RATING_PAGES     = 20;
+    private const PROBLEM_PAGES    = 10;
+
+    /** Problem z zakupem z Centrum wiadomości (remote_id = id wątku). */
+    public const TYPE_PROBLEM = 'PROBLEM';
 
     /** Statusy, w których sprawa jest otwarta (wymaga uwagi sprzedawcy). */
-    public const OPEN_STATUSES = ['DISPUTE_ONGOING', 'DISPUTE_UNRESOLVED', 'CLAIM_SUBMITTED'];
+    public const OPEN_STATUSES = ['DISPUTE_ONGOING', 'DISPUTE_UNRESOLVED', 'CLAIM_SUBMITTED', 'PROBLEM_OPEN'];
 
     public const STATUS_LABELS = [
         'DISPUTE_ONGOING'    => 'Dyskusja otwarta',
@@ -33,6 +39,8 @@ final class AllegroFeedback
         'CLAIM_SUBMITTED'    => 'Reklamacja zgłoszona',
         'CLAIM_ACCEPTED'     => 'Reklamacja uznana',
         'CLAIM_REJECTED'     => 'Reklamacja odrzucona',
+        'PROBLEM_OPEN'       => 'Otwarty',
+        'PROBLEM_CLOSED'     => 'Zamknięty',
     ];
 
     /** Rodzaje wiadomości sprzedawcy w dyskusji (POST /sale/issues/{id}/message, pole type). */
@@ -112,6 +120,15 @@ final class AllegroFeedback
     public static function statusLabel(string $status): string
     {
         return self::STATUS_LABELS[$status] ?? $status;
+    }
+
+    public static function typeLabel(string $type): string
+    {
+        return match ($type) {
+            'CLAIM'            => 'Reklamacja',
+            self::TYPE_PROBLEM => 'Problem z zakupem',
+            default            => 'Dyskusja',
+        };
     }
 
     public static function isOpen(array $issue): bool
@@ -248,6 +265,42 @@ final class AllegroFeedback
     }
 
     /**
+     * Zapisuje / aktualizuje Problem z zakupem z GET /messaging/threads (beta.v1, typ POST_PURCHASE_ISSUE).
+     * $last = najnowsza wiadomość wątku (gdy pobrana), $me = login naszego konta.
+     * @param array<string,mixed> $t
+     * @param array<string,mixed>|null $last
+     */
+    public function upsertProblem(array $t, ?array $last = null, string $me = ''): ?int
+    {
+        $remoteId = trim((string) ($t['id'] ?? ''));
+        if ($remoteId === '') {
+            return null;
+        }
+        $order = is_array($t['orders'][0] ?? null) ? $t['orders'][0] : [];
+        $orderRef = trim((string) ($order['id'] ?? ''));
+        $buyer = AllegroThreads::buyerLogin($t, $me);
+        $fields = [
+            'type'            => self::TYPE_PROBLEM,
+            'status'          => AllegroThreads::isClosed($t) ? 'PROBLEM_CLOSED' : 'PROBLEM_OPEN',
+            'subject'         => self::str(AllegroThreads::subTypeLabel($t['subType'] ?? null)),
+            'buyer_login'     => $buyer !== '' ? $buyer : null,
+            'order_ref'       => $orderRef !== '' ? $orderRef : null,
+            'woo_order_id'    => $orderRef !== '' ? $this->findAllegroOrderId($orderRef) : null,
+            'offer_id'        => self::str($order['offers'][0]['id'] ?? null),
+            'chat_active'     => AllegroThreads::isClosed($t) ? 0 : 1,
+            'last_message_at' => self::dt($t['lastMessageDateTime'] ?? null),
+            'opened_at'       => self::dt($t['createdAt'] ?? null),
+            'payload'         => json_encode($t, JSON_UNESCAPED_UNICODE),
+        ];
+        if ($last !== null) {
+            $fields['last_message_role'] = AllegroThreads::authorRole((array) ($last['author'] ?? []), $me);
+            $fields['last_message_text'] = self::str($last['text'] ?? null);
+            $fields['last_message_at'] = self::dt($last['createdAt'] ?? null) ?? $fields['last_message_at'];
+        }
+        return $this->upsert('allegro_issues', $remoteId, $fields);
+    }
+
+    /**
      * Zapisuje / aktualizuje ocenę z GET /sale/user-ratings. Obsługuje obie wersje odpowiedzi:
      * public.v1 (comment jako tekst, answer.message) i beta.v1 (comment.text, answer.text).
      * @param array<string,mixed> $r
@@ -353,6 +406,9 @@ final class AllegroFeedback
             }
         }
 
+        $problems = $this->syncProblems($client, $messages);
+        $issues += $problems;
+
         $ratings = 0;
         $last = $this->pdo->query('SELECT MAX(last_changed_at) FROM allegro_ratings')->fetchColumn();
         // Zapas 1 dnia na opóźnienia po stronie Allegro; pierwszy raz - RATINGS_DAYS_BACK dni wstecz.
@@ -377,6 +433,52 @@ final class AllegroFeedback
         return ['ok' => $messages === [], 'issues' => $issues, 'ratings' => $ratings, 'messages' => $messages];
     }
 
+    /**
+     * Problemy z zakupem z Centrum wiadomości. Najnowszą wiadomość (kto pisał ostatni) pobieramy
+     * tylko dla otwartych wątków, w których coś się zmieniło od ostatniej synchronizacji.
+     * @param object $client AllegroClient (messageThreads(), threadMessages(), accountLogin())
+     * @param array<int,string> $messages
+     */
+    private function syncProblems(object $client, array &$messages): int
+    {
+        $count = 0;
+        $pageId = '';
+        $me = null;
+        $known = $this->pdo->prepare('SELECT last_message_at, last_message_role FROM allegro_issues WHERE remote_id = ?');
+        for ($page = 0; $page < self::PROBLEM_PAGES; $page++) {
+            $res = $client->messageThreads($pageId, ['type' => AllegroThreads::PROBLEM]);
+            if (!$res['ok']) {
+                $messages[] = 'Problemy z zakupem: ' . $res['message'];
+                break;
+            }
+            foreach ($res['threads'] as $t) {
+                $id = (string) ($t['id'] ?? '');
+                if ($id === '' || !AllegroThreads::isProblem($t + ['type' => AllegroThreads::PROBLEM])) {
+                    continue;
+                }
+                $known->execute([$id]);
+                $row = $known->fetch(PDO::FETCH_ASSOC) ?: null;
+                $changed = $row === null || $row['last_message_role'] === null
+                    || $row['last_message_at'] !== self::dt($t['lastMessageDateTime'] ?? null);
+                $last = null;
+                if ($changed && !AllegroThreads::isClosed($t)) {
+                    $last = $client->threadMessages($id, 1)[0] ?? null;
+                    if ($last !== null && !in_array(strtoupper((string) ($last['author']['role'] ?? '')), ['BUYER', 'SELLER', 'ADMIN'], true)) {
+                        $me ??= $client->accountLogin();
+                    }
+                }
+                if ($this->upsertProblem($t, $last, (string) $me) !== null) {
+                    $count++;
+                }
+            }
+            $pageId = $res['next'];
+            if ($pageId === '') {
+                break;
+            }
+        }
+        return $count;
+    }
+
     // ------------------------------------------------------------
     //  Wysyłka do kupującego (tylko po kliknięciu operatora)
     // ------------------------------------------------------------
@@ -399,14 +501,16 @@ final class AllegroFeedback
         if ($issue === null) {
             return ['ok' => false, 'message' => 'Nie znaleziono tej dyskusji w CRM — odśwież dane z Allegro.'];
         }
-        $res = $client->sendIssueMessage($remoteId, $text, $type);
+        $problem = $issue['type'] === self::TYPE_PROBLEM;
+        // Problem z zakupem to wątek Centrum wiadomości - odpowiedź idzie przez /messaging (beta.v1).
+        $res = $problem ? $client->sendMessage($remoteId, $text) : $client->sendIssueMessage($remoteId, $text, $type);
         if (!$res['ok']) {
             $msg = $res['status'] === 0
                 ? 'Allegro nie odpowiedziało — nie wiadomo, czy wiadomość doszła. Odśwież czat i sprawdź, zanim wyślesz ponownie.'
                 : 'Allegro: ' . $res['message'];
             return ['ok' => false, 'message' => $msg];
         }
-        $fresh = $client->issue($remoteId);
+        $fresh = $problem ? null : $client->issue($remoteId);
         if (is_array($fresh)) {
             $this->upsertIssue($fresh);
         } else {

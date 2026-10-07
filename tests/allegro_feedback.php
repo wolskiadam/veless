@@ -97,14 +97,46 @@ $fake = new class {
     public function issue(string $id): ?array { return null; }
     public function answerUserRating(string $id, string $text): array { $this->sent[] = [$id, $text, 'ANSWER']; return ['ok' => true, 'status' => 200, 'message' => '']; }
     public function userRating(string $id): ?array { return null; }
+    // Problemy z zakupem: Centrum wiadomości beta.v1, stronicowanie page.id
+    public array $threadCalls = [];
+    public array $messageCalls = [];
+    public function messageThreads(string $pageId = '', array $filters = []): array {
+        $this->threadCalls[] = [$pageId, $filters];
+        if ($pageId === '') {
+            return ['ok' => true, 'next' => 'p2', 'message' => '', 'threads' => [[
+                'id' => 'thr-1', 'type' => 'POST_PURCHASE_ISSUE', 'subType' => 'PRODUCT_INCONSISTENT_WITH_THE_OFFER', 'status' => 'OPEN',
+                'createdAt' => '2026-10-28T09:00:00Z', 'lastMessageDateTime' => '2026-10-28T10:00:00Z',
+                'participants' => [['role' => 'BUYER', 'login' => 'ola'], ['role' => 'SELLER', 'login' => 'sklep']],
+                'orders' => [['id' => 'cf-1', 'offers' => [['id' => '222', 'quantity' => 1]]]]]]];
+        }
+        return ['ok' => true, 'next' => '', 'message' => '', 'threads' => [
+            ['id' => 'thr-2', 'type' => 'POST_PURCHASE_ISSUE', 'subType' => 'SOMETHING_NEW', 'status' => 'CLOSED', 'participants' => [['role' => 'BUYER', 'login' => 'piotr']]],
+            ['id' => 'thr-x', 'type' => 'COMMON', 'status' => 'OPEN'],
+        ]];
+    }
+    public function threadMessages(string $id, int $limit = 100): array {
+        $this->messageCalls[] = [$id, $limit];
+        return [['id' => 'm2', 'createdAt' => '2026-10-28T10:00:00Z', 'text' => 'Wymienimy.', 'author' => ['role' => 'SELLER', 'login' => 'sklep']]];
+    }
+    public function accountLogin(): string { return 'sklep'; }
+    public function sendMessage(string $id, string $text): array { $this->sent[] = [$id, $text, 'THREAD']; return ['ok' => true, 'status' => 201, 'message' => '']; }
 };
 $r = $fb->sync($fake);
-check($r['ok'] && $r['issues'] === 101 && $r['ratings'] === 1 && count($fake->issueCalls) === 2 && $fake->issueCalls[1]['offset'] === 100, 'sync pages issues and saves ratings');
+check($r['ok'] && $r['issues'] === 103 && $r['ratings'] === 1 && count($fake->issueCalls) === 2 && $fake->issueCalls[1]['offset'] === 100, 'sync pages issues and saves ratings');
 check($fake->ratingCalls[0]['lastChangedAt.gte'] === '2026-09-23T12:00:00.000Z', 'ratings fetched from the last change minus one day');
 check((int) $fb->issue('iss-2')['woo_order_id'] === 9000000999, 'issue is linked once its order reaches the CRM');
+$p1 = $fb->issue('thr-1');
+$p2 = $fb->issue('thr-2');
+check($fake->threadCalls[0] === ['', ['type' => 'POST_PURCHASE_ISSUE']] && $fake->threadCalls[1][0] === 'p2', 'purchase problems fetched from /messaging by type, paged with page.id');
+check($p1['type'] === F::TYPE_PROBLEM && $p1['status'] === 'PROBLEM_OPEN' && $p1['buyer_login'] === 'ola' && (int) $p1['woo_order_id'] === 9000000123
+    && $p1['offer_id'] === '222' && $p1['subject'] === 'Produkt niezgodny z ofertą' && $p1['opened_at'] === '2026-10-28 09:00:00', 'open purchase problem saved and linked to the order');
+check($p1['last_message_role'] === 'SELLER' && !F::awaitsSeller($p1) && F::isOpen($p1), 'last message author read for an open problem');
+check($p2['status'] === 'PROBLEM_CLOSED' && $p2['subject'] === null && !F::isOpen($p2) && $fb->issue('thr-x') === null, 'closed problem kept, unknown subtype has no label, common thread ignored');
+check($fake->messageCalls === [['thr-1', 1]], 'only the changed open problem asks for its newest message');
+check(F::typeLabel(F::TYPE_PROBLEM) === 'Problem z zakupem' && F::typeLabel('CLAIM') === 'Reklamacja' && F::typeLabel('DISPUTE') === 'Dyskusja', 'type labels');
 $fake->failRatings = true;
 $r = $fb->sync($fake);
-check(!$r['ok'] && $r['issues'] === 101 && $r['messages'] === ['Oceny: Brak uprawnień'], 'ratings error reported, issues still synced');
+check(!$r['ok'] && $r['issues'] === 103 && $r['messages'] === ['Oceny: Brak uprawnień'], 'ratings error reported, issues still synced');
 
 // --- Odpowiedzi: tylko na wywołanie, błędy nie zmieniają stanu ---
 check($fb->replyToIssue($fake, 'iss-1', '   ')['ok'] === false && $fake->sent === [], 'empty reply is not sent');
@@ -114,13 +146,15 @@ check($res['ok'] && $fake->sent[0] === ['iss-1', 'Paczka wyszła wczoraj.', 'END
 check($fb->issue('iss-1')['last_message_role'] === 'SELLER' && !F::awaitsSeller($fb->issue('iss-1')), 'after reply the dispute no longer waits for the seller');
 $fb->replyToIssue($fake, 'iss-1', 'x', 'HACK');
 check($fake->sent[1][2] === 'REGULAR', 'unknown message type falls back to REGULAR');
+$res = $fb->replyToIssue($fake, 'thr-1', 'Prosimy o zdjęcie.', 'END_REQUEST');
+check($res['ok'] && end($fake->sent) === ['thr-1', 'Prosimy o zdjęcie.', 'THREAD'] && $fb->issue('thr-1')['last_message_text'] === 'Prosimy o zdjęcie.', 'purchase problem reply goes to the /messaging thread');
 $fake->sendStatus = 0;
 $res = $fb->replyToIssue($fake, 'iss-1', 'y');
 check(!$res['ok'] && str_contains($res['message'], 'nie wiadomo'), 'no response from Allegro warns before resending');
 $res = $fb->answerRating($fake, 'rt-1', 'Przepraszamy za opóźnienie.');
 check($res['ok'] && $fb->rating('rt-1')['answer_text'] === 'Przepraszamy za opóźnienie.' && $fb->counts()['negative_unanswered'] === 1, 'rating answered, leaves the unanswered list');
 $audit = (int) $pdo->query("SELECT COUNT(*) FROM audit_events WHERE action IN ('allegro.issue_reply', 'allegro.rating_answer')")->fetchColumn();
-check($audit === 3, 'replies recorded in the order history');
+check($audit === 4, 'replies recorded in the order history');
 
 // --- Dzwoneczek i ikony przy tytule: sprawy czekające na odpowiedź, negatywne oceny, zwroty ---
 $pdo->exec('CREATE TABLE settings (setting_key VARCHAR(64) PRIMARY KEY, setting_value TEXT NULL)');

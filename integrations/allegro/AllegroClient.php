@@ -26,6 +26,7 @@ final class AllegroClient
      * raz za razem, a przy wygasłym refresh_tokenie robiłaby to w pętli.
      */
     private bool $refreshAttempted = false;
+    private ?string $login = null;
 
     public function __construct(
         private readonly array $config,                 // client_id, client_secret, redirect_uri, env
@@ -1300,54 +1301,87 @@ final class AllegroClient
     //  Wiadomości (Messaging)
     // ============================================================
 
-    /**
-     * Wątki wiadomości. GET /messaging/threads
-     * @return array{ok:bool,threads:array<int,array<string,mixed>>,message:string}
+    /*
+     * Centrum wiadomości w wersji beta.v1 (od 28.10.2026 jedyna obsługująca „Problemy z zakupem").
+     * Różnice względem public.v1: stronicowanie tokenem page.id zamiast offset, wątek ma typ
+     * (COMMON / POST_PURCHASE_ISSUE), status (OPEN / CLOSED), uczestników z rolami i zamówienia,
+     * a autor wiadomości ma role (BUYER / SELLER) zamiast isInterlocutor.
      */
-    public function messageThreads(int $limit = 20, int $offset = 0): array
+    private const MESSAGING = 'application/vnd.allegro.beta.v1+json';
+
+    /** nextPage w beta.v1: w wątkach napis, w wiadomościach obiekt {id}. */
+    private static function nextPageId(mixed $next): string
     {
-        // Allegro przyjmuje limit 1-20 dla wątków - większy kończy się kodem 422.
-        $res = $this->authedGet('/messaging/threads', ['limit' => max(1, min(20, $limit)), 'offset' => $offset]);
-        if ($res === null) {
-            return ['ok' => false, 'threads' => [], 'message' => 'Brak tokenu Allegro — połącz konto.'];
-        }
-        Logger::apiResponse('allegro', 'GET', '/messaging/threads', $res->status, 'wątki wiadomości');
-        if (!$res->isSuccess()) {
-            return ['ok' => false, 'threads' => [], 'message' => $this->firstError($res)];
-        }
-        return ['ok' => true, 'threads' => $res->json()['threads'] ?? [], 'message' => ''];
+        return is_array($next) ? (string) ($next['id'] ?? '') : (is_scalar($next) ? (string) $next : '');
     }
 
     /**
-     * Wiadomości w wątku. GET /messaging/threads/{id}/messages
+     * Wątki wiadomości (jedna strona). GET /messaging/threads (beta.v1).
+     * @param array<string,string> $filters np. ['type' => 'POST_PURCHASE_ISSUE', 'status' => 'OPEN', 'orderId' => ...]
+     * @return array{ok:bool,threads:array<int,array<string,mixed>>,next:string,message:string}
+     */
+    public function messageThreads(string $pageId = '', array $filters = []): array
+    {
+        $query = $filters + ($pageId !== '' ? ['page.id' => $pageId] : []);
+        $res = $this->versionedRequest('GET', '/messaging/threads', $query, null, self::MESSAGING);
+        if ($res === null) {
+            return ['ok' => false, 'threads' => [], 'next' => '', 'message' => 'Brak tokenu Allegro — połącz konto.'];
+        }
+        Logger::apiResponse('allegro', 'GET', '/messaging/threads', $res->status, 'wątki wiadomości');
+        if (!$res->isSuccess()) {
+            return ['ok' => false, 'threads' => [], 'next' => '', 'message' => $this->firstError($res)];
+        }
+        $json = $res->json();
+        return ['ok' => true, 'threads' => array_values(array_filter((array) ($json['threads'] ?? []), 'is_array')),
+                'next' => self::nextPageId($json['nextPage'] ?? null), 'message' => ''];
+    }
+
+    /**
+     * Jeden wątek (typ, status, uczestnicy, zamówienia). GET /messaging/threads/{id} (beta.v1).
+     * @return array<string,mixed>|null
+     */
+    public function messageThread(string $threadId): ?array
+    {
+        $res = $this->versionedRequest('GET', '/messaging/threads/' . rawurlencode($threadId), [], null, self::MESSAGING);
+        if ($res === null) {
+            return null;
+        }
+        Logger::apiResponse('allegro', 'GET', '/messaging/threads/{id}', $res->status, 'wątek wiadomości');
+        return $res->isSuccess() && is_array($res->json()) ? $res->json() : null;
+    }
+
+    /**
+     * Wiadomości w wątku, od najnowszej. GET /messaging/threads/{id}/messages (beta.v1).
      * @return array<int,array<string,mixed>>
      */
-    public function threadMessages(string $threadId, int $limit = 100, int $offset = 0): array
+    public function threadMessages(string $threadId, int $limit = 100): array
     {
-        // Allegro oddaje maks. 20 wiadomości na stronę - pobieramy kolejne strony do $limit.
+        // Allegro oddaje maks. 20 wiadomości na stronę - pobieramy kolejne strony (page.id) do $limit.
         $all = [];
+        $pageId = '';
         while (count($all) < $limit) {
-            $res = $this->authedGet('/messaging/threads/' . rawurlencode($threadId) . '/messages', ['limit' => 20, 'offset' => $offset]);
+            $query = ['limit' => min(20, $limit - count($all))] + ($pageId !== '' ? ['page.id' => $pageId] : []);
+            $res = $this->versionedRequest('GET', '/messaging/threads/' . rawurlencode($threadId) . '/messages', $query, null, self::MESSAGING);
             if ($res === null || !$res->isSuccess()) {
                 if ($res !== null) {
                     Logger::apiResponse('allegro', 'GET', '/messaging/threads/{id}/messages', $res->status, 'wiadomości w wątku');
                 }
                 break;
             }
-            $batch = $res->json()['messages'] ?? [];
-            $all = array_merge($all, $batch);
-            if (count($batch) < 20) {
+            $json = $res->json();
+            $all = array_merge($all, array_values(array_filter((array) ($json['messages'] ?? []), 'is_array')));
+            $pageId = self::nextPageId($json['nextPage'] ?? null);
+            if ($pageId === '') {
                 break;
             }
-            $offset += 20;
         }
         return array_slice($all, 0, $limit);
     }
 
-    /** Oznacza wątek jako przeczytany na Allegro. PUT /messaging/threads/{id}/read */
+    /** Oznacza wątek jako przeczytany na Allegro. PUT /messaging/threads/{id}/read (beta.v1) */
     public function markThreadRead(string $threadId): bool
     {
-        $res = $this->authedJson('PUT', '/messaging/threads/' . rawurlencode($threadId) . '/read', ['read' => true]);
+        $res = $this->versionedRequest('PUT', '/messaging/threads/' . rawurlencode($threadId) . '/read', [], ['read' => true], self::MESSAGING);
         if ($res === null) {
             return false;
         }
@@ -1355,23 +1389,43 @@ final class AllegroClient
         return $res->isSuccess();
     }
 
-    /** Wysyła wiadomość w wątku. POST /messaging/threads/{id}/messages */
+    /**
+     * Wysyła wiadomość w wątku (także w Problemie z zakupem). POST /messaging/threads/{id}/messages (beta.v1).
+     * Status 0 = brak odpowiedzi (nie wiadomo, czy wiadomość doszła).
+     * @return array{ok:bool,status:int,message:string}
+     */
     public function sendMessage(string $threadId, string $text): array
     {
-        $token = $this->accessToken();
-        if ($token === null || $token === '') {
-            return ['ok' => false, 'message' => 'Brak tokenu Allegro — połącz konto.'];
+        $res = $this->versionedRequest('POST', '/messaging/threads/' . rawurlencode($threadId) . '/messages', [], ['text' => $text], self::MESSAGING);
+        if ($res === null) {
+            return ['ok' => false, 'status' => -1, 'message' => 'Brak tokenu Allegro — połącz konto.'];
         }
-        $res = Http::request('POST', $this->apiBaseUrl() . "/messaging/threads/{$threadId}/messages", [
-            'Authorization' => "Bearer {$token}",
-            'Accept'        => 'application/vnd.allegro.public.v1+json',
-            'Content-Type'  => 'application/vnd.allegro.public.v1+json',
-        ] + $this->uaHeader(), ['text' => $text]);
-        Logger::apiResponse('allegro', 'POST', "/messaging/threads/{$threadId}/messages", $res->status, 'wyślij wiadomość');
+        Logger::apiResponse('allegro', 'POST', '/messaging/threads/{id}/messages', $res->status, 'wyślij wiadomość');
         if (!$res->isSuccess()) {
-            return ['ok' => false, 'message' => $this->firstError($res)];
+            return ['ok' => false, 'status' => $res->status, 'message' => $this->firstError($res)];
         }
-        return ['ok' => true, 'message' => 'Wysłano.'];
+        return ['ok' => true, 'status' => $res->status, 'message' => 'Wysłano.'];
+    }
+
+    /**
+     * Login połączonego konta (GET /me), zapamiętany na godzinę — do rozpoznania, kto jest kim
+     * w wątkach, gdzie Allegro podaje uczestników z rolą USER. '' = nie udało się pobrać.
+     */
+    public function accountLogin(): string
+    {
+        if ($this->login !== null) {
+            return $this->login;
+        }
+        $cached = $_SESSION['allegro_account_login'] ?? null;
+        if (is_array($cached) && ($cached['t'] ?? 0) > time() - 3600) {
+            return $this->login = (string) $cached['login'];
+        }
+        $res = $this->versionedRequest('GET', '/me', [], null, 'application/vnd.allegro.public.v1+json');
+        $this->login = $res !== null && $res->isSuccess() ? (string) ($res->json()['login'] ?? '') : '';
+        if ($this->login !== '' && session_status() === PHP_SESSION_ACTIVE) {
+            $_SESSION['allegro_account_login'] = ['t' => time(), 'login' => $this->login];
+        }
+        return $this->login;
     }
 
     /**

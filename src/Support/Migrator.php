@@ -88,6 +88,11 @@ final class Migrator
         } catch (\Throwable $e) {
             Logger::warn('Auto-migracja: wpłaty - ' . $e->getMessage());
         }
+        try {
+            \Pase\Services\PlannedShipDate::migrate($this->pdo);   // woo_orders.planned_ship_date - planowana data nadania
+        } catch (\Throwable $e) {
+            Logger::warn('Auto-migracja: planowana data nadania - ' . $e->getMessage());
+        }
         $this->backfillAllegroOrderItems();
         $this->clearStubInvoiceIds();
     }

@@ -24,6 +24,8 @@ return [
     'client.verify.later'      => 'Spróbuj później.',
 
     'client.order'             => 'Zamówienie {order}',
+
+    'client.planned_ship'      => 'Twoje zamówienie zostanie nadane {date}.',
     'client.products'          => 'Produkty',
     'client.qty'               => '{n} szt.',
     'client.total'             => 'Razem',

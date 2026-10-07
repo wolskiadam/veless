@@ -292,7 +292,7 @@ require __DIR__ . '/header.php';
             <?php endforeach; ?>
             <?php foreach ($issues as $is): ?>
                 <tr>
-                    <td><a href="allegro_messages.php?tab=issues&amp;issue=<?= urlencode((string) $is['remote_id']) ?>">💬 <?= $is['type'] === 'CLAIM' ? 'Reklamacja' : 'Dyskusja' ?></a></td>
+                    <td><a href="allegro_messages.php?tab=issues&amp;issue=<?= urlencode((string) $is['remote_id']) ?>">💬 <?= $e(\Pase\Services\AllegroFeedback::typeLabel((string) $is['type'])) ?></a></td>
                     <td><?= $orderLink($byOrder[(int) ($is['woo_order_id'] ?? 0)] ?? null) ?></td>
                     <td><?= $e(\Pase\Services\AllegroFeedback::statusLabel((string) $is['status'])) ?><?= $is['subject'] ? ' · ' . $e($is['subject']) : '' ?></td>
                     <td><?= $e($day($is['opened_at'] ?? $is['created_at'])) ?></td>

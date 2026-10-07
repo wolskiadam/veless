@@ -4,7 +4,8 @@ declare(strict_types=1);
 /**
  * Zakładki „Dyskusje" i „Oceny" w Wiadomościach Allegro (dołączane z allegro_messages.php).
  * Dane pochodzą z tabel allegro_issues / allegro_ratings (cron co 30 min albo „Odśwież z Allegro");
- * czat dyskusji pobieramy na żywo przy otwarciu sprawy.
+ * czat dyskusji pobieramy na żywo przy otwarciu sprawy. Problemy z zakupem (typ PROBLEM) to wątki
+ * Centrum wiadomości — ich czat i odpowiedź idą przez /messaging (beta.v1), nie /sale/issues.
  *
  * @var string $tab
  * @var \Pase\Services\AllegroFeedback $feedback
@@ -14,6 +15,7 @@ declare(strict_types=1);
  */
 
 use Pase\Services\AllegroFeedback;
+use Pase\Services\AllegroThreads;
 
 if (!defined('PASE_ROOT')) {
     http_response_code(404);
@@ -72,7 +74,7 @@ $syncError = (string) ($settings->get(AllegroFeedback::SYNC_ERROR_KEY, '') ?? ''
             <?php endforeach; ?>
         </div>
         <?php if ($issues === []): ?>
-            <p class="fb-muted" style="padding:8px">Brak dyskusji i reklamacji.</p>
+            <p class="fb-muted" style="padding:8px">Brak dyskusji, reklamacji i problemów z zakupem.</p>
         <?php endif; ?>
         <?php foreach ($issues as $is):
             $open = AllegroFeedback::isOpen($is);
@@ -82,7 +84,7 @@ $syncError = (string) ($settings->get(AllegroFeedback::SYNC_ERROR_KEY, '') ?? ''
                href="allegro_messages.php?tab=issues<?= $filter !== '' ? '&f=' . $e($filter) : '' ?>&issue=<?= urlencode((string) $is['remote_id']) ?>">
                 <span style="min-width:0">
                     <span class="al-thread-name"><?= $e($is['buyer_login'] ?? 'Kupujący') ?></span>
-                    <span class="fb-sub"><?= $is['type'] === 'CLAIM' ? 'Reklamacja' : 'Dyskusja' ?> · <?= $e(AllegroFeedback::statusLabel((string) $is['status'])) ?></span>
+                    <span class="fb-sub"><?= $e(AllegroFeedback::typeLabel((string) $is['type'])) ?> · <?= $e(AllegroFeedback::statusLabel((string) $is['status'])) ?></span>
                     <?php if ($is['subject']): ?><span class="fb-sub"><?= $e(mb_strimwidth((string) $is['subject'], 0, 60, '…')) ?></span><?php endif; ?>
                 </span>
                 <?php if ($awaits): ?><span class="al-dot" title="Czeka na Twoją odpowiedź"></span><?php endif; ?>
@@ -94,21 +96,34 @@ $syncError = (string) ($settings->get(AllegroFeedback::SYNC_ERROR_KEY, '') ?? ''
         <?php if ($issue === null): ?>
             <p class="fb-muted"><?= $issueId !== '' ? 'Nie znaleziono tej sprawy — odśwież dane z Allegro.' : 'Wybierz dyskusję z listy po lewej. Otwarte sprawy są na górze, kropka oznacza, że kupujący czeka na odpowiedź.' ?></p>
         <?php else:
-            $chat = $client->issueChat((string) $issue['remote_id']);
+            $problem = $issue['type'] === AllegroFeedback::TYPE_PROBLEM;
+            if ($problem) {
+                $me = $client->accountLogin();
+                $chat = ['ok' => true, 'items' => $client->threadMessages((string) $issue['remote_id']), 'message' => ''];
+                // Rola autora jak w dyskusjach (SELLER = my), także gdy Allegro poda samo USER.
+                foreach ($chat['items'] as &$m) {
+                    $m['author'] = ['role' => AllegroThreads::authorRole((array) ($m['author'] ?? []), $me)] + (array) ($m['author'] ?? []);
+                }
+                unset($m);
+                $client->markThreadRead((string) $issue['remote_id']);
+                \Pase\Services\Notifications::forgetAllegroThread((string) $issue['remote_id']);
+            } else {
+                $chat = $client->issueChat((string) $issue['remote_id']);
+            }
             $msgs = $chat['items'];
             usort($msgs, static fn($a, $b) => strcmp((string) ($a['createdAt'] ?? ''), (string) ($b['createdAt'] ?? '')));
             $open = AllegroFeedback::isOpen($issue);
         ?>
             <div class="al-conv-head">
                 <span>
-                    <strong><?= $issue['type'] === 'CLAIM' ? 'Reklamacja' : 'Dyskusja' ?><?= $issue['reference_number'] ? ' ' . $e($issue['reference_number']) : '' ?></strong>
+                    <strong><?= $e(AllegroFeedback::typeLabel((string) $issue['type'])) ?><?= $issue['reference_number'] ? ' ' . $e($issue['reference_number']) : '' ?></strong>
                     z <strong><?= $e($issue['buyer_login'] ?? 'kupującym') ?></strong>
                     · <span class="fb-badge <?= $open ? 'warn' : '' ?>"><?= $e(AllegroFeedback::statusLabel((string) $issue['status'])) ?></span>
                 </span>
                 <span><?= $orderLink($issue) ?></span>
             </div>
             <div class="fb-facts">
-                <?php if ($issue['subject']): ?><div><span class="fb-muted">Temat:</span> <?= $e($issue['subject']) ?></div><?php endif; ?>
+                <?php if ($issue['subject']): ?><div><span class="fb-muted"><?= $problem ? 'Rodzaj problemu:' : 'Temat:' ?></span> <?= $e($issue['subject']) ?></div><?php endif; ?>
                 <?php if ($issue['opened_at']): ?><div><span class="fb-muted">Otwarta:</span> <?= $e($fmt($issue['opened_at'])) ?></div><?php endif; ?>
                 <?php if ($open && $issue['status_due_at']): ?><div><span class="fb-muted">Termin:</span> <strong><?= $e($fmt($issue['status_due_at'])) ?></strong></div><?php endif; ?>
                 <?php if ($issue['decision_due_at']): ?><div><span class="fb-muted">Decyzja do:</span> <strong><?= $e($fmt($issue['decision_due_at'])) ?></strong></div><?php endif; ?>
@@ -144,7 +159,7 @@ $syncError = (string) ($settings->get(AllegroFeedback::SYNC_ERROR_KEY, '') ?? ''
                 <input type="hidden" name="issue_id" value="<?= $e($issue['remote_id']) ?>">
                 <textarea name="text" rows="3" placeholder="Odpowiedź dla kupującego (widzi ją kupujący i Allegro)..." required></textarea>
                 <div class="fb-reply-actions">
-                    <?php if ($issue['type'] !== 'CLAIM'): ?>
+                    <?php if ($issue['type'] === 'DISPUTE'): ?>
                         <select name="type">
                             <?php foreach (AllegroFeedback::MESSAGE_TYPES as $k => $label): ?><option value="<?= $e($k) ?>"><?= $e($label) ?></option><?php endforeach; ?>
                         </select>
@@ -156,6 +171,9 @@ $syncError = (string) ($settings->get(AllegroFeedback::SYNC_ERROR_KEY, '') ?? ''
                 <p class="fb-muted" style="margin-top:12px">Sprawa jest zamknięta — nie można już odpisać.</p>
             <?php elseif ((int) $issue['chat_active'] !== 1): ?>
                 <p class="fb-muted" style="margin-top:12px">Allegro nie pozwala teraz pisać w tej sprawie (czat nieaktywny).</p>
+            <?php endif; ?>
+            <?php if ($problem): ?>
+                <p class="fb-muted" style="margin-top:8px">Problem z zakupem jest wątkiem w Centrum wiadomości Allegro — ta sama rozmowa jest też w zakładce <a href="allegro_messages.php?thread=<?= urlencode((string) $issue['remote_id']) ?>">Wiadomości</a>.</p>
             <?php endif; ?>
             <?php if ($issue['type'] === 'CLAIM'): ?>
                 <p class="fb-muted" style="margin-top:8px">Uznanie lub odrzucenie reklamacji zrób na Allegro — CRM tylko pokazuje reklamację i pozwala odpisać.</p>

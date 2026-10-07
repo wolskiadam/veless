@@ -30,7 +30,7 @@ final class Notifications
     public const TYPES = [
         'client_msgs'  => 'Wiadomości od klientów',
         'allegro_msgs' => 'Wiadomości Allegro',
-        'allegro_issues'  => 'Dyskusje i reklamacje Allegro czekające na odpowiedź',
+        'allegro_issues'  => 'Dyskusje, reklamacje i problemy z zakupem Allegro czekające na odpowiedź',
         'allegro_ratings' => 'Negatywne oceny Allegro bez odpowiedzi',
         'returns'         => 'Zwroty do obsłużenia',
         'low_stock'       => 'Niski stan w magazynie',
@@ -180,14 +180,16 @@ final class Notifications
             if ($client === null) {
                 return null;
             }
-            $res = $client->messageThreads(20, 0);
+            $res = $client->messageThreads();
             if (!$res['ok']) {
                 return null;
             }
             $unread = [];
             foreach ($res['threads'] as $t) {
                 if (empty($t['read'])) {
-                    $unread[] = ['id' => (string) ($t['id'] ?? ''), 'login' => (string) ($t['interlocutor']['login'] ?? 'Kupujący'),
+                    $login = AllegroThreads::buyerLogin($t, $client->accountLogin());
+                    $unread[] = ['id' => (string) ($t['id'] ?? ''),
+                                 'login' => (AllegroThreads::isProblem($t) ? 'Problem z zakupem · ' : '') . ($login !== '' ? $login : 'Kupujący'),
                                  'at' => (string) ($t['lastMessageDateTime'] ?? '')];
                 }
             }
@@ -216,14 +218,14 @@ final class Notifications
             }
             $at = $is['last_message_at'] ?? $is['opened_at'] ?? null;
             $details[] = [
-                'text' => ($is['type'] === 'CLAIM' ? 'Reklamacja' : 'Dyskusja') . ' · ' . ($is['buyer_login'] ?: 'Kupujący')
+                'text' => AllegroFeedback::typeLabel((string) $is['type']) . ' · ' . ($is['buyer_login'] ?: 'Kupujący')
                         . ($is['subject'] ? ' · ' . mb_strimwidth((string) $is['subject'], 0, 40, '…') : ''),
                 'time' => $at ? $this->when($at . 'Z', true) : '',
                 'link' => 'allegro_messages.php?tab=issues&issue=' . rawurlencode((string) $is['remote_id']),
             ];
         }
         return [
-            'key' => 'allegro_issues', 'title' => 'Dyskusje Allegro — czekają na odpowiedź', 'short' => 'Dyskusje',
+            'key' => 'allegro_issues', 'title' => 'Dyskusje i problemy z zakupem Allegro — czekają na odpowiedź', 'short' => 'Dyskusje',
             'count' => count($details), 'level' => 'err', 'link' => 'allegro_messages.php?tab=issues&f=open',
             'details' => array_slice($details, 0, 8),
         ];

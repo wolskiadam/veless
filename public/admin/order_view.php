@@ -1153,7 +1153,7 @@ foreach ($absorbedOrders as $ab) {
     <?php endforeach; endif; ?>
     <?php foreach ($orderFeedback['issues'] as $orderIssue): $issueOpen = \Pase\Services\AllegroFeedback::isOpen($orderIssue); ?>
         <div style="margin-top:10px;padding:10px 12px;border:1px solid <?= $issueOpen ? '#f3c2bc' : '#e3e6ea' ?>;background:<?= $issueOpen ? '#fff7f6' : '#fafbfc' ?>;border-radius:8px">
-            <a href="allegro_messages.php?tab=issues&amp;issue=<?= urlencode((string) $orderIssue['remote_id']) ?>"><strong>💬 <?= $orderIssue['type'] === 'CLAIM' ? 'Reklamacja' : 'Dyskusja' ?> na Allegro</strong></a>
+            <a href="allegro_messages.php?tab=issues&amp;issue=<?= urlencode((string) $orderIssue['remote_id']) ?>"><strong>💬 <?= htmlspecialchars(\Pase\Services\AllegroFeedback::typeLabel((string) $orderIssue['type'])) ?> na Allegro</strong></a>
             · <?= htmlspecialchars(\Pase\Services\AllegroFeedback::statusLabel((string) $orderIssue['status'])) ?>
             <?php if (\Pase\Services\AllegroFeedback::awaitsSeller($orderIssue)): ?><span style="color:#a3341f"> · czeka na odpowiedź</span><?php endif; ?>
             <?php if ($orderIssue['subject']): ?><div style="font-size:13px;color:#555;margin-top:4px"><?= htmlspecialchars((string) $orderIssue['subject']) ?></div><?php endif; ?>

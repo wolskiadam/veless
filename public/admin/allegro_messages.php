@@ -3,9 +3,10 @@ declare(strict_types=1);
 
 /**
  * Wiadomości Allegro, w trzech zakładkach:
- *   - Wiadomości (Messaging) — wątki z kupującymi (GET /messaging/threads), podgląd i odpowiedź,
+ *   - Wiadomości (Messaging, beta.v1) — wątki z kupującymi (GET /messaging/threads), podgląd i odpowiedź,
  *   - Dyskusje — dyskusje i reklamacje po zakupie (GET /sale/issues, zapisane przez cron),
  *     czat na żywo (GET /sale/issues/{id}/chat) i odpowiedź (POST /sale/issues/{id}/message),
+ *     oraz Problemy z zakupem (wątki Centrum wiadomości typu POST_PURCHASE_ISSUE, od 28.10.2026),
  *   - Oceny — oceny sprzedaży (GET /sale/user-ratings, zapisane przez cron) i publiczna odpowiedź
  *     (PUT /sale/user-ratings/{id}/answer).
  * Nic nie wychodzi do kupującego bez kliknięcia „Wyślij" przez operatora.
@@ -13,6 +14,7 @@ declare(strict_types=1);
 
 use Pase\Repository\SettingsRepository;
 use Pase\Services\AllegroFeedback;
+use Pase\Services\AllegroThreads;
 use PasePlugin\Allegro\AllegroPlugin;
 
 require __DIR__ . '/auth.php';
@@ -51,7 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
                 $settings->setMany([AllegroFeedback::SYNC_AT_KEY => (string) time()]);
                 $r = $feedback->sync($client);
                 $settings->setMany([AllegroFeedback::SYNC_ERROR_KEY => implode(' | ', $r['messages'])]);
-                flash($r['ok'] ? 'Pobrano z Allegro: dyskusje i reklamacje (' . $r['issues'] . '), zmienione oceny (' . $r['ratings'] . ').'
+                flash($r['ok'] ? 'Pobrano z Allegro: dyskusje, reklamacje i problemy z zakupem (' . $r['issues'] . '), zmienione oceny (' . $r['ratings'] . ').'
                     : implode(' ', $r['messages']), $r['ok'] ? 'ok' : 'err');
             }
         } elseif ($action === 'issue_reply') {
@@ -70,16 +72,18 @@ $threads = [];
 $threadsRes = ['ok' => true, 'message' => ''];
 $messages = [];
 if ($tab === 'messages') {
-    // Allegro oddaje maks. 20 wątków na raz - pobieramy 3 strony (60 najnowszych rozmów).
-    $threadsRes = $client->messageThreads(20, 0);
+    // Allegro oddaje wątki stronami (page.id) - pobieramy do 3 stron najnowszych rozmów.
+    $threadsRes = $client->messageThreads();
     $threads    = $threadsRes['threads'];
-    for ($off = 20; $threadsRes['ok'] && count($threads) === $off && $off < 60; $off += 20) {
-        $more = $client->messageThreads(20, $off);
+    for ($next = $threadsRes['next'], $page = 1; $threadsRes['ok'] && $next !== '' && $page < 3; $page++) {
+        $more = $client->messageThreads($next);
         if (!$more['ok']) {
             break;
         }
         $threads = array_merge($threads, $more['threads']);
+        $next = $more['next'];
     }
+    $me         = $threads !== [] || $threadId !== '' ? $client->accountLogin() : '';
     $messages   = $threadId !== '' ? $client->threadMessages($threadId) : [];
     // Otwarty wątek = przeczytany: oznaczamy go na Allegro i zdejmujemy z dzwoneczka.
     if ($threadId !== '') {
@@ -123,12 +127,17 @@ require __DIR__ . '/header.php';
         <?php else: ?>
             <?php foreach ($threads as $t):
                 $tid = (string) ($t['id'] ?? '');
-                $login = $t['interlocutor']['login'] ?? '(kupujący)';
+                $login = AllegroThreads::buyerLogin($t, $me);
+                $login = $login !== '' ? $login : '(kupujący)';
                 $read = !empty($t['read']);
+                $problem = AllegroThreads::isProblem($t);
             ?>
                 <a class="al-thread <?= $threadId === $tid ? 'on' : '' ?> <?= $read ? '' : 'unread' ?>"
                    href="allegro_messages.php?thread=<?= urlencode($tid) ?>">
-                    <span class="al-thread-name"><?= $e($login) ?></span>
+                    <span style="min-width:0">
+                        <span class="al-thread-name"><?= $e($login) ?></span>
+                        <?php if ($problem): ?><span class="al-tag" title="<?= $e(AllegroThreads::subTypeLabel($t['subType'] ?? null)) ?>">Problem z zakupem<?= AllegroThreads::isClosed($t) ? ' · zamknięty' : '' ?></span><?php endif; ?>
+                    </span>
                     <?php if (!$read): ?><span class="al-dot" title="Nieprzeczytane"></span><?php endif; ?>
                 </a>
             <?php endforeach; ?>
@@ -147,18 +156,20 @@ require __DIR__ . '/header.php';
                 usort($messages, static fn($a, $b) => strcmp((string) ($a['createdAt'] ?? ''), (string) ($b['createdAt'] ?? '')));
                 $tz = new DateTimeZone('Europe/Warsaw');
                 $buyer = '';
-                foreach ($threads as $t) { if ((string) ($t['id'] ?? '') === $threadId) { $buyer = (string) ($t['interlocutor']['login'] ?? ''); } }
-                foreach ($messages as $m) { if ($buyer === '' && !empty($m['author']['isInterlocutor'])) { $buyer = (string) ($m['author']['login'] ?? ''); } }
+                $open = null;
+                foreach ($threads as $t) { if ((string) ($t['id'] ?? '') === $threadId) { $open = $t; $buyer = AllegroThreads::buyerLogin($t, $me); } }
+                foreach ($messages as $m) { if ($buyer === '' && !AllegroThreads::isMine((array) ($m['author'] ?? []), $me)) { $buyer = (string) ($m['author']['login'] ?? ''); } }
             ?>
             <div class="al-conv-head">
-                <span>Rozmowa z <strong><?= $e($buyer !== '' ? $buyer : 'kupującym') ?></strong></span>
+                <span>Rozmowa z <strong><?= $e($buyer !== '' ? $buyer : 'kupującym') ?></strong>
+                    <?php if ($open !== null && AllegroThreads::isProblem($open)): ?> · <a class="al-tag" href="allegro_messages.php?tab=issues&amp;issue=<?= urlencode($threadId) ?>">Problem z zakupem →</a><?php endif; ?></span>
                 <span class="al-legend"><i class="lg theirs"></i> kupujący <i class="lg mine"></i> Ty (sprzedawca)</span>
             </div>
             <div class="al-conv" id="alConv">
                 <?php foreach ($messages as $m):
                     $a = $m['author'] ?? [];
-                    // Allegro: author.isInterlocutor = true → pisał kupujący; false → my (sprzedawca).
-                    $mine = isset($a['isInterlocutor']) ? !$a['isInterlocutor'] : (($a['role'] ?? '') === 'SELLER');
+                    // beta.v1: author.role BUYER / SELLER (w zwykłych rozmowach USER - wtedy po loginie konta).
+                    $mine = AllegroThreads::isMine((array) $a, $me);
                     $who  = (string) ($a['login'] ?? '');
                     $text = html_entity_decode((string) ($m['text'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
                     try { $date = (new DateTimeImmutable((string) ($m['createdAt'] ?? 'now')))->setTimezone($tz)->format('d.m.Y H:i'); } catch (\Throwable) { $date = ''; }
@@ -202,6 +213,8 @@ require __DIR__ . '/header.php';
     .al-thread:hover { background:#f5f7fa; }
     .al-thread.on { background:#fff4ef; }
     .al-thread.unread .al-thread-name { font-weight:700; }
+    .al-tag { display:block; font-size:11px; font-weight:600; color:#a3341f; text-decoration:none; }
+    .al-conv-head a.al-tag { display:inline; font-size:12px; }
     .al-dot { width:8px; height:8px; border-radius:50%; background:#ff5a00; flex-shrink:0; }
     .al-conv { display:flex; flex-direction:column; gap:10px; max-height:480px; overflow:auto; padding:4px; }
     .al-conv-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; padding:0 4px 10px; border-bottom:1px solid #eef0f3; margin-bottom:10px; font-size:14px; }

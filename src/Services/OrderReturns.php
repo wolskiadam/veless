@@ -50,7 +50,34 @@ final class OrderReturns
         'DONT_LIKE_IT'    => 'Nie spełnia oczekiwań',
         'EXCESSIVE'       => 'Zamówiono za dużo',
         'NO_REASON'       => 'Bez podania przyczyny',
+        'NOT_COLLECTED'   => 'Nieodebrana przesyłka',
         'OTHER'           => 'Inny powód',
+    ];
+
+    /**
+     * Status obsługi zwrotu w CRM, ustawiany przez operatora (niezależny od statusu na Allegro).
+     * NULL = nowy, jeszcze nieobsłużony. Etykieta i kolor do listy.
+     */
+    public const HANDLING = [
+        'received' => ['Przyjęty przez magazyn', '#2a7f8a'],
+        'review'   => ['Do rozpatrzenia', '#d9922e'],
+        'accepted' => ['Zwrot przyjęty', '#e0a43a'],
+        'rejected' => ['Zwrot odrzucony', '#222222'],
+        'finished' => ['Zakończony', '#2e8b3e'],
+    ];
+
+    /** Stan pozycji po rozpakowaniu paczki (jak w BaseLinkerze). Pusty = jeszcze nie sprawdzono. */
+    public const LINE_STATUSES = [
+        'none'     => ['Brak', '#b5bac1'],
+        'accepted' => ['Przyjęte', '#2e8b3e'],
+        'damaged'  => ['Uszkodzone', '#d9534f'],
+    ];
+
+    /** Statusy Allegro paczki zwrotnej, które pokazujemy w grupie „Status kuriera”. */
+    private const COURIER_FILTERS = [
+        'courier_dispatched' => ['Nadany zwrot', ['DISPATCHED']],
+        'courier_transit'    => ['W drodze', ['IN_TRANSIT']],
+        'courier_delivered'  => ['Dostarczony', ['DELIVERED', 'WAREHOUSE_DELIVERED', 'WAREHOUSE_VERIFICATION']],
     ];
 
     /** Stany kroków rezerwowanych (korekta, zwrot pieniędzy). NULL = jeszcze nie wykonano. */
@@ -105,6 +132,13 @@ final class OrderReturns
             $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_return_remote ON order_returns (source, remote_id)');
             $pdo->exec('CREATE INDEX IF NOT EXISTS idx_return_order ON order_returns (woo_order_id)');
         }
+        $cols = $driver === 'mysql'
+            ? array_column($pdo->query('SHOW COLUMNS FROM order_returns')->fetchAll(PDO::FETCH_ASSOC), 'Field')
+            : array_column($pdo->query('PRAGMA table_info(order_returns)')->fetchAll(PDO::FETCH_ASSOC), 'name');
+        if (!in_array('handling_status', $cols, true)) {
+            $pdo->exec('ALTER TABLE order_returns ADD COLUMN handling_status VARCHAR(16) NULL');
+            $pdo->exec('ALTER TABLE order_returns ADD COLUMN handling_at VARCHAR(30) NULL');
+        }
     }
 
     // ------------------------------------------------------------
@@ -129,24 +163,13 @@ final class OrderReturns
     }
 
     /**
-     * Lista zwrotów. $filter: '' (wszystkie) | 'open' (coś jeszcze do zrobienia) | 'done'.
+     * Lista zwrotów. $filter: '' (wszystkie), 'open' (coś jeszcze do zrobienia), 'done' albo klucz z filters().
+     * $q szuka po kupującym, numerach, produkcie, przesyłce zwrotnej i numerze przesyłki wysłanej do klienta.
      * @return array<int,array<string,mixed>>
      */
     public function list(string $filter = '', string $q = '', int $limit = 100, int $offset = 0): array
     {
-        $where = [];
-        $params = [];
-        $open = "(restocked_at IS NULL OR correction_state IS NULL OR correction_state <> 'done' OR refund_state IS NULL OR refund_state <> 'done')";
-        if ($filter === 'open') {
-            $where[] = "status <> 'REJECTED' AND $open";
-        } elseif ($filter === 'done') {
-            $where[] = "NOT $open";
-        }
-        if ($q !== '') {
-            $where[] = '(buyer LIKE ? OR reference_number LIKE ? OR order_ref LIKE ? OR waybill LIKE ? OR items LIKE ?)';
-            $like = '%' . $q . '%';
-            array_push($params, $like, $like, $like, $like, $like);
-        }
+        [$where, $params] = $this->filterSql($filter, $q);
         $sql = 'SELECT * FROM order_returns' . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
             . ' ORDER BY COALESCE(remote_created_at, created_at) DESC, id DESC LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset);
         $stmt = $this->pdo->prepare($sql);
@@ -154,9 +177,238 @@ final class OrderReturns
         return array_map([self::class, 'hydrate'], $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
+    public function count(string $filter = '', string $q = ''): int
+    {
+        [$where, $params] = $this->filterSql($filter, $q);
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM order_returns' . ($where ? ' WHERE ' . implode(' AND ', $where) : ''));
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Grupy filtrów w lewym panelu listy (jak w BaseLinkerze). Klucz => etykieta, kolor.
+     * @return array<string,array<string,array{0:string,1:string}>>
+     */
+    public static function filters(): array
+    {
+        $courier = [];
+        foreach (self::COURIER_FILTERS as $k => [$label]) {
+            $courier[$k] = [$label, '#2f5fb3'];
+        }
+        $handling = [];
+        foreach (self::HANDLING as $k => [$label, $color]) {
+            $handling['h_' . $k] = [$label, $color];
+        }
+        return [
+            'Zwroty'          => ['new' => ['Zgłoszony zwrot', '#9aa3ad'], 'unclaimed' => ['Nieodebrane przesyłki', '#e8833a']],
+            'Status kuriera'  => $courier,
+            'Obsługa zwrotu'  => $handling,
+            'Dokumenty'       => ['to_correct' => ['Do korekty', '#2e8b3e'], 'corrected' => ['Korekta wystawiona', '#2f5fb3']],
+            'Pieniądze'       => ['to_refund' => ['Do zwrotu pieniędzy', '#e0a43a'], 'refunded' => ['Pieniądze zwrócone', '#2e8b3e'],
+                                  'uncertain' => ['Wynik do sprawdzenia', '#d9534f']],
+        ];
+    }
+
+    /** @return array{0:list<string>,1:list<mixed>} */
+    private function filterSql(string $filter, string $q): array
+    {
+        $where = [];
+        $params = [];
+        $closed = "(status = 'REJECTED' OR COALESCE(handling_status, '') IN ('rejected', 'finished'))";
+        $open = "(restocked_at IS NULL OR correction_state IS NULL OR correction_state <> 'done' OR refund_state IS NULL OR refund_state <> 'done')";
+        $invoice = "EXISTS (SELECT 1 FROM order_documents d WHERE d.woo_order_id = order_returns.woo_order_id AND d.provider = 'wfirma' AND d.document_type = 'normal')";
+        if ($filter === 'open') {
+            $where[] = "NOT $closed AND $open";
+        } elseif ($filter === 'done') {
+            $where[] = "NOT $open";
+        } elseif ($filter === 'new') {
+            $where[] = "handling_status IS NULL AND status <> 'REJECTED'";
+        } elseif (isset(self::COURIER_FILTERS[$filter])) {
+            $st = self::COURIER_FILTERS[$filter][1];
+            $where[] = 'handling_status IS NULL AND status IN (' . implode(', ', array_fill(0, count($st), '?')) . ')';
+            array_push($params, ...$st);
+        } elseif (str_starts_with($filter, 'h_') && isset(self::HANDLING[substr($filter, 2)])) {
+            $where[] = 'handling_status = ?';
+            $params[] = substr($filter, 2);
+        } elseif ($filter === 'to_correct') {
+            $where[] = "correction_state IS NULL AND NOT $closed AND $invoice";
+        } elseif ($filter === 'corrected') {
+            $where[] = "correction_state = 'done'";
+        } elseif ($filter === 'to_refund') {
+            $where[] = "refund_state IS NULL AND NOT $closed";
+        } elseif ($filter === 'refunded') {
+            $where[] = "refund_state = 'done'";
+        } elseif ($filter === 'uncertain') {
+            $where[] = "(correction_state = 'uncertain' OR refund_state = 'uncertain')";
+        }
+        if ($q !== '') {
+            $like = '%' . $q . '%';
+            $cond = 'buyer LIKE ? OR reference_number LIKE ? OR remote_id = ? OR order_ref LIKE ? OR waybill LIKE ? OR items LIKE ?';
+            array_push($params, $like, $like, $q, $like, $like, $like);
+            if ($this->hasTable('shipments')) {
+                $cond .= " OR woo_order_id IN (SELECT woo_order_id FROM shipments WHERE waybill_no = ? OR REPLACE(UPPER(waybill_no), ' ', '') = ?)";
+                array_push($params, $q, self::normWaybill($q));
+            }
+            $where[] = "($cond)";
+        }
+        return [$where, $params];
+    }
+
+    public static function normWaybill(string $v): string
+    {
+        return strtoupper((string) preg_replace('/\s+/', '', $v));
+    }
+
+    private function hasTable(string $table): bool
+    {
+        try {
+            $this->pdo->query("SELECT 1 FROM $table LIMIT 1");
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Wyszukiwanie zamówienia do nowego zwrotu: numer zamówienia (CRM / sklep / Allegro), numer przesyłki
+     * wysłanej do klienta, numer przesyłki zwrotnej, e-mail albo nazwa klienta.
+     * @return array<int,array<string,mixed>> wiersze woo_orders z polem 'matched_by'
+     */
+    public function findOrders(string $q, int $limit = 20): array
+    {
+        $q = trim($q);
+        if ($q === '') {
+            return [];
+        }
+        $found = [];
+        $add = function (string $sql, array $params, string $by) use (&$found, $limit): void {
+            if (count($found) >= $limit) {
+                return;
+            }
+            $stmt = $this->pdo->prepare($sql . ' LIMIT ' . $limit);
+            $stmt->execute($params);
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $key = (int) $row['woo_order_id'];
+                if (!isset($found[$key]) && count($found) < $limit) {
+                    $found[$key] = $row + ['matched_by' => $by];
+                }
+            }
+        };
+        $cols = 'o.*';
+        if (ctype_digit($q)) {
+            $add("SELECT $cols FROM woo_orders o WHERE o.pase_number = ? OR o.woo_order_id = ?", [(int) $q, $q], 'numer zamówienia');
+        }
+        $add("SELECT $cols FROM woo_orders o WHERE o.order_number = ?", [$q], 'numer zamówienia');
+        $waybill = self::normWaybill($q);
+        if ($this->hasTable('shipments') && strlen($waybill) >= 6) {
+            $add("SELECT $cols FROM woo_orders o JOIN shipments s ON s.woo_order_id = o.woo_order_id
+                WHERE s.waybill_no = ? OR REPLACE(UPPER(s.waybill_no), ' ', '') = ?", [$q, $waybill], 'numer przesyłki');
+        }
+        if (strlen($waybill) >= 6) {
+            $add("SELECT $cols FROM woo_orders o JOIN order_returns r ON r.woo_order_id = o.woo_order_id
+                WHERE r.waybill = ? OR REPLACE(UPPER(r.waybill), ' ', '') = ?", [$q, $waybill], 'numer przesyłki zwrotnej');
+        }
+        if (mb_strlen($q) >= 3) {
+            $like = '%' . $q . '%';
+            $add("SELECT $cols FROM woo_orders o WHERE o.customer_email LIKE ? OR o.customer_name LIKE ? ORDER BY o.woo_order_id DESC",
+                [$like, $like], 'klient');
+        }
+        return array_values($found);
+    }
+
+    /**
+     * Zamówienia z paczką zwróconą do nadawcy (klient nie odebrał), do których nie ma jeszcze zwrotu w CRM.
+     * @return array<int,array<string,mixed>> wiersze woo_orders z polami waybill_no, tracking_at
+     */
+    public function unclaimedParcels(int $limit = 200): array
+    {
+        if (!$this->hasTable('shipments')) {
+            return [];
+        }
+        $stmt = $this->pdo->prepare("SELECT o.*, s.waybill_no, s.courier_code, s.tracking_at FROM shipments s
+            JOIN woo_orders o ON o.woo_order_id = s.woo_order_id
+            WHERE s.tracking_status = 'returned'
+              AND NOT EXISTS (SELECT 1 FROM order_returns r WHERE r.woo_order_id = s.woo_order_id)
+            ORDER BY s.id DESC LIMIT " . max(1, $limit));
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** Ustawia status obsługi (NULL = nowy). */
+    public function setHandling(int $id, ?string $status): void
+    {
+        if ($status !== null && !isset(self::HANDLING[$status])) {
+            throw new \RuntimeException('Nieznany status zwrotu.');
+        }
+        $now = gmdate('Y-m-d H:i:s');
+        $this->pdo->prepare('UPDATE order_returns SET handling_status = ?, handling_at = ?, updated_at = ? WHERE id = ?')
+            ->execute([$status, $now, $now, $id]);
+        $ret = $this->find($id);
+        if ($ret !== null && $ret['woo_order_id'] !== null) {
+            (new AuditTrail($this->pdo))->record((int) $ret['woo_order_id'], 'return.status', [], ['provider' => (string) ($status ?? 'new'), 'remote_id' => (string) $id]);
+        }
+    }
+
+    public static function handlingLabel(?string $status): string
+    {
+        return $status !== null && isset(self::HANDLING[$status]) ? self::HANDLING[$status][0] : 'Zgłoszony zwrot';
+    }
+
+    public static function handlingColor(?string $status): string
+    {
+        return $status !== null && isset(self::HANDLING[$status]) ? self::HANDLING[$status][1] : '#9aa3ad';
+    }
+
+    /**
+     * Zaznacza stan pozycji po rozpakowaniu (Brak / Przyjęte / Uszkodzone). Samo zaznaczenie nie zmienia stanu
+     * magazynu — do tego służy restock(). Pozycji już przyjętej na stan nie można oznaczyć inaczej niż „Przyjęte”.
+     */
+    public function setLineStatus(int $id, int $index, string $status): void
+    {
+        if (!isset(self::LINE_STATUSES[$status])) {
+            throw new \RuntimeException('Nieznany stan pozycji.');
+        }
+        $ret = $this->find($id);
+        if ($ret === null || !isset($ret['items'][$index])) {
+            throw new \RuntimeException('Nie znaleziono pozycji zwrotu.');
+        }
+        $items = $ret['items'];
+        if ((int) ($items[$index]['restocked'] ?? 0) > 0 && $status !== 'accepted') {
+            throw new \RuntimeException('Ta pozycja jest już przyjęta na stan — stanu magazynu nie cofamy automatycznie. Popraw go ręcznie w magazynie.');
+        }
+        $items[$index]['line_status'] = $status;
+        $this->saveItems($id, $ret['items_raw'], $items);
+    }
+
+    /** Zapis pozycji z kontrolą, że nikt ich w międzyczasie nie zmienił. */
+    private function saveItems(int $id, string $beforeRaw, array $after): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE order_returns SET items = ?, updated_at = ? WHERE id = ? AND items = ?');
+        $stmt->execute([json_encode($after, JSON_UNESCAPED_UNICODE), gmdate('Y-m-d H:i:s'), $id, $beforeRaw]);
+        if ($stmt->rowCount() !== 1) {
+            throw new \RuntimeException('Zwrot zmienił się w międzyczasie — odśwież stronę i spróbuj ponownie.');
+        }
+    }
+
+    /** Sztuki oznaczone „Przyjęte”, których jeszcze nie doliczono do stanu. @return array<int,int> */
+    public static function acceptedToRestock(array $items): array
+    {
+        $out = [];
+        foreach ($items as $i => $it) {
+            if (($it['line_status'] ?? '') === 'accepted') {
+                $left = (int) $it['quantity'] - (int) ($it['restocked'] ?? 0);
+                if ($left > 0) {
+                    $out[$i] = $left;
+                }
+            }
+        }
+        return $out;
+    }
+
     /** @param array<string,mixed> $row */
     private static function hydrate(array $row): array
     {
+        $row['items_raw'] = (string) $row['items'];
         $row['items'] = json_decode((string) $row['items'], true) ?: [];
         $row['bank_account'] = json_decode((string) ($row['bank_account'] ?? ''), true) ?: null;
         return $row;
@@ -224,6 +476,12 @@ final class OrderReturns
         $stmt->execute([$remoteId]);
         $existing = $stmt->fetchColumn();
         if ($existing !== false) {
+            // Stan pozycji z CRM (Przyjęte / Uszkodzone, ile doliczono do stanu) zostaje po kolejnej synchronizacji.
+            $prev = $this->find((int) $existing);
+            $fields['items'] = json_encode(self::keepLocalLineState($prev['items'] ?? [], $items), JSON_UNESCAPED_UNICODE);
+            if ($fields['waybill'] === '') {
+                unset($fields['waybill'], $fields['carrier']); // Allegro czasem nie zwraca już paczki — numer zostaje
+            }
             if ($fields['woo_order_id'] === null) {
                 unset($fields['woo_order_id']); // nie kasuj powiązania ustawionego ręcznie przez operatora
             }
@@ -241,6 +499,34 @@ final class OrderReturns
             (new AuditTrail($this->pdo))->record((int) $fields['woo_order_id'], 'return.created', [], ['provider' => 'allegro', 'remote_id' => $remoteId]);
         }
         return $id;
+    }
+
+    /**
+     * Przenosi lokalne pola pozycji (line_status, restocked) z poprzedniej wersji zwrotu na pozycje z Allegro,
+     * dopasowując po ID oferty (kolejne pozycje tej samej oferty po kolei).
+     * @param array<int,array<string,mixed>> $old
+     * @param array<int,array<string,mixed>> $new
+     * @return array<int,array<string,mixed>>
+     */
+    public static function keepLocalLineState(array $old, array $new): array
+    {
+        $pool = [];
+        foreach ($old as $it) {
+            $pool[(string) ($it['offer_id'] ?? '') . '|' . (string) ($it['name'] ?? '')][] = $it;
+        }
+        foreach ($new as $i => $it) {
+            $key = (string) ($it['offer_id'] ?? '') . '|' . (string) ($it['name'] ?? '');
+            $prev = isset($pool[$key]) ? array_shift($pool[$key]) : null;
+            if ($prev === null) {
+                continue;
+            }
+            foreach (['line_status', 'restocked'] as $k) {
+                if (isset($prev[$k])) {
+                    $new[$i][$k] = $prev[$k];
+                }
+            }
+        }
+        return $new;
     }
 
     /**
@@ -414,27 +700,28 @@ final class OrderReturns
 
     /**
      * Dolicza zwrócone sztuki do stanu CRM (po SKU) i kolejkuje wysłanie stanu do sklepu.
-     * Jednorazowe: drugie kliknięcie nic nie zmienia.
-     * @param array<int,int>|null $quantities indeks pozycji zwrotu => ilość przyjmowana (np. bez uszkodzonych); null = wszystko
+     * Każda pozycja pamięta, ile sztuk już doliczono, więc tej samej sztuki nie da się przyjąć dwa razy;
+     * resztę (np. po sprawdzeniu uszkodzonej) można przyjąć później.
+     * @param array<int,int>|null $quantities indeks pozycji zwrotu => ilość przyjmowana teraz; null = wszystko, co zostało
      * @return array{restocked:array<int,array{sku:string,quantity:int}>,skipped:array<int,string>}
      */
     public function restock(int $id, ?array $quantities = null, ?Queue $queue = null): array
     {
-        $ret = $this->find($id);
-        if ($ret === null) {
-            throw new \RuntimeException('Nie znaleziono zwrotu.');
-        }
         $products = new ProductRepository($this->pdo);
         $done = [];
         $skipped = [];
-        (new AuditTrail($this->pdo))->atomic(function () use ($id, $ret, $quantities, $products, &$done, &$skipped): void {
-            $stmt = $this->pdo->prepare('UPDATE order_returns SET restocked_at = ?, restocked_by = ?, updated_at = ? WHERE id = ? AND restocked_at IS NULL');
-            $stmt->execute([gmdate('Y-m-d H:i:s'), (string) ($_SESSION['pase_username'] ?? 'System'), gmdate('Y-m-d H:i:s'), $id]);
-            if ($stmt->rowCount() !== 1) {
-                throw new \RuntimeException('Ten zwrot został już przyjęty na stan.');
+        $ret = null;
+        (new AuditTrail($this->pdo))->atomic(function () use ($id, $quantities, $products, &$done, &$skipped, &$ret): void {
+            $ret = $this->find($id);
+            if ($ret === null) {
+                throw new \RuntimeException('Nie znaleziono zwrotu.');
             }
-            foreach ($ret['items'] as $i => $it) {
-                $qty = $quantities === null ? (int) $it['quantity'] : max(0, min((int) $it['quantity'], (int) ($quantities[$i] ?? 0)));
+            $items = $ret['items'];
+            $left = 0;
+            foreach ($items as $i => $it) {
+                $remaining = max(0, (int) $it['quantity'] - (int) ($it['restocked'] ?? 0));
+                $left += $remaining;
+                $qty = $quantities === null ? $remaining : max(0, min($remaining, (int) ($quantities[$i] ?? 0)));
                 if ($qty <= 0) {
                     continue;
                 }
@@ -447,7 +734,23 @@ final class OrderReturns
                 // Stan faktyczny też wraca, o ile jest wpisany (pusty zostaje pusty).
                 $this->pdo->prepare('UPDATE products SET pase_stock = COALESCE(pase_stock, 0) + ?, actual_stock = actual_stock + ? WHERE id = ?')
                     ->execute([$qty, $qty, (int) $product['id']]);
+                $items[$i]['restocked'] = (int) ($it['restocked'] ?? 0) + $qty;
+                $items[$i]['line_status'] = 'accepted';
                 $done[] = ['sku' => $sku, 'quantity' => $qty, 'product_id' => (int) $product['id']];
+            }
+            if ($left === 0) {
+                throw new \RuntimeException('Ten zwrot został już przyjęty na stan.');
+            }
+            if ($done === []) {
+                return;
+            }
+            // Warunek na poprzednią treść pozycji: dwa równoczesne kliknięcia nie doliczą stanu dwa razy.
+            $now = gmdate('Y-m-d H:i:s');
+            $stmt = $this->pdo->prepare('UPDATE order_returns SET items = ?, restocked_at = COALESCE(restocked_at, ?), restocked_by = COALESCE(restocked_by, ?),
+                handling_status = COALESCE(handling_status, ?), handling_at = COALESCE(handling_at, ?), updated_at = ? WHERE id = ? AND items = ?');
+            $stmt->execute([json_encode($items, JSON_UNESCAPED_UNICODE), $now, (string) ($_SESSION['pase_username'] ?? 'System'), 'received', $now, $now, $id, $ret['items_raw']]);
+            if ($stmt->rowCount() !== 1) {
+                throw new \RuntimeException('Zwrot zmienił się w międzyczasie — odśwież stronę i spróbuj ponownie.');
             }
             if ($ret['woo_order_id'] !== null) {
                 (new AuditTrail($this->pdo))->record((int) $ret['woo_order_id'], 'return.restocked', [], ['remote_id' => (string) $id]);
@@ -457,12 +760,18 @@ final class OrderReturns
         // (cykliczna synchronizacja stanów i tak wyśle nowy stan do sklepu).
         foreach ($done as $d) {
             try {
-                $queue?->enqueue('woo.stock.push', ['product_id' => $d['product_id']], 'woo.stock.push:' . $d['product_id'] . ':return:' . $id);
+                $queue?->enqueue('woo.stock.push', ['product_id' => $d['product_id']], 'woo.stock.push:' . $d['product_id'] . ':return:' . $id . ':' . bin2hex(random_bytes(4)));
             } catch (\Throwable $e) {
                 \Pase\Support\Logger::warn('Zwrot #' . $id . ': nie zakolejkowano wysłania stanu ' . $d['sku'] . ' - ' . $e->getMessage());
             }
         }
         return ['restocked' => array_map(static fn($d) => ['sku' => $d['sku'], 'quantity' => $d['quantity']], $done), 'skipped' => $skipped];
+    }
+
+    /** Ile sztuk pozycji zwrotu doliczono już do stanu. */
+    public static function restockedUnits(array $items): int
+    {
+        return array_sum(array_map(static fn($it) => (int) ($it['restocked'] ?? 0), $items));
     }
 
     // ------------------------------------------------------------

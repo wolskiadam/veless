@@ -130,6 +130,28 @@ BLPaczka to broker kurierski (InPost/DPD/DHL… przez jedno API). **Etap 1: fund
 
 Kolejne etapy: etykieta (`getWaybill`), śledzenie (`getWaybillTracking`), punkty PUDO.
 
+## Integracja kurierska — ORLEN Paczka
+
+Wtyczka `integrations/orlenpaczka/` nadaje paczki do punktów i automatów ORLEN Paczka na **własnej umowie**
+z ORLEN Paczka (API SOAP, dokumentacja API ORLEN Paczka v1.26). Paczki z umowy Allegro (Allegro SMART)
+nadaje się dalej przez „Wysyłam z Allegro”.
+
+- **Dodanie:** Integracje → Dodaj integrację → **ORLEN Paczka**. Pola: PartnerID i PartnerKey (z e-maila po
+  aktywacji umowy; to samo hasło co w WebTrucker), środowisko (produkcyjne / testowe — inne dane dostępowe),
+  dane nadawcy, domyślny gabaryt (S/M/L albo dobór z wymiarów), format etykiety (PDF 10×15 / A4, ZPL 203/300 dpi),
+  opcjonalnie ceny gabarytów z umowy. **Test połączenia** odpytuje `GivePartnerStatus` (konto, POSTPAID/PREPAID).
+- **Nadanie:** karta zamówienia → Przesyłki → Nadaj przez → ORLEN Paczka. Punkt odbioru bierze się z zamówienia
+  (WooCommerce/Allegro; sam numer punktu zamienia się na pełny kod), można go wpisać albo wyszukać po mieście,
+  kodzie pocztowym czy ulicy. Lista punktów (`GiveMeAllLocationWithAllDataWithZipCode`) pobiera się przy pierwszym
+  wyszukiwaniu i odświeża raz dziennie po 6:00 (`storage/cache/orlenpaczka-points.json`).
+  Awizacja z etykietą: `GenerateLabelBusinessPackListTwo`; etykieta ponownie: `LabelPrintDuplicateListTwo`;
+  anulowanie: `PutCustomerPackCanceled`. Opcja „Zamówię podjazd kuriera” po nadaniu zamawia odbiór
+  (`GetAvailablePickups` + `CallPickupNew`, pierwszy wolny przedział od wybranego dnia).
+- **Śledzenie:** harmonogram i przycisk ↻ pytają ORLEN Paczka (`GiveMePackStatusFullHistoryList`) o paczki nadane
+  przez wtyczkę i o paczki ORLEN wpisane ręcznie; czego ORLEN nie zna, sprawdzamy jak dotąd przez Allegro.
+- Nie obsługujemy: zwrotów konsumenckich, nadania bez etykiety (kod nadania), protokołu przekazania.
+  COD i ubezpieczenie ORLEN Paczka wycofała — wtyczka ich nie wysyła.
+
 ## Multi-integracja (wiele sklepów)
 
 CRM obsługuje **wiele integracji**, także kilka tego samego typu (np. kilka sklepów

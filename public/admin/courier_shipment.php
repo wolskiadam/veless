@@ -11,6 +11,7 @@ declare(strict_types=1);
  *   manual   : „Inne" - zapis numeru przesyłki nadanej poza systemem (bez wtyczki)
  *   quote    : wycena przed nadaniem - Courier::quote(); gdy wtyczka nie zna ceny,
  *              ostatni faktyczny koszt tą samą usługą i sposobem nadania z historii przesyłek
+ *   points   : wyszukiwanie punktu odbioru (q=…) - tylko wtyczki z metodą searchPoints() (np. ORLEN Paczka)
  * Zwraca JSON dla JS na stronie zamówienia.
  */
 
@@ -98,6 +99,16 @@ try {
         return;
     }
 
+    if ($action === 'points') {
+        if (!method_exists($plugin, 'searchPoints')) {
+            echo json_encode(['ok' => false, 'points' => [], 'message' => 'Ta integracja nie ma wyszukiwarki punktów.']);
+            return;
+        }
+        $r = $plugin->searchPoints(mb_substr(trim((string) ($_POST['q'] ?? '')), 0, 60));
+        echo json_encode(['ok' => $r['ok'], 'points' => $r['points'], 'message' => $r['message']], JSON_UNESCAPED_UNICODE);
+        return;
+    }
+
     if ($action === 'quote') {
         $params = [
             'order'         => $order,
@@ -106,6 +117,7 @@ try {
             'service'       => (string) ($_POST['service'] ?? ''),
             'service_label' => (string) ($_POST['service_label'] ?? ''),
             'handover'      => (string) ($_POST['handover'] ?? ''),
+            'point'         => trim((string) ($_POST['point'] ?? '')),
         ];
         $q = $plugin->quote($params);
         if (!empty($q['ok']) && $q['price'] !== null) {
@@ -149,6 +161,7 @@ try {
             'text_on_label' => trim((string) ($_POST['text_on_label'] ?? '')),
             'handover'      => (string) ($_POST['handover'] ?? ''),
             'pickup_date'   => (string) ($_POST['pickup_date'] ?? ''),
+            'point'         => mb_substr(trim((string) ($_POST['point'] ?? '')), 0, 40),
         ];
         $r = $plugin->createShipment($shipment);
         Logger::info('Kurier nadanie', ['order' => $wooOrderId, 'integration' => $integrationId, 'ok' => $r['ok'], 'pending' => $r['pending'] ?? false]);
@@ -169,6 +182,7 @@ try {
                     'service_label' => (string) ($_POST['service_label'] ?? ''),
                     'handover'      => $shipment['handover'],
                     'pickup_date'   => $shipment['pickup_date'],
+                    'point'         => $shipment['point'],
                     'label_format'  => $shipment['label_format'],
                     'quoted_price'  => isset($_POST['quoted_price']) && $_POST['quoted_price'] !== '' ? (float) $_POST['quoted_price'] : null,
                 ],

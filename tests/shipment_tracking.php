@@ -127,6 +127,48 @@ $client->knows = 'NONE'; $client->failFor = [];
 $trk->run();
 check($row($id)['tracking_status'] === 'in_transit', 'scheduler with no carrier data keeps the manual status');
 
+// Wtyczka z własnym śledzeniem (ORLEN Paczka): jej paczki i paczki Orlen wpisane ręcznie pyta najpierw ona.
+$orlen = new class {
+    public array $asked = [];
+    public bool $fail = false;
+    public function trackingCarrier(): string { return 'ORLEN'; }
+    public function trackWaybills(array $waybills): array
+    {
+        $this->asked[] = $waybills;
+        if ($this->fail) { return ['ok' => false, 'message' => 'Błędny PartnerKey (kod 2)', 'waybills' => []]; }
+        $out = [];
+        foreach ($waybills as $w) {
+            if (str_starts_with($w, '21')) {
+                $out[$w] = [['code' => 'PENDING', 'description' => 'Zaawizowana do PwR', 'occurredAt' => '2026-10-07T13:18:49'],
+                            ['code' => 'AVAILABLE_FOR_PICKUP', 'description' => 'W kiosku', 'occurredAt' => '2026-10-08T09:45:23']];
+            }
+        }
+        return ['ok' => true, 'message' => '', 'waybills' => $out];
+    }
+};
+$trk = new ShipmentTracking($pdo, $client, [], static fn(string $w): ?array => null, [5 => $orlen]);
+$pdo->prepare("INSERT INTO shipments (integration_id, courier_code, waybill_no, status, created_at) VALUES (5, 'ORLEN Paczka', '2100012345678', 'created', ?)")->execute([date('Y-m-d H:i:s')]);
+$own = (int) $pdo->lastInsertId();
+$client->asked = []; $client->knows = 'NONE';
+$r = $trk->checkOne($own);
+check($r['ok'] && $r['status'] === 'ready_for_pickup' && $client->asked === [], 'parcel sent with the ORLEN Paczka plugin: tracked by the plugin, Allegro not asked');
+check($row($own)['tracking_carrier'] === 'ORLEN' && count(json_decode((string) $row($own)['tracking_events'], true)) === 2, 'plugin history stored');
+$manual = $add('Orlen Paczka');   // numer 2102711810140 - wpisany ręcznie
+$orlen->asked = [];
+check($trk->checkOne($manual)['status'] === 'ready_for_pickup' && $orlen->asked === [['2102711810140']], 'Orlen parcel entered by hand: asked the plugin too');
+$pdo->prepare("INSERT INTO shipments (courier_code, waybill_no, status, created_at) VALUES ('Orlen Paczka', '2600000000001', 'created', ?)")->execute([date('Y-m-d H:i:s')]);
+$foreign = (int) $pdo->lastInsertId();
+$client->asked = []; $client->knows = 'ORLEN';
+check($trk->checkOne($foreign)['status'] === 'in_transit' && $client->asked === ['ORLEN'], 'plugin does not know the parcel: Allegro fallback');
+$inpostRow = $add('InPost Paczkomat');
+$orlen->asked = [];
+$trk->checkOne($inpostRow);
+check($orlen->asked === [], 'other carriers are not sent to the plugin');
+$orlen->fail = true; $client->knows = 'NONE';
+$r = $trk->checkOne($own);
+check(!$r['ok'] && str_contains($r['message'], 'Błędny PartnerKey'), 'plugin error on its own parcel is shown');
+$orlen->fail = false;
+
 // Ikona wysyłki na liście zamówień: etap przesyłki (także ustawiony ręcznie) zmienia jej kolor.
 $ship = static fn(array $shipments, string $pase = 'processing') => \Pase\Services\OrderIndicators::forOrder(
     ['pase_status' => $pase, 'status' => 'processing'], ['shipping_lines' => [['method_id' => 'flat_rate:1']]], $shipments)['shipping'];

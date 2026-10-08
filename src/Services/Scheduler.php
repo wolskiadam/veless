@@ -341,7 +341,8 @@ final class Scheduler
     }
 
     /**
-     * Śledzenie przesyłek u przewoźników (API Allegro). Działa bezpośrednio, bez kolejki -
+     * Śledzenie przesyłek u przewoźników (API Allegro, InPost, wtyczki kurierskie ze śledzeniem jak ORLEN Paczka).
+     * Działa bezpośrednio, bez kolejki -
      * to kilka zapytań po max 20 numerów. Zwraca liczbę zmian etapu (każda odpala reguły
      * 'shipment.status'). 0 gdy konto Allegro nie jest połączone.
      */

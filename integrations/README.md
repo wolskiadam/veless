@@ -19,6 +19,8 @@ przez `AllegroPlugin::makeClient($pdo, $config['allegro'])`).
 a stronę Magazyn → GS1 i tabelę `gs1_products` ma rdzeń w `Pase\Services\Gs1`; bez wtyczki strona znika z menu).
 `integrations/payu/` (PayU: saldo sklepu i wypłaty przez Payouts API; ten sam wzorzec co GS1 — stronę System → PayU
 i tabelę `payu_payouts` ma rdzeń w `Pase\Services\PayuPayouts`).
+`integrations/orlenpaczka/` (ORLEN Paczka: kurier na API SOAP składanym bez php-soap, punkt odbioru z wyszukiwarką
+i własne śledzenie paczek - wzorzec dla przewoźnika z punktami).
 `integrations/tiktokshop/` (TikTok Shop: klient Open API 202309 z podpisem HMAC; OAuth przez `tiktokshop_connect.php`,
 import zamówień, stany CRM do SKU TikTok i numery przesyłek robi rdzeń w `Pase\Services\TiktokShop`, uruchamiany z workera;
 jak Allegro deklaruje `ORDER_SOURCE` bez interfejsu `OrderSource`, bo zamówienia zdejmują stan w CRM).
@@ -199,6 +201,15 @@ Opcjonalnie:
   (np. „Wysyłam z Allegro” tylko przy zamówieniach z Allegro).
 - `proposal(array $order): array` — podpowiedź paczki (`package` => `weight/x/y/z`, `sender`, `message`)
   do wypełnienia formularza.
+- W odpowiedzi `listServices()` dodatkowo: `groups` (`['klucz grupy' => 'nazwa']` - nagłówki grup usług) oraz
+  `point` (`label`, `value`, `note`, `placeholder`, `required`, `search`) - formularz pokaże pole punktu odbioru,
+  a wybrany kod trafi do `createShipment()` jako `point`. Przy `search => true` wtyczka ma metodę
+  `searchPoints(string $q): array` (`['ok', 'message', 'points' => [['code', 'label'], …]]`) - podpowiedzi przy wpisywaniu.
+- Własne śledzenie: metody `trackingCarrier(): string` (id przewoźnika jak w Allegro, np. `ORLEN`) i
+  `trackWaybills(array $numery): array` (`['ok', 'message', 'waybills' => [numer => [['code', 'description', 'occurredAt'], …]]]`,
+  kody jak w śledzeniu Allegro: `PENDING`, `IN_TRANSIT`, `RELEASED_FOR_DELIVERY`, `AVAILABLE_FOR_PICKUP`, `NOTICE_LEFT`,
+  `DELIVERED`, `RETURNED`, `ISSUE`). `Services\ShipmentTracking` pyta wtyczkę o paczki nadane przez jej konto i o paczki
+  jej przewoźnika wpisane ręcznie, zanim zapyta Allegro.
 - `Pase\Plugin\Contract\CourierAsync` — dla przewoźników tworzących przesyłkę asynchronicznie:
   `createShipment()` może zwrócić `pending => true` z tymczasowym `external_id`; rdzeń zapisze
   przesyłkę jako `pending` i przy kolejnym otwarciu zamówienia wywoła `resolveShipment($id)`.

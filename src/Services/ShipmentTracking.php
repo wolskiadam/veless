@@ -22,6 +22,8 @@ use PasePlugin\Allegro\AllegroClient;
  * Allegro i numer listu + rozpoznany przewoźnik. Allegro zna jednak tylko paczki związane
  * ze swoimi zamówieniami, dlatego InPost pytamy najpierw bezpośrednio (publiczne API śledzenia
  * InPost, bez klucza) - działa też dla paczek spoza Allegro (BLPaczka, „Inne", WooCommerce).
+ * Wtyczka kurierska może mieć własne śledzenie (metody trackingCarrier() i trackWaybills(), np. ORLEN Paczka):
+ * pytamy ją o paczki nadane przez jej konto i o paczki jej przewoźnika wpisane ręcznie, zanim zapytamy Allegro.
  *
  * Każda ZMIANA etapu:
  *   - zapisuje się w shipments (tracking_status / tracking_code / tracking_at / tracking_events),
@@ -100,8 +102,13 @@ final class ShipmentTracking
         private readonly object $client,
         private readonly array $allegroConfig = [],
         /** @var \Closure(string):?array|null atrapa publicznego API InPost w testach (numer => JSON) */
-        private readonly ?\Closure $inpostFetch = null
+        private readonly ?\Closure $inpostFetch = null,
+        /** @var array<int,object>|null wtyczki z własnym śledzeniem (id konta => wtyczka); null = aktywne konta z bazy */
+        private readonly ?array $trackers = null
     ) {}
+
+    /** @var array<int,object>|null */
+    private ?array $trackerList = null;
 
     public static function label(?string $status): string
     {
@@ -175,6 +182,10 @@ final class ShipmentTracking
         $noData  = [];     // przesyłki bez odpowiedzi (tylko $fallback)
         $failures = [];
         $inpostCalls = 0;  // InPost pytamy po jednej paczce - limit na przebieg
+
+        // Wtyczki kurierskie z własnym śledzeniem (np. ORLEN Paczka): ich paczki pytamy najpierw u nich,
+        // a to, czego nie znają, idzie dalej zwykłą drogą (InPost / Allegro).
+        $rows = $this->trackOwn($rows, $now, $changed, $errors, $tried);
 
         // Grupujemy po przewoźniku - jedno zapytanie obsługuje max 20 numerów jednego przewoźnika.
         $groups = [];
@@ -275,6 +286,115 @@ final class ShipmentTracking
             $errors = $failures;   // żaden przewoźnik nie odpowiedział poprawnie - pokażmy błąd pierwszego
         }
         return ['changed' => $changed, 'errors' => $errors, 'tried' => $tried];
+    }
+
+    /**
+     * Śledzenie przez wtyczki kurierskie z metodami trackingCarrier() i trackWaybills() (np. ORLEN Paczka).
+     * Paczka trafia do wtyczki, gdy nadano ją przez jej konto albo gdy przewoźnik z nazwy kuriera to przewoźnik wtyczki
+     * (np. paczka ORLEN Paczka wpisana ręcznie). Zwraca przesyłki, o których wtyczka nic nie wie.
+     * @param array<int,array<string,mixed>> $rows
+     * @param string[] $errors
+     * @param array<int,string> $tried
+     * @return array<int,array<string,mixed>>
+     */
+    private function trackOwn(array $rows, string $now, int &$changed, array &$errors, array &$tried): array
+    {
+        $trackers = $this->trackerPlugins();
+        if ($trackers === []) {
+            return $rows;
+        }
+        $byAccount = [];
+        $rest = [];
+        foreach ($rows as $sh) {
+            $acc = $this->trackerFor($sh, $trackers);
+            if ($acc === null) {
+                $rest[] = $sh;
+                continue;
+            }
+            $byAccount[$acc][] = $sh;
+        }
+        foreach ($byAccount as $acc => $list) {
+            $plugin = $trackers[$acc];
+            $carrier = (string) $plugin->trackingCarrier();
+            try {
+                $res = $plugin->trackWaybills(array_map(static fn($s) => trim((string) $s['waybill_no']), $list));
+            } catch (\Throwable $e) {
+                $res = ['ok' => false, 'message' => $e->getMessage(), 'waybills' => []];
+            }
+            $found = [];
+            foreach ($res['waybills'] ?? [] as $wb => $statuses) {
+                $found[self::normWaybill((string) $wb)] = $statuses;
+            }
+            foreach ($list as $sh) {
+                $statuses = $found[self::normWaybill((string) $sh['waybill_no'])] ?? [];
+                if ($statuses === []) {
+                    if (empty($res['ok']) && (int) ($sh['integration_id'] ?? 0) === $acc) {
+                        $errors[] = 'Śledzenie (' . $carrier . '): ' . ($res['message'] ?? 'błąd');
+                        Logger::warn('Śledzenie przez wtyczkę nie powiodło się: ' . ($res['message'] ?? ''), ['account' => $acc]);
+                    }
+                    $rest[] = $sh;   // spróbujemy zwykłą drogą (Allegro)
+                    continue;
+                }
+                $tried[(int) $sh['id']] = $carrier;
+                $changed += $this->apply($sh, $carrier, ['waybill' => $sh['waybill_no'], 'trackingDetails' => ['statuses' => $statuses]], $now) ? 1 : 0;
+            }
+        }
+        return $rest;
+    }
+
+    /** Id konta wtyczki, która śledzi tę przesyłkę (albo null). @param array<int,object> $trackers */
+    private function trackerFor(array $sh, array $trackers): ?int
+    {
+        $acc = (int) ($sh['integration_id'] ?? 0);
+        if ($acc > 0 && isset($trackers[$acc])) {
+            return $acc;
+        }
+        $carrier = strtoupper((string) ($sh['tracking_carrier'] ?? ''));
+        if ($carrier === '') {
+            $name = mb_strtolower((string) ($sh['courier_code'] ?? ''));
+            foreach (self::KEYWORDS as $kw => $guess) {
+                if (preg_match('/(^|[^a-z])' . preg_quote($kw, '/') . '/u', $name)) {
+                    $carrier = $guess;
+                    break;
+                }
+            }
+        }
+        if ($carrier === '') {
+            return null;
+        }
+        foreach ($trackers as $id => $p) {
+            $own = strtoupper((string) $p->trackingCarrier());
+            if ($carrier === $own || ($own === 'ORLEN' && in_array($carrier, ['PACZKA_W_RUCHU', 'ORLEN_PACZKA'], true))) {
+                return $id;
+            }
+        }
+        return null;
+    }
+
+    /** Aktywne konta wtyczek ze śledzeniem. @return array<int,object> */
+    private function trackerPlugins(): array
+    {
+        if ($this->trackers !== null) {
+            return $this->trackers;
+        }
+        if ($this->trackerList !== null) {
+            return $this->trackerList;
+        }
+        $out = [];
+        try {
+            foreach ((new \Pase\Repository\IntegrationAccountRepository($this->pdo))->all() as $acc) {
+                if (empty($acc['is_active'])) {
+                    continue;
+                }
+                $p = \Pase\Plugin\PluginRegistry::forAccount((string) $acc['type'], $acc['config'] ?? []);
+                if ($p !== null && method_exists($p, 'trackWaybills') && method_exists($p, 'trackingCarrier')) {
+                    $out[(int) $acc['id']] = $p;
+                }
+            }
+        } catch (\Throwable $e) {
+            $out = [];
+        }
+        return $this->trackerList = $out;
     }
 
     /** Statusy InPost (ShipX) -> kody jak w Allegro (CODE_MAP) i opis dla historii. */

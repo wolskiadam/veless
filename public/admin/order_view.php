@@ -1714,7 +1714,7 @@ foreach ($absorbedOrders as $ab) {
     $blpaczkaOffered = $hasBlpaczka && array_filter($courierOptions, static fn($co) => $co['type'] === 'blpaczka') !== [];
     ?>
     <?php if ($courierOptions === []): ?>
-        <p style="color:#b06000;font-size:13px">Brak aktywnej integracji kurierskiej dla tego zamówienia. Dodaj <strong>BLPaczka</strong> albo <strong>Wysyłam z Allegro</strong> w <a href="integrations.php">Integracjach</a>.</p>
+        <p style="color:#b06000;font-size:13px">Brak aktywnej integracji kurierskiej dla tego zamówienia. Dodaj <strong>BLPaczka</strong>, <strong>Wysyłam z Allegro</strong> albo <strong>ORLEN Paczka</strong> w <a href="integrations.php">Integracjach</a>.</p>
     <?php endif; ?>
     <?php if (canEdit()): ?>
         <div style="margin:2px 0 10px">
@@ -1760,6 +1760,12 @@ foreach ($absorbedOrders as $ab) {
                 <div style="margin-top:8px">
                     <label style="font-size:11px;color:#888;display:block">Umowa / usługa</label>
                     <select class="cp-service" style="width:100%;max-width:480px"><option value="">⏳ ładuję…</option></select>
+                </div>
+                <div class="cp-point-row" style="display:none;margin-top:10px">
+                    <label class="cp-point-label" style="font-size:11px;color:#888;display:block">Punkt odbioru</label>
+                    <input class="cp-point" type="text" maxlength="40" autocomplete="off" list="cp-points-<?= (int) $co['account']['id'] ?>" style="width:100%;max-width:480px">
+                    <datalist id="cp-points-<?= (int) $co['account']['id'] ?>"></datalist>
+                    <span class="cp-point-note" style="display:block;font-size:12px;color:#888;margin-top:2px"></span>
                 </div>
                 <div class="cp-handover-row" style="display:none;margin-top:10px">
                     <label style="font-size:11px;color:#888;display:block;margin-bottom:4px">Sposób nadania</label>
@@ -2485,7 +2491,7 @@ foreach ($absorbedOrders as $ab) {
                 var g = s.group || 'other';
                 if (!groups[g]) {
                     groups[g] = document.createElement('optgroup');
-                    groups[g].label = GROUPS[g] || 'Usługi';
+                    groups[g].label = GROUPS[g] || (sv.groups || {})[g] || 'Usługi';
                     sel.appendChild(groups[g]);
                 }
                 var o = document.createElement('option');
@@ -2512,6 +2518,19 @@ foreach ($absorbedOrders as $ab) {
                 hoRow.style.display = '';
                 syncPickup(pane);
             }
+            // Punkt odbioru (np. ORLEN Paczka): wartość z zamówienia + wyszukiwarka punktów.
+            var pt = sv.point;
+            if (pt) {
+                var prow = pane.querySelector('.cp-point-row');
+                var pin = pane.querySelector('.cp-point');
+                pane.querySelector('.cp-point-label').textContent = pt.label || 'Punkt odbioru';
+                pin.value = pt.value || '';
+                pin.placeholder = pt.placeholder || '';
+                pin.dataset.required = pt.required ? '1' : '';
+                pane.querySelector('.cp-point-note').textContent = pt.note || '';
+                prow.style.display = '';
+                if (pt.search) pointSearch(pane);
+            }
             var parts = [];
             var pr = d.proposal;
             if (pr && pr.ok) {
@@ -2525,7 +2544,7 @@ foreach ($absorbedOrders as $ab) {
                 parts.push('⚠️ ' + pr.message);
             }
             if (sv.message) parts.push('⚠️ ' + sv.message);
-            if (!(sv.services || []).some(function (s) { return s.group === 'own'; }) && GROUPS.own && sv.services) {
+            if ((sv.services || []).some(function (s) { return s.group === 'allegro'; }) && !(sv.services || []).some(function (s) { return s.group === 'own'; })) {
                 parts.push('Brak własnych umów podpiętych w Allegro — dostępna umowa Allegro.');
             }
             info.textContent = parts.join(' · ');
@@ -2544,6 +2563,30 @@ foreach ($absorbedOrders as $ab) {
                 m.textContent = (d.ok ? '✅ ' : '❌ ') + (d.message || ''); m.style.color = d.ok ? '#137333' : '#c5221f';
                 if (d.ok) setTimeout(function () { location.reload(); }, 800);
             }).catch(function () { m.textContent = '❌ Błąd połączenia.'; m.style.color = '#c5221f'; });
+        });
+    }
+
+    // Podpowiedzi punktów po wpisaniu kodu, numeru, miasta albo kodu pocztowego.
+    function pointSearch(pane) {
+        var pin = pane.querySelector('.cp-point'), list = pane.querySelector('datalist'), note = pane.querySelector('.cp-point-note');
+        var timer = null, labels = {};
+        pin.addEventListener('input', function () {
+            var v = pin.value.trim();
+            if (labels[v]) { note.textContent = labels[v]; return; }
+            clearTimeout(timer);
+            if (v.length < 2 || /^[A-Za-z]{2}-\d{6}-\w{2}-\w{2}$/.test(v)) return;
+            timer = setTimeout(function () {
+                post(pane, new URLSearchParams({ action: 'points', q: v })).then(function (d) {
+                    list.innerHTML = '';
+                    (d.points || []).forEach(function (p) {
+                        var o = document.createElement('option');
+                        o.value = p.code; o.textContent = p.label; o.label = p.label;
+                        labels[p.code] = p.label;
+                        list.appendChild(o);
+                    });
+                    if (!d.ok || (d.points || []).length === 0) note.textContent = d.message || '';
+                }).catch(function () {});
+            }, 300);
         });
     }
 
@@ -2589,14 +2632,22 @@ foreach ($absorbedOrders as $ab) {
             var hoLbl = pane.querySelector('.cp-handover input:checked');
             hoLbl = hoLbl ? '\n' + hoLbl.parentElement.textContent.trim() : '';
             var cost = pane.querySelector('.cp-price').textContent;
-            if (!confirm('Nadać przesyłkę: ' + svcName + hoLbl + (cost && cost !== '—' ? '\nSzacowany koszt: ' + cost : '') + '?')) return;
+            var pin = pane.querySelector('.cp-point');
+            var ptLbl = '';
+            if (pane.querySelector('.cp-point-row').style.display !== 'none') {
+                if (pin.dataset.required && pin.value.trim() === '') {
+                    msg.textContent = '❌ Podaj punkt odbioru.'; msg.style.color = '#c5221f'; pin.focus(); return;
+                }
+                ptLbl = pin.value.trim() ? '\nPunkt: ' + pin.value.trim() : '';
+            }
+            if (!confirm('Nadać przesyłkę: ' + svcName + hoLbl + ptLbl + (cost && cost !== '—' ? '\nSzacowany koszt: ' + cost : '') + '?')) return;
             btn.disabled = true;
             msg.textContent = '⏳ Nadaję (może potrwać kilkanaście sekund)…'; msg.style.color = '#888';
             function q(c) { return pane.querySelector(c).value; }
             post(pane, new URLSearchParams({
                 action: 'send', service: svc.value, weight: q('.cp-weight'), side_x: q('.cp-x'), side_y: q('.cp-y'), side_z: q('.cp-z'),
                 label_format: q('.cp-label'), text_on_label: q('.cp-text'),
-                handover: handover(pane), pickup_date: q('.cp-pickup-date'),
+                handover: handover(pane), pickup_date: q('.cp-pickup-date'), point: q('.cp-point'),
                 service_label: serviceLabel(pane), quoted_price: pane.dataset.quoted || ''
             })).then(function (d) {
                 msg.textContent = (d.ok ? (d.pending ? '⏳ ' : '✅ ') : '❌ ') + (d.message || '');

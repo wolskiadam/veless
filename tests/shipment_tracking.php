@@ -127,6 +127,79 @@ $client->knows = 'NONE'; $client->failFor = [];
 $trk->run();
 check($row($id)['tracking_status'] === 'in_transit', 'scheduler with no carrier data keeps the manual status');
 
+// Wtyczka z własnym śledzeniem (ORLEN Paczka): jej paczki i paczki Orlen wpisane ręcznie pyta najpierw ona.
+$orlen = new class {
+    public array $asked = [];
+    public bool $fail = false;
+    public bool $push = false;
+    public function trackingCarrier(): string { return 'ORLEN'; }
+    public function pushActive(): bool { return $this->push; }
+    public function trackWaybills(array $waybills): array
+    {
+        $this->asked[] = $waybills;
+        if ($this->fail) { return ['ok' => false, 'message' => 'Błędny PartnerKey (kod 2)', 'waybills' => []]; }
+        $out = [];
+        foreach ($waybills as $w) {
+            if (str_starts_with($w, '21')) {
+                $out[$w] = [['code' => 'PENDING', 'description' => 'Zaawizowana do PwR', 'occurredAt' => '2026-10-07T13:18:49'],
+                            ['code' => 'AVAILABLE_FOR_PICKUP', 'description' => 'W kiosku', 'occurredAt' => '2026-10-08T09:45:23']];
+            }
+        }
+        return ['ok' => true, 'message' => '', 'waybills' => $out];
+    }
+};
+$trk = new ShipmentTracking($pdo, $client, [], static fn(string $w): ?array => null, [5 => $orlen]);
+$pdo->prepare("INSERT INTO shipments (integration_id, courier_code, waybill_no, status, created_at) VALUES (5, 'ORLEN Paczka', '2100012345678', 'created', ?)")->execute([date('Y-m-d H:i:s')]);
+$own = (int) $pdo->lastInsertId();
+$client->asked = []; $client->knows = 'NONE';
+$r = $trk->checkOne($own);
+check($r['ok'] && $r['status'] === 'ready_for_pickup' && $client->asked === [], 'parcel sent with the ORLEN Paczka plugin: tracked by the plugin, Allegro not asked');
+check($row($own)['tracking_carrier'] === 'ORLEN' && count(json_decode((string) $row($own)['tracking_events'], true)) === 2, 'plugin history stored');
+$manual = $add('Orlen Paczka');   // numer 2102711810140 - wpisany ręcznie
+$orlen->asked = [];
+check($trk->checkOne($manual)['status'] === 'ready_for_pickup' && $orlen->asked === [['2102711810140']], 'Orlen parcel entered by hand: asked the plugin too');
+$pdo->prepare("INSERT INTO shipments (courier_code, waybill_no, status, created_at) VALUES ('Orlen Paczka', '2600000000001', 'created', ?)")->execute([date('Y-m-d H:i:s')]);
+$foreign = (int) $pdo->lastInsertId();
+$client->asked = []; $client->knows = 'ORLEN';
+check($trk->checkOne($foreign)['status'] === 'in_transit' && $client->asked === ['ORLEN'], 'plugin does not know the parcel: Allegro fallback');
+$inpostRow = $add('InPost Paczkomat');
+$orlen->asked = [];
+$trk->checkOne($inpostRow);
+check($orlen->asked === [], 'other carriers are not sent to the plugin');
+$orlen->fail = true; $client->knows = 'NONE';
+$r = $trk->checkOne($own);
+check(!$r['ok'] && str_contains($r['message'], 'Błędny PartnerKey'), 'plugin error on its own parcel is shown');
+$orlen->fail = false;
+
+// Pusher (przewoźnik sam przysyła statusy): harmonogram pyta wtyczkę tylko co PUSH_RECHECK_HOURS, przycisk ↻ zawsze.
+$orlen->push = true;
+$pdo->prepare('UPDATE shipments SET tracking_checked_at = ? WHERE id = ?')->execute([date('Y-m-d H:i:s', time() - 600), $own]);
+$orlen->asked = [];
+$trk->run();
+check(!in_array('2100012345678', array_merge([], ...$orlen->asked), true), 'pusher on: parcel checked 10 min ago is not polled');
+$pdo->prepare('UPDATE shipments SET tracking_checked_at = ? WHERE id = ?')->execute([date('Y-m-d H:i:s', time() - 7 * 3600), $own]);
+$orlen->asked = [];
+$trk->run();
+check(in_array('2100012345678', array_merge([], ...$orlen->asked), true), 'pusher on: parcel not checked for 7 h is polled as a safety net');
+$orlen->asked = [];
+$trk->checkOne($own);
+check($orlen->asked === [['2100012345678']], 'pusher on: ↻ on the order still asks');
+$orlen->push = false;
+
+// Status z powiadomienia (applyPush): dopisany do historii, ten sam drugi raz nic nie zmienia, starszy nie cofa etapu.
+$push = static fn(string $code, string $at, string $w = '2100012345678') => ShipmentTracking::applyPush($pdo, 'ORLEN', $w,
+    ['code' => $code, 'description' => 'opis ' . $code, 'occurredAt' => $at], []);
+check($push('DELIVERED', '2026-10-09T10:00:00+02:00') === 1 && $row($own)['tracking_status'] === 'delivered', 'push: delivered');
+$events = json_decode((string) $row($own)['tracking_events'], true);
+check(count($events) === 3 && end($events)['desc'] === 'opis DELIVERED' && $row($own)['tracking_at'] === date('Y-m-d H:i:s', strtotime('2026-10-09T10:00:00+02:00')), 'push: event added to the history with its time');
+$push('DELIVERED', '2026-10-09T10:00:00+02:00');
+check(count(json_decode((string) $row($own)['tracking_events'], true)) === 3, 'push: the same event twice is stored once');
+$push('IN_TRANSIT', '2026-10-08T12:00:00+02:00');
+check($row($own)['tracking_status'] === 'delivered' && count(json_decode((string) $row($own)['tracking_events'], true)) === 4, 'push: a late older event does not move the stage back');
+check($push('DELIVERED', '2026-10-09T10:00:00+02:00', '2999999999999') === 0, 'push: unknown parcel matches nothing');
+check($push('NOPE', '2026-10-09T10:00:00+02:00') === 0, 'push: unknown status code ignored');
+check($push('PENDING', '2026-10-01T10:00:00+02:00', '21027 11810140') >= 1 && $row($manual)['tracking_carrier'] === 'ORLEN', 'push: number with spaces still matches');
+
 // Ikona wysyłki na liście zamówień: etap przesyłki (także ustawiony ręcznie) zmienia jej kolor.
 $ship = static fn(array $shipments, string $pase = 'processing') => \Pase\Services\OrderIndicators::forOrder(
     ['pase_status' => $pase, 'status' => 'processing'], ['shipping_lines' => [['method_id' => 'flat_rate:1']]], $shipments)['shipping'];

@@ -89,7 +89,7 @@ final class Http
     public static function service(string $url): string
     {
         $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        foreach (['allegro', 'wfirma', 'blpaczka', 'smsapi', 'inpost', 'empik', 'erli', 'google', 'tiktok'] as $known) {
+        foreach (['allegro', 'wfirma', 'blpaczka', 'orlenpaczka', 'smsapi', 'inpost', 'empik', 'erli', 'google', 'tiktok'] as $known) {
             if (str_contains($host, $known)) {
                 return $known;
             }

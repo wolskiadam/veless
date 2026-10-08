@@ -90,6 +90,10 @@ if (method_exists($plugin, 'supportsOrder') && !$plugin->supportsOrder($order)) 
     echo json_encode(['ok' => false, 'message' => 'Ta integracja nie obsługuje tego zamówienia.']);
     return;
 }
+if (!CourierShipping::servesShop($courier->account($integrationId) ?? [], $order)) {
+    echo json_encode(['ok' => false, 'message' => 'To konto kurierskie nie jest ustawione dla sklepu tego zamówienia (Integracje → „Używaj dla zamówień ze sklepów”).']);
+    return;
+}
 
 try {
     if ($action === 'services') {

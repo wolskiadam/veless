@@ -105,6 +105,13 @@ if (!isset($schema[$type])) {
     $type = 'woocommerce';
 }
 
+// Konta kurierskie (zdolność COURIER) mają wybór sklepów, których zamówienia obsługują.
+$isCourierType = false;
+try {
+    $isCourierType = (bool) \Pase\Plugin\PluginRegistry::get($type)?->manifest()->hasCapability(\Pase\Plugin\Capability::COURIER);
+} catch (\Throwable) {
+}
+
 // Allegro nie ma per-konto configu jak Woo/BLPaczka/wFirma - to JEDNA, globalna
 // konfiguracja dla całego systemu (client_id/secret, redirect_uri, env, User-Agent),
 // z której realnie korzysta AllegroPlugin::makeClient() - patrz config/config.php.
@@ -178,6 +185,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['plugin_action'])) {
     // sync_status: Woo i Allegro (checkbox) - odsyłanie zmiany statusu z CRM z powrotem do kanału.
     if (in_array($type, ['woocommerce', 'allegro'], true)) {
         $config['sync_status'] = isset($_POST['sync_status']);
+    }
+
+    // Konto kurierskie: dla których sklepów (pusta lista = wszystkie) - patrz CourierShipping::servesShop().
+    if ($isCourierType) {
+        $shopsPosted = $_POST['shops'] ?? [];
+        $config['shops'] = array_values(array_filter(array_map('strval', is_array($shopsPosted) ? $shopsPosted : []),
+            static fn(string $s): bool => $s === \Pase\Services\CourierShipping::MANUAL_SHOP || ctype_digit($s)));
     }
 
     // Dane nadawcy + ulubieni kurierzy dla BLPaczka.
@@ -361,6 +375,34 @@ require __DIR__ . '/header.php';
             <?php endif; ?>
             <?php if ($help !== ''): ?><p style="color:#888;font-size:12px;margin:4px 0 0"><?= htmlspecialchars($help) ?></p><?php endif; ?>
         <?php endforeach; ?>
+
+        <?php if ($isCourierType):
+            // Sklepy = konta z pobieraniem zamówień (WooCommerce, Allegro, TikTok Shop...) + zamówienia dodane w CRM.
+            $shopOptions = [];
+            foreach ($repo->all() as $shopAcc) {
+                try {
+                    $shopMf = \Pase\Plugin\PluginRegistry::get((string) $shopAcc['type'])?->manifest();
+                } catch (\Throwable) {
+                    $shopMf = null;
+                }
+                if ($shopMf !== null && $shopMf->hasCapability(\Pase\Plugin\Capability::ORDER_SOURCE)) {
+                    $shopOptions[(string) $shopAcc['id']] = ($shopAcc['name'] ?: $shopMf->name) . ' (' . $shopMf->name . ')';
+                }
+            }
+            $shopOptions[\Pase\Services\CourierShipping::MANUAL_SHOP] = 'Zamówienia dodane ręcznie w CRM';
+            $shopsSaved = array_map('strval', is_array($cfg['shops'] ?? null) ? $cfg['shops'] : []);
+        ?>
+            <label style="font-size:12px;color:#888;display:block;margin-top:16px">Używaj dla zamówień ze sklepów</label>
+            <div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">
+                <?php foreach ($shopOptions as $shopKey => $shopLabel): ?>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+                        <input type="checkbox" name="shops[]" value="<?= htmlspecialchars((string) $shopKey) ?>" <?= in_array((string) $shopKey, $shopsSaved, true) ? 'checked' : '' ?>>
+                        <span><?= htmlspecialchars($shopLabel) ?></span>
+                    </label>
+                <?php endforeach; ?>
+            </div>
+            <p style="color:#888;font-size:12px;margin:4px 0 0">Nic nie zaznaczone = wszystkie sklepy. Przy zamówieniu „Nadaj przez” pokaże to konto tylko dla zaznaczonych sklepów — np. dwa konta z różnymi danymi nadawcy dla dwóch sklepów.</p>
+        <?php endif; ?>
 
         <?php if ($type === 'woocommerce'): ?>
             <label style="font-size:12px;color:#888;display:block;margin-top:12px">Sekret webhooka</label>

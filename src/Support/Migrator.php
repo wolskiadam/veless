@@ -98,6 +98,11 @@ final class Migrator
         } catch (\Throwable $e) {
             Logger::warn('Auto-migracja: sklep zamówienia ręcznego - ' . $e->getMessage());
         }
+        try {
+            \Pase\Services\ManualOrders::detachReusedHistory($this->pdo);   // płatności PayU usuniętego zamówienia ręcznego z tym samym numerem
+        } catch (\Throwable $e) {
+            Logger::warn('Auto-migracja: numery zamówień ręcznych - ' . $e->getMessage());
+        }
         $this->backfillAllegroOrderItems();
         $this->clearStubInvoiceIds();
     }

@@ -17,7 +17,9 @@ use Pase\Support\Logger;
  * w wFirma, przesyłki, wydruki, wpłaty, scalanie i karta klienta działają bez zmian.
  *
  * Numery: woo_order_id z zakresu 8 000 000 001 - 8 999 999 999 (Woo ma małe numery, Allegro 9 000 000 000+),
- * numer zamówienia „R1”, „R2”... i zwykły kolejny numer CRM.
+ * numer zamówienia „R1”, „R2”... i zwykły kolejny numer CRM. Numer usuniętego zamówienia nigdy nie wraca:
+ * historia, płatności PayU, wiadomości itd. zostają po usunięciu pod jego woo_order_id, więc nowe zamówienie
+ * z tym samym numerem by je „przejęło” (nextId, detachReusedHistory).
  *
  * Sklep: przy dodaniu wybieramy, z którego sklepu jest zamówienie (woo_orders.manual_shop_id = id konta sklepu
  * z integration_accounts). Tylko w CRM - nic nie idzie do sklepu; decyduje np. o koncie kurierskim / nadawcy
@@ -31,6 +33,20 @@ final class ManualOrders
 {
     public const ID_MIN = 8_000_000_001;
     public const ID_MAX = 8_999_999_999;
+
+    /** Ostatni nadany woo_order_id zamówienia ręcznego (settings) - nie maleje po usunięciu zamówienia. */
+    private const LAST_ID_SETTING = 'MANUAL_ORDER_LAST_ID';
+    /** Jednorazowa naprawa numerów nadanych drugi raz przed tą poprawką (detachReusedHistory). */
+    private const REUSE_FIXED_SETTING = 'MANUAL_ORDER_REUSE_FIXED';
+
+    /** Tabele, w których po usunięciu zamówienia zostają wpisy z jego numerem (tabela => kolumna). */
+    private const HISTORY_TABLES = [
+        'audit_events' => 'order_id', 'payu_payment_links' => 'woo_order_id', 'payu_order_payments' => 'woo_order_id',
+        'payu_refunds' => 'woo_order_id', 'order_messages' => 'woo_order_id', 'shipments' => 'woo_order_id',
+        'order_documents' => 'woo_order_id', 'order_returns' => 'woo_order_id', 'email_log' => 'woo_order_id',
+    ];
+    /** Płatności PayU (created_at w czasie PHP, jak woo_orders.date_created zamówienia ręcznego). */
+    private const PAYU_TABLES = ['payu_payment_links', 'payu_order_payments', 'payu_refunds'];
 
     /** Metody płatności do wyboru w formularzu (klucz trafia do payment_method jak w Woo). */
     public const PAYMENT_METHODS = [
@@ -319,11 +335,10 @@ final class ManualOrders
     private function insertWithNewId(callable $insert): int
     {
         for ($attempt = 0; $attempt < 5; $attempt++) {
-            $st = $this->pdo->prepare('SELECT MAX(woo_order_id) FROM woo_orders WHERE woo_order_id BETWEEN ? AND ?');
-            $st->execute([self::ID_MIN, self::ID_MAX]);
-            $id = max(self::ID_MIN, (int) $st->fetchColumn() + 1) + $attempt;
+            $id = self::nextId($this->pdo) + $attempt;
             try {
                 $insert($id);
+                self::rememberId($this->pdo, $id);
                 return $id;
             } catch (\PDOException $e) {
                 if (!preg_match('/Duplicate|UNIQUE|PRIMARY/i', $e->getMessage())) {
@@ -332,6 +347,99 @@ final class ManualOrders
             }
         }
         throw new \RuntimeException('Nie udało się nadać numeru zamówienia - spróbuj jeszcze raz.');
+    }
+
+    /**
+     * Pierwszy numer, którego nie miało żadne zamówienie ręczne - także usunięte: patrzymy na istniejące zamówienia,
+     * zapamiętany ostatni numer i wpisy, które zostają po usunięciu (historia, PayU, wiadomości...).
+     */
+    public static function nextId(PDO $pdo): int
+    {
+        $max = (int) (new \Pase\Repository\SettingsRepository($pdo))->get(self::LAST_ID_SETTING, '0');
+        foreach (['woo_orders' => 'woo_order_id'] + self::HISTORY_TABLES as $table => $column) {
+            try {
+                $st = $pdo->prepare("SELECT MAX({$column}) FROM {$table} WHERE {$column} BETWEEN ? AND ?");
+                $st->execute([self::ID_MIN, self::ID_MAX]);
+                $max = max($max, (int) $st->fetchColumn());
+            } catch (\PDOException) {
+                // tabeli jeszcze nie ma - nic w niej nie zostało
+            }
+        }
+        return max(self::ID_MIN, $max + 1);
+    }
+
+    private static function rememberId(PDO $pdo, int $id): void
+    {
+        try {
+            $repo = new \Pase\Repository\SettingsRepository($pdo);
+            if ($id > (int) $repo->get(self::LAST_ID_SETTING, '0')) {
+                $repo->setMany([self::LAST_ID_SETTING => (string) $id]);
+            }
+        } catch (\Throwable $e) {
+            Logger::warn("Zamówienie ręczne #{$id}: nie zapamiętano ostatniego numeru: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Naprawa po starym błędzie: numer usuniętego zamówienia ręcznego dostało nowe zamówienie i pokazywało ono
+     * płatności PayU (i historię) starego. Płatności PayU utworzone, zanim obecne zamówienie w ogóle powstało,
+     * oraz historię sprzed jego założenia przenosimy pod nowy, nieużywany numer - nic nie jest usuwane.
+     * Uruchamiana raz (auto-migracja). @return array<int,int> stary numer => numer, pod który przeniesiono wpisy
+     */
+    public static function detachReusedHistory(PDO $pdo): array
+    {
+        $settings = new \Pase\Repository\SettingsRepository($pdo);
+        if ($settings->get(self::REUSE_FIXED_SETTING) === '1') {
+            return [];
+        }
+        $moved = [];
+        $st = $pdo->prepare('SELECT woo_order_id, date_created FROM woo_orders WHERE woo_order_id BETWEEN ? AND ? AND date_created IS NOT NULL ORDER BY woo_order_id');
+        $st->execute([self::ID_MIN, self::ID_MAX]);
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $order) {
+            $id = (int) $order['woo_order_id'];
+            $created = (string) $order['date_created'];
+            $stale = [];
+            foreach (self::PAYU_TABLES as $table) {
+                try {
+                    $c = $pdo->prepare("SELECT COUNT(*) FROM {$table} WHERE woo_order_id = ? AND created_at < ?");
+                    $c->execute([$id, $created]);
+                    if ((int) $c->fetchColumn() > 0) {
+                        $stale[] = $table;
+                    }
+                } catch (\PDOException) {
+                    // brak tabeli PayU
+                }
+            }
+            // Historia: wpisy sprzed ostatniego „założono ręcznie” należą do usuniętego zamówienia o tym numerze.
+            $cut = null;
+            try {
+                $a = $pdo->prepare("SELECT MAX(id) FROM audit_events WHERE order_id = ? AND action = 'order.created_manually'");
+                $a->execute([$id]);
+                $cut = (int) $a->fetchColumn() ?: null;
+                if ($cut !== null) {
+                    $a = $pdo->prepare('SELECT COUNT(*) FROM audit_events WHERE order_id = ? AND id < ?');
+                    $a->execute([$id, $cut]);
+                    $cut = (int) $a->fetchColumn() > 0 ? $cut : null;
+                }
+            } catch (\PDOException) {
+                $cut = null;
+            }
+            if ($stale === [] && $cut === null) {
+                continue;
+            }
+            $newId = self::nextId($pdo);
+            self::rememberId($pdo, $newId);
+            foreach ($stale as $table) {
+                $pdo->prepare("UPDATE {$table} SET woo_order_id = ? WHERE woo_order_id = ? AND created_at < ?")->execute([$newId, $id, $created]);
+            }
+            if ($cut !== null) {
+                $pdo->prepare('UPDATE audit_events SET order_id = ? WHERE order_id = ? AND id < ?')->execute([$newId, $id, $cut]);
+            }
+            $moved[$id] = $newId;
+            Logger::info("Zamówienie ręczne R" . ($id - self::ID_MIN + 1) . ": wpisy usuniętego zamówienia o tym samym numerze przeniesiono pod #{$newId}", ['tables' => $stale, 'history' => $cut !== null]);
+        }
+        $settings->setMany([self::REUSE_FIXED_SETTING => '1']);
+        return $moved;
     }
 
     /** Zdejmuje sprzedane sztuki ze stanu w CRM (i wpisanego stanu faktycznego) i kolejkuje wysłanie stanu do sklepu. */

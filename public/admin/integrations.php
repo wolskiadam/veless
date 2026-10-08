@@ -42,7 +42,7 @@ foreach (\Pase\Plugin\PluginRegistry::manifests() as $mf) {
 $catalog = []; // [ katKey => [ {type,name,icon,color,desc}, ... ] ]
 foreach (\Pase\Plugin\PluginRegistry::manifests() as $m) {
     $catalog[$m->categoryKey()][] = [
-        'type' => $m->type, 'name' => $m->name, 'icon' => $m->icon,
+        'type' => $m->type, 'name' => $m->name, 'icon' => $m->iconHtml('1em'),
         'color' => $m->color, 'desc' => $m->description,
     ];
 }

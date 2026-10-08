@@ -37,7 +37,7 @@ foreach (PluginRegistry::all() as $plugin) {
     if ($items === []) {
         continue;
     }
-    $groups[$manifest->name] = ['icon' => $manifest->icon, 'color' => $manifest->color, 'items' => $items];
+    $groups[$manifest->name] = ['icon' => $manifest->iconHtml(), 'color' => $manifest->color, 'items' => $items];
 }
 
 ksort($groups);
@@ -62,7 +62,7 @@ require __DIR__ . '/header.php';
 
 <?php foreach ($groups as $groupName => $g): ?>
     <div class="card">
-        <strong style="font-size:15px"><?= htmlspecialchars($g['icon']) ?> <?= htmlspecialchars($groupName) ?></strong>
+        <strong style="font-size:15px"><?= $g['icon'] ?> <?= htmlspecialchars($groupName) ?></strong>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:12px">
             <?php foreach ($g['items'] as $it): $cnt = $counts[$it['url']] ?? null; ?>
                 <a href="<?= htmlspecialchars($it['url']) ?>" class="tpl-card">

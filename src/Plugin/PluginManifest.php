@@ -52,6 +52,21 @@ final class PluginManifest
         public readonly string $logo = ''
     ) {}
 
+    /**
+     * Ikona do HTML: logo z manifestu (znacznik <svg>) w rozmiarze $size, a bez logo - emoji z $icon.
+     * Logo to kod wtyczki (nie dane od użytkownika), wstawiane jak w Services\OrderChannelIcons::sourceLogo().
+     */
+    public function iconHtml(string $size = '1.25em'): string
+    {
+        $logo = trim($this->logo);
+        if ($logo !== '' && str_starts_with($logo, '<svg')) {
+            $style = 'width:' . $size . ';height:' . $size . ';display:inline-block;vertical-align:-0.25em;flex-shrink:0';
+            return '<span class="plugin-logo" style="' . htmlspecialchars($style) . '">'
+                . preg_replace('/^<svg\b/', '<svg width="100%" height="100%"', $logo, 1) . '</span>';
+        }
+        return htmlspecialchars($this->icon);
+    }
+
     public function hasCapability(string $cap): bool
     {
         return in_array($cap, $this->capabilities, true);

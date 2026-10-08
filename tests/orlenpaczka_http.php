@@ -143,6 +143,9 @@ try {
     $boss = login('boss');
     $page = request($boss, 'admin/order_view.php?id=501');
     ok($page['status'] === 200 && str_contains($page['body'], 'data-integration="2"') && str_contains($page['body'], 'Nadaj przez ORLEN Paczka'), 'Order page offers ORLEN Paczka in „Nadaj przez"');
+    ok(str_contains($page['body'], 'class="plugin-logo"') && str_contains($page['body'], 'fill="#db3830"') && !str_contains($page['body'], '📦 Nadaj przez'), 'ORLEN Paczka logo instead of the box emoji on the send button');
+    $gallery = request($boss, 'admin/integrations.php');
+    ok($gallery['status'] === 200 && preg_match('/integration_edit\.php\?type=orlenpaczka.*?<span class="ip-icon"[^>]*><span class="plugin-logo"/s', $gallery['body']) === 1, 'ORLEN Paczka logo in the integrations gallery');
     ok(str_contains($page['body'], 'class="cp-point"') && str_contains($page['body'], 'id="cp-points-2"'), 'Pickup point field in the courier form');
     preg_match('/var CSRF = "([a-f0-9]+)"/', $page['body'], $m);
     $csrf = $m[1] ?? '';

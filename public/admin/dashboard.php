@@ -56,7 +56,7 @@ require __DIR__ . '/header.php';
         ?>
             <tr>
                 <td><a href="integration_edit.php?id=<?= (int) $acc['id'] ?>"><?= htmlspecialchars((string) ($acc['name'] ?: ($mf->name ?? $acc['type']))) ?></a></td>
-                <td style="color:#666"><?= htmlspecialchars(trim(($mf->icon ?? '') . ' ' . ($mf->name ?? $acc['type']))) ?></td>
+                <td style="color:#666"><?= $mf !== null ? $mf->iconHtml() . ' ' : '' ?><?= htmlspecialchars((string) ($mf->name ?? $acc['type'])) ?></td>
                 <td>
                     <?php if (!$active): ?>
                         <span class="pill muted">wyłączona</span>

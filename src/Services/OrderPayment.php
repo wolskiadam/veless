@@ -112,9 +112,15 @@ final class OrderPayment
         }
         $amount = (float) $order['paid_amount'];
         $total ??= (float) ($order['paid_amount_total'] ?? 0);
-        if ($amount > 0 && $amount + 0.005 >= $total) {
+        if (self::coversTotal($amount, $total)) {
             return ['state' => 'ok', 'label' => 'payment_paid_manual', 'amount' => $amount, 'total' => $total];
         }
         return ['state' => 'warn', 'label' => $amount > 0 ? 'payment_partial' : 'payment_unpaid', 'amount' => $amount, 'total' => $total];
+    }
+
+    /** Wpłata pokrywa całość; przy zamówieniu za 0,00 wpis 0,00 też oznacza „opłacone”. */
+    public static function coversTotal(float $amount, float $total): bool
+    {
+        return $amount + 0.005 >= $total && ($amount > 0 || $total < 0.005);
     }
 }

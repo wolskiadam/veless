@@ -1933,7 +1933,7 @@ foreach ($absorbedOrders as $ab) {
             <tr><th>Zapłacono</th><td>
                 <?php
                     $paidShown = $manualPaid !== null ? $manualPaid['amount'] : ($paymentClass === 'ok' ? $groupTotal : 0.0);
-                    $paidTone = $paidShown > 0 && $paidShown + 0.005 >= $groupTotal ? 'ok' : ($paidShown > 0 ? 'warn' : 'bad');
+                    $paidTone = \Pase\Services\OrderPayment::coversTotal((float) $paidShown, (float) $groupTotal) ? 'ok' : ($paidShown > 0 ? 'warn' : 'bad');
                     $canEditPaid = canEdit() && $mergedTarget === null;
                 ?>
                 <div class="paid-row" id="paidView">

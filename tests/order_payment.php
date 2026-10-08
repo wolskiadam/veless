@@ -51,6 +51,9 @@ check($pay(1)['label'] === 'orders.indicator.payment_unpaid', '0.00 marks the or
 $svc->set(2, 0.0, 'Adam');
 check($pay(2)['label'] === 'orders.indicator.payment_cod', '0.00 on cash on delivery stays "za pobraniem"');
 
+check(OrderPayment::state(['paid_amount' => '0.00', 'paid_amount_total' => '0.00'])['state'] === 'ok', '0.00 paid on a 0.00 order = paid');
+check(OrderPayment::coversTotal(0.0, 0.0) && !OrderPayment::coversTotal(0.0, 10.0) && OrderPayment::coversTotal(10.0, 10.0), 'coversTotal');
+
 $svc->set(1, null, 'Adam');
 check($row(1)['paid_amount'] === null && $row(1)['paid_amount_at'] === null, 'reset clears the manual entry');
 check($pay(1)['label'] === 'orders.indicator.payment_unpaid', 'after reset the shop data decides again');

@@ -208,4 +208,38 @@ $svc->setShop($idShop, null);
 check(CourierShipping::servesShop($courier(['21']), $order($idShop)), 'manual order without a shop: any account');
 check(!CourierShipping::servesShop($courier(['20']), ['row' => ['integration_id' => 21], 'payload' => []]), 'shop order still filtered by integration_id');
 
+// --- Numer usuniętego zamówienia nie wraca; stare płatności PayU nie przechodzą na nowe zamówienie ---
+$wipe = $svc->create($svc->validate(['billing_first_name' => 'Ola', 'item_name' => ['Świeca'], 'item_price' => ['5'], 'item_qty' => ['1'], 'shop_id' => '21'])['order'], 'Adam');
+$pdo->prepare("INSERT INTO payu_payment_links (woo_order_id, integration_id, ext_order_id, amount, currency, description, expires_at, status, created_by, created_at)
+    VALUES (?, 3, 'crmpay-wipe', 500, 'PLN', 'x', '2099-01-01 00:00:00', 'NEW', 'Adam', ?)")->execute([$wipe, date('Y-m-d H:i:s')]);
+$repo = new \Pase\Repository\WooOrderRepository($pdo);
+$repo->setLifecycle($wipe, 'trashed');
+$pdo->exec('DELETE FROM settings');   // także bez zapamiętanego numeru (zamówienia usunięte przed poprawką)
+check($repo->purgeMany([$wipe]) === 1 && !$pdo->query("SELECT 1 FROM woo_orders WHERE woo_order_id = {$wipe}")->fetchColumn(), 'last manual order deleted');
+$after = $svc->create($svc->validate(['billing_first_name' => 'Ola', 'item_name' => ['Świeca'], 'item_price' => ['5'], 'item_qty' => ['1'], 'shop_id' => '21'])['order'], 'Adam');
+check($after === $wipe + 1 && $payu->links($after) === [], 'deleted order\'s number is not reused, its PayU link stays with it');
+$repo->setLifecycle($after, 'trashed');
+$repo->purgeMany([$after]);
+check($svc->create($svc->validate(['billing_first_name' => 'Ola', 'item_name' => ['Świeca'], 'item_price' => ['5'], 'item_qty' => ['1'], 'shop_id' => '21'])['order'], 'Adam') === $after + 1,
+    'another deletion: the next order still gets a new number');
+
+// Naprawa starego błędu: zamówienie dostało numer usuniętego i widzi jego link PayU oraz historię.
+$reused = $after + 1;
+$pdo->prepare("UPDATE woo_orders SET date_created = '2026-10-05 12:00:00' WHERE woo_order_id = ?")->execute([$reused]);
+$pdo->prepare("INSERT INTO payu_payment_links (woo_order_id, integration_id, ext_order_id, amount, currency, description, expires_at, status, created_by, created_at)
+    VALUES (?, 3, 'crmpay-old', 700, 'PLN', 'stary', '2099-01-01 00:00:00', 'NEW', 'Adam', '2026-09-28 10:00:00'),
+           (?, 3, 'crmpay-new', 500, 'PLN', 'nowy', '2099-01-01 00:00:00', 'NEW', 'Adam', '2026-10-05 12:30:00')")->execute([$reused, $reused]);
+$pdo->prepare("INSERT INTO audit_events (order_id, actor_name, action, before_json, after_json, created_at) VALUES (?, 'Adam', 'order.created_manually', '{}', '{}', '2026-09-28 08:00:00')")->execute([$reused]);
+$pdo->exec("UPDATE audit_events SET id = id + 100000 WHERE order_id = {$reused} AND created_at <> '2026-09-28 08:00:00'");   // stary wpis ma mniejsze id
+$moved = ManualOrders::detachReusedHistory($pdo);
+$newHome = $moved[$reused] ?? 0;
+check($newHome > $reused && !$pdo->query("SELECT 1 FROM woo_orders WHERE woo_order_id = {$newHome}")->fetchColumn(), 'stale records moved under an unused number');
+check(array_column($payu->links($reused), 'ext_order_id') === ['crmpay-new'] && (int) $pdo->query("SELECT COUNT(*) FROM payu_payment_links WHERE woo_order_id = {$newHome}")->fetchColumn() === 1,
+    'PayU link created before the order moved away (not deleted), own link stays');
+check((int) $pdo->query("SELECT COUNT(*) FROM audit_events WHERE order_id = {$reused} AND action = 'order.created_manually'")->fetchColumn() === 1
+    && (int) $pdo->query("SELECT COUNT(*) FROM audit_events WHERE order_id = {$newHome}")->fetchColumn() === 1, 'old history moved, own history stays');
+check(ManualOrders::detachReusedHistory($pdo) === [] && ManualOrders::nextId($pdo) === $newHome + 1, 'repair runs once; next order skips the moved number');
+$zero = $svc->create($svc->validate(['billing_first_name' => 'Ola', 'item_name' => ['Gratis'], 'item_price' => ['0'], 'item_qty' => ['1'], 'shop_id' => '21', 'paid' => '1'])['order'], 'Adam');
+check(OrderPayment::state($row($zero))['state'] === 'ok', 'order for 0.00 marked as paid');
+
 echo "\n{$checks} checks passed\n";

@@ -93,6 +93,11 @@ final class Migrator
         } catch (\Throwable $e) {
             Logger::warn('Auto-migracja: planowana data nadania - ' . $e->getMessage());
         }
+        try {
+            \Pase\Services\ManualOrders::migrate($this->pdo);   // woo_orders.manual_shop_id - sklep zamówienia dodanego ręcznie
+        } catch (\Throwable $e) {
+            Logger::warn('Auto-migracja: sklep zamówienia ręcznego - ' . $e->getMessage());
+        }
         $this->backfillAllegroOrderItems();
         $this->clearStubInvoiceIds();
     }

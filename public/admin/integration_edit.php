@@ -191,7 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['plugin_action'])) {
     if ($isCourierType) {
         $shopsPosted = $_POST['shops'] ?? [];
         $config['shops'] = array_values(array_filter(array_map('strval', is_array($shopsPosted) ? $shopsPosted : []),
-            static fn(string $s): bool => $s === \Pase\Services\CourierShipping::MANUAL_SHOP || ctype_digit($s)));
+            static fn(string $s): bool => ctype_digit($s)));
     }
 
     // Dane nadawcy + ulubieni kurierzy dla BLPaczka.
@@ -377,7 +377,8 @@ require __DIR__ . '/header.php';
         <?php endforeach; ?>
 
         <?php if ($isCourierType):
-            // Sklepy = konta z pobieraniem zamówień (WooCommerce, Allegro, TikTok Shop...) + zamówienia dodane w CRM.
+            // Sklepy = konta z pobieraniem zamówień (WooCommerce, Allegro, TikTok Shop...). Zamówienie dodane ręcznie
+            // liczy się do sklepu wybranego przy jego dodaniu (ManualOrders, woo_orders.manual_shop_id).
             $shopOptions = [];
             foreach ($repo->all() as $shopAcc) {
                 try {
@@ -389,7 +390,6 @@ require __DIR__ . '/header.php';
                     $shopOptions[(string) $shopAcc['id']] = ($shopAcc['name'] ?: $shopMf->name) . ' (' . $shopMf->name . ')';
                 }
             }
-            $shopOptions[\Pase\Services\CourierShipping::MANUAL_SHOP] = 'Zamówienia dodane ręcznie w CRM';
             $shopsSaved = array_map('strval', is_array($cfg['shops'] ?? null) ? $cfg['shops'] : []);
         ?>
             <label style="font-size:12px;color:#888;display:block;margin-top:16px">Używaj dla zamówień ze sklepów</label>
@@ -401,7 +401,7 @@ require __DIR__ . '/header.php';
                     </label>
                 <?php endforeach; ?>
             </div>
-            <p style="color:#888;font-size:12px;margin:4px 0 0">Nic nie zaznaczone = wszystkie sklepy. Przy zamówieniu „Nadaj przez” pokaże to konto tylko dla zaznaczonych sklepów — np. dwa konta z różnymi danymi nadawcy dla dwóch sklepów.</p>
+            <p style="color:#888;font-size:12px;margin:4px 0 0">Nic nie zaznaczone = wszystkie sklepy. Przy zamówieniu „Nadaj przez” pokaże to konto tylko dla zaznaczonych sklepów — np. dwa konta z różnymi danymi nadawcy dla dwóch sklepów. Zamówienie dodane ręcznie liczy się do sklepu wybranego przy jego dodaniu.</p>
         <?php endif; ?>
 
         <?php if ($type === 'woocommerce'): ?>

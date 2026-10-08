@@ -245,12 +245,12 @@ try {
     ok(empty($deny['ok']) && str_contains((string) $deny['message'], 'sklepu'), 'Sending through the other shop\'s account is refused');
     $ed = request($boss, 'admin/integration_edit.php?id=3');
     ok(str_contains($ed['body'], 'Używaj dla zamówień ze sklepów') && str_contains($ed['body'], 'name="shops[]" value="1"')
-        && str_contains($ed['body'], 'value="manual"'), 'Courier settings list the shops and manual orders');
+        && !str_contains($ed['body'], 'value="manual"'), 'Courier settings list the shops (no separate manual-orders option)');
     preg_match('/name="csrf" value="([a-f0-9]+)"/', $ed['body'], $m);
     request($boss, 'admin/integration_edit.php?id=3', ['csrf' => $m[1], 'type' => 'orlenpaczka', 'name' => 'ORLEN Klub', 'is_active' => '1',
         'shops' => ['1', 'manual', 'x; drop'], 'cfg_sender_company' => 'Klub Woskarzy', 'cfg_partner_id' => 'PARTNER01']);
     $acc3 = json_decode((string) $pdo->query('SELECT config FROM integration_accounts WHERE id = 3')->fetchColumn(), true);
-    ok($acc3['shops'] === ['1', 'manual'] && $acc3['sender_company'] === 'Klub Woskarzy', 'Shops saved (junk dropped)');
+    ok($acc3['shops'] === ['1'] && $acc3['sender_company'] === 'Klub Woskarzy', 'Shops saved (junk dropped)');
     ok(str_contains(request($boss, 'admin/order_view.php?id=501')['body'], 'data-integration="3"'), 'Account now offered for its shop');
     request($boss, 'admin/integration_edit.php?id=3', ['csrf' => $m[1], 'type' => 'orlenpaczka', 'name' => 'ORLEN Klub', 'is_active' => '1', 'cfg_partner_id' => 'PARTNER01']);
     $acc3 = json_decode((string) $pdo->query('SELECT config FROM integration_accounts WHERE id = 3')->fetchColumn(), true);

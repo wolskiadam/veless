@@ -12,6 +12,8 @@ spl_autoload_register(static function (string $class): void {
         require dirname(__DIR__) . '/integrations/' . strtolower($vendor) . '/' . str_replace('\\', '/', $rest) . '.php';
     }
 });
+if (!defined('PASE_ROOT')) { define('PASE_ROOT', dirname(__DIR__)); }
+use Pase\Services\CourierShipping;
 use Pase\Services\InvoiceData;
 use Pase\Services\ManualOrders;
 use Pase\Services\OrderPayment;
@@ -179,5 +181,31 @@ $payStatus = 'CANCELED';
 $payu->refreshOpenLinks();
 check($payu->refreshOpenLinks() === 0 && $payu->links($id2)[0]['payment_status'] === 'CANCELED', 'cancelled / expired link no longer refreshed');
 check((float) $row($id2)['paid_amount'] === 28.5, 'cancelled link does not change the payment');
+
+// --- Sklep zamówienia ręcznego (woo_orders.manual_shop_id) i konto kurierskie dla sklepu ---
+ManualOrders::migrate($pdo);
+ManualOrders::migrate($pdo);   // drugi raz bez błędu
+$pdo->exec("INSERT INTO integration_accounts (id, type, name, is_active, config) VALUES (20, 'woocommerce', 'AWiEN', 1, '{}'), (21, 'woocommerce', 'Klub Woskarzy', 1, '{}'), (22, 'woocommerce', 'Stary sklep', 0, '{}')");
+$shops = ManualOrders::shops($pdo);
+check(isset($shops[20], $shops[21]) && !isset($shops[22]) && !isset($shops[3]) && str_contains($shops[21], 'Klub Woskarzy'), 'shops = active order sources (no PayU, no inactive)');
+check(isset(ManualOrders::shops($pdo, 22)[22]), 'shop already on the order stays listed even when inactive');
+$shopPost = ['billing_first_name' => 'Ola', 'item_name' => ['Świeca'], 'item_price' => ['5'], 'item_qty' => ['1']];
+check(in_array('Wybierz sklep, z którego jest zamówienie.', $svc->validate($shopPost)['errors'], true), 'shop required when shops exist');
+check(in_array('Wybierz sklep, z którego jest zamówienie.', $svc->validate($shopPost + ['shop_id' => '3'])['errors'], true), 'non-shop account refused');
+$okShop = $svc->validate($shopPost + ['shop_id' => '21']);
+check($okShop['errors'] === [] && $okShop['order']['shop_id'] === 21, 'shop accepted');
+$idShop = $svc->create($okShop['order'], 'Adam');
+check((int) $row($idShop)['manual_shop_id'] === 21 && $row($idShop)['integration_id'] === null, 'shop saved, order stays CRM-only (integration_id NULL)');
+check($svc->setShop($idShop, 20) && (int) $row($idShop)['manual_shop_id'] === 20 && !$svc->setShop($idShop, 20), 'shop changed once, same value = no change');
+check(!$svc->setShop(55, 20), 'shop of a shop order cannot be changed');
+
+$courier = static fn(array $shopsCfg): array => ['config' => ['shops' => $shopsCfg]];
+$order = static fn(int $id): array => ['row' => $row($id), 'payload' => []];
+check(CourierShipping::servesShop($courier(['20']), $order($idShop)) && !CourierShipping::servesShop($courier(['21']), $order($idShop)), 'courier account follows the manual order\'s shop');
+check(CourierShipping::servesShop($courier([]), $order($idShop)), 'no shops ticked = every shop');
+check(CourierShipping::servesShop($courier(['manual']), ['row' => ['integration_id' => 21], 'payload' => []]), 'old "manual" value is ignored (= all shops)');
+$svc->setShop($idShop, null);
+check(CourierShipping::servesShop($courier(['21']), $order($idShop)), 'manual order without a shop: any account');
+check(!CourierShipping::servesShop($courier(['20']), ['row' => ['integration_id' => 21], 'payload' => []]), 'shop order still filtered by integration_id');
 
 echo "\n{$checks} checks passed\n";

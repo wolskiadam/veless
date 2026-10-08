@@ -152,6 +152,8 @@ nadaje się dalej przez „Wysyłam z Allegro”.
 - **Kilka sklepów, różni nadawcy:** każde konto kurierskie (ORLEN Paczka, BLPaczka…) ma pole „Używaj dla zamówień
   ze sklepów”. Dwa konta ORLEN Paczka z tym samym PartnerID i różnymi danymi nadawcy, każde przypisane do swojego
   sklepu, dają nadawcę zależny od sklepu zamówienia. Nic nie zaznaczone = konto dla wszystkich sklepów.
+  Zamówienie dodane ręcznie w CRM liczy się do sklepu wybranego przy jego dodaniu (pole „Sklep, z którego jest
+  zamówienie”, można je zmienić na stronie zamówienia).
 - **Uniwersalny Pusher** (webhook statusów, dokumentacja „Uniwersalny PUSHER” v1.1): przycisk „Włącz Uniwersalny
   Pusher” na stronie integracji rejestruje w ORLEN Paczka (`WebhookRegister`, autoryzacja `OAuth2StaticToken`) adres
   `{APP_BASE_URL}/webhook_plugin.php?a=<id konta>`. ORLEN wysyła tam każdą zmianę statusu paczki (JSON), a CRM od razu

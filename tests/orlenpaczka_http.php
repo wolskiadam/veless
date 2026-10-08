@@ -39,14 +39,14 @@ function login(string $user): CurlHandle {
 }
 
 $temp = sys_get_temp_dir() . '/crm-orlen-http-' . bin2hex(random_bytes(6));
-foreach (['public/admin/assets', 'config', 'storage/security', 'lang', 'integrations/orlenpaczka', 'integrations/allegro'] as $d) { mkdir("$temp/$d", 0700, true); }
+foreach (['public/admin/assets', 'config', 'storage/security', 'lang', 'integrations/orlenpaczka', 'integrations/allegro', 'integrations/woocommerce'] as $d) { mkdir("$temp/$d", 0700, true); }
 $process = null;
 try {
     file_put_contents("$temp/.env", "TOTP_REQUIRE_ADMIN=0\n");
     foreach (glob("$root/public/admin/*.php") as $f) { if (!in_array(basename($f), ['bootstrap_admin.php', 'db_admin.php'], true)) { copy($f, "$temp/public/admin/" . basename($f)); } }
     copy("$root/public/webhook_plugin.php", "$temp/public/webhook_plugin.php");
     foreach (glob("$root/public/admin/assets/*.js") as $f) { copy($f, "$temp/public/admin/assets/" . basename($f)); }
-    foreach (['orlenpaczka', 'allegro'] as $p) { foreach (glob("$root/integrations/{$p}/*.php") as $f) { copy($f, "$temp/integrations/{$p}/" . basename($f)); } }
+    foreach (['orlenpaczka', 'allegro', 'woocommerce'] as $p) { foreach (glob("$root/integrations/{$p}/*.php") as $f) { copy($f, "$temp/integrations/{$p}/" . basename($f)); } }
     foreach (glob("$root/lang/*.php") as $f) { copy($f, "$temp/lang/" . basename($f)); }
     file_put_contents("$temp/public/admin/bootstrap_admin.php", '<?php \Pase\Support\PagePermissions::migrate($pdo);');
 
@@ -235,6 +235,27 @@ try {
     ok(str_contains($off['body'], 'Pusher wyłączony') && $acc['pusher_active'] === '' && $acc['sender_city'] === 'Warszawa', 'Pusher off');
     ok(request($boss, 'admin/integration_edit.php?id=2', ['csrf' => 'zly', 'plugin_action' => 'pusher_on'])['status'] === 419
         && $calls()[count($calls()) - 1]['op'] === 'WebhookUnregister', 'Pusher action needs a valid CSRF token');
+
+    // --- Nadawca zależny od sklepu: konto kurierskie tylko dla wybranych sklepów ---
+    $pdo->prepare("INSERT INTO integration_accounts (id, type, name, is_active, config) VALUES (3, 'orlenpaczka', 'ORLEN Klub', 1, ?)")
+        ->execute([json_encode(['sender_company' => 'Klub Woskarzy', 'shops' => ['77']] + $orlenCfg)]);
+    $page = request($boss, 'admin/order_view.php?id=501');
+    ok(str_contains($page['body'], 'data-integration="2"') && !str_contains($page['body'], 'data-integration="3"'), 'Courier account set for another shop is not offered on this order');
+    $deny = request($boss, 'admin/courier_shipment.php', ['csrf' => $csrf, 'integration' => 3, 'woo_order_id' => 501, 'action' => 'services'])['json'];
+    ok(empty($deny['ok']) && str_contains((string) $deny['message'], 'sklepu'), 'Sending through the other shop\'s account is refused');
+    $ed = request($boss, 'admin/integration_edit.php?id=3');
+    ok(str_contains($ed['body'], 'Używaj dla zamówień ze sklepów') && str_contains($ed['body'], 'name="shops[]" value="1"')
+        && str_contains($ed['body'], 'value="manual"'), 'Courier settings list the shops and manual orders');
+    preg_match('/name="csrf" value="([a-f0-9]+)"/', $ed['body'], $m);
+    request($boss, 'admin/integration_edit.php?id=3', ['csrf' => $m[1], 'type' => 'orlenpaczka', 'name' => 'ORLEN Klub', 'is_active' => '1',
+        'shops' => ['1', 'manual', 'x; drop'], 'cfg_sender_company' => 'Klub Woskarzy', 'cfg_partner_id' => 'PARTNER01']);
+    $acc3 = json_decode((string) $pdo->query('SELECT config FROM integration_accounts WHERE id = 3')->fetchColumn(), true);
+    ok($acc3['shops'] === ['1', 'manual'] && $acc3['sender_company'] === 'Klub Woskarzy', 'Shops saved (junk dropped)');
+    ok(str_contains(request($boss, 'admin/order_view.php?id=501')['body'], 'data-integration="3"'), 'Account now offered for its shop');
+    request($boss, 'admin/integration_edit.php?id=3', ['csrf' => $m[1], 'type' => 'orlenpaczka', 'name' => 'ORLEN Klub', 'is_active' => '1', 'cfg_partner_id' => 'PARTNER01']);
+    $acc3 = json_decode((string) $pdo->query('SELECT config FROM integration_accounts WHERE id = 3')->fetchColumn(), true);
+    ok($acc3['shops'] === [], 'Nothing ticked = all shops');
+    $pdo->exec('DELETE FROM integration_accounts WHERE id = 3');
 
     $cancel = request($boss, 'admin/shipment_cancel.php', ['csrf' => $csrf, 'shipment' => $sh['id']])['json'];
     ok($cancel['ok'] && $pdo->query('SELECT status FROM shipments WHERE id = ' . (int) $sh['id'])->fetchColumn() === 'cancelled', 'Cancel through ORLEN Paczka');

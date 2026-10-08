@@ -55,6 +55,9 @@ final class CourierShipping
             if (method_exists($plugin, 'supportsOrder') && !$plugin->supportsOrder($order)) {
                 continue;
             }
+            if (!self::servesShop($acc, $order)) {
+                continue;
+            }
             $out[] = ['account' => $acc, 'plugin' => $plugin, 'name' => $mf->name, 'icon' => $mf->iconHtml(),
                       'color' => $mf->color, 'type' => $mf->type];
         }
@@ -62,6 +65,32 @@ final class CourierShipping
     }
 
     /** Wtyczka kurierska konta (albo null). */
+    /** Klucz sklepu w ustawieniu „Używaj dla zamówień ze sklepów”: zamówienia dodane w CRM (bez integracji). */
+    public const MANUAL_SHOP = 'manual';
+
+    /**
+     * Czy konto kurierskie obsługuje zamówienie z tego sklepu. config['shops'] = lista id kont sklepów
+     * (integration_accounts) i/lub MANUAL_SHOP; pusta lista = wszystkie sklepy. Dzięki temu np. dwa konta
+     * ORLEN Paczka z różnymi nadawcami mogą obsługiwać dwa sklepy.
+     * @param array<string,mixed> $account wiersz integration_accounts (z configiem)
+     * @param array{row:array,payload:array} $order
+     */
+    public static function servesShop(array $account, array $order): bool
+    {
+        $shops = $account['config']['shops'] ?? [];
+        if (!is_array($shops) || $shops === []) {
+            return true;
+        }
+        $shopId = (int) ($order['row']['integration_id'] ?? 0);
+        return in_array($shopId > 0 ? (string) $shopId : self::MANUAL_SHOP, array_map('strval', $shops), true);
+    }
+
+    /** Konto kurierskie po id (wiersz integration_accounts) albo null. */
+    public function account(int $integrationId): ?array
+    {
+        return (new IntegrationAccountRepository($this->pdo))->find($integrationId);
+    }
+
     public function pluginForAccount(int $integrationId): ?Courier
     {
         $acc = (new IntegrationAccountRepository($this->pdo))->find($integrationId);

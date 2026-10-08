@@ -29,6 +29,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $all = $repo->all();
 
+// Konta kurierskie: dla których sklepów działają i kto jest nadawcą - przy dwóch kontach tego samego
+// kuriera (np. dwa ORLEN Paczka dla dwóch sklepów) bez tego wyglądałyby identycznie.
+$shopNames = [];
+$courierTypes = [];
+foreach (\Pase\Plugin\PluginRegistry::manifests() as $mf) {
+    if ($mf->hasCapability(\Pase\Plugin\Capability::COURIER)) {
+        $courierTypes[$mf->type] = true;
+    }
+    if ($mf->hasCapability(\Pase\Plugin\Capability::ORDER_SOURCE)) {
+        foreach ($all as $acc) {
+            if ($acc['type'] === $mf->type) {
+                $shopNames[(string) $acc['id']] = trim((string) $acc['name']) !== '' ? (string) $acc['name'] : $mf->name;
+            }
+        }
+    }
+}
+$courierInfo = static function (array $acc) use ($shopNames): array {
+    $cfg = is_array($acc['config'] ?? null) ? $acc['config'] : [];
+    $shops = array_values(array_filter(array_map('strval', is_array($cfg['shops'] ?? null) ? $cfg['shops'] : []), 'ctype_digit'));
+    $names = array_values(array_filter(array_map(static fn(string $id): ?string => $shopNames[$id] ?? null, $shops)));
+    $sender = trim((string) ($cfg['sender_company'] ?? ''))
+        ?: trim(($cfg['sender_first_name'] ?? '') . ' ' . ($cfg['sender_last_name'] ?? ''))
+        ?: trim((string) ($cfg['sender']['name'] ?? ''));
+    return ['shops' => $shops === [] ? 'wszystkie sklepy' : ($names !== [] ? implode(', ', $names) : 'usunięty sklep'), 'sender' => $sender];
+};
+
 $typeLabels = ['woocommerce' => 'WooCommerce', 'wfirma' => 'wFirma', 'allegro' => 'Allegro', 'blpaczka' => 'BLPaczka'];
 $typeBadge  = ['woocommerce' => '#7f54b3', 'wfirma' => '#2aa9e0', 'allegro' => '#ff5a00', 'blpaczka' => '#16a34a'];
 // Pozostałe wtyczki: nazwa i kolor z manifestu.
@@ -82,6 +108,10 @@ require __DIR__ . '/header.php';
                 </td>
                 <td>
                     <strong><?= htmlspecialchars($i['name']) ?></strong>
+                    <?php if (isset($courierTypes[$i['type']])): $ci = $courierInfo($i); ?>
+                        <div class="it-sub">Sklepy: <?= htmlspecialchars($ci['shops']) ?></div>
+                        <?php if ($ci['sender'] !== ''): ?><div class="it-sub">Nadawca: <?= htmlspecialchars($ci['sender']) ?></div><?php endif; ?>
+                    <?php endif; ?>
                     <?php if (!$i['is_active']): ?><div><span class="pill muted">wyłączona</span></div><?php endif; ?>
                 </td>
                 <?php foreach (['in', 'out'] as $dir): ?>
@@ -160,6 +190,7 @@ require __DIR__ . '/header.php';
     .it-flow.off { background:#c9cdd3; color:#fff; }
     a.it-flow:hover { filter:brightness(1.12); }
     .it-none { color:#bbb; }
+    .it-sub { font-size:12px; color:#888; margin-top:2px; }
     .it-del { background:none; border:0; color:#8a8f98; cursor:pointer; padding:6px; border-radius:6px; vertical-align:middle; }
     .it-del:hover { color:#c0392b; background:#fdecea; }
     .it-legend { color:#888; font-size:12px; margin:12px 0 0; display:flex; flex-wrap:wrap; align-items:center; gap:6px; }

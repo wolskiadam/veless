@@ -252,6 +252,9 @@ try {
     $acc3 = json_decode((string) $pdo->query('SELECT config FROM integration_accounts WHERE id = 3')->fetchColumn(), true);
     ok($acc3['shops'] === ['1'] && $acc3['sender_company'] === 'Klub Woskarzy', 'Shops saved (junk dropped)');
     ok(str_contains(request($boss, 'admin/order_view.php?id=501')['body'], 'data-integration="3"'), 'Account now offered for its shop');
+    $list = request($boss, 'admin/integrations.php')['body'];
+    ok(str_contains($list, 'Sklepy: wszystkie sklepy') && preg_match('/ORLEN Klub<\/strong>\s*<div class="it-sub">Sklepy: [^<]+<\/div>\s*<div class="it-sub">Nadawca: Klub Woskarzy<\/div>/', $list) === 1,
+        'Integrations list shows shops and sender of each courier account');
     request($boss, 'admin/integration_edit.php?id=3', ['csrf' => $m[1], 'type' => 'orlenpaczka', 'name' => 'ORLEN Klub', 'is_active' => '1', 'cfg_partner_id' => 'PARTNER01']);
     $acc3 = json_decode((string) $pdo->query('SELECT config FROM integration_accounts WHERE id = 3')->fetchColumn(), true);
     ok($acc3['shops'] === [], 'Nothing ticked = all shops');

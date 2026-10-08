@@ -19,7 +19,9 @@ use Pase\Support\PickupPoint;
  *  - punkt odbioru: z zamówienia (WooCommerce / Allegro) albo wybrany z listy punktów ORLEN Paczka
  *    (lista pobierana raz dziennie i trzymana w storage/cache),
  *  - podjazd kuriera (opcjonalnie): GetAvailablePickups + CallPickupNew,
- *  - śledzenie: GiveMePackStatusFullHistoryList - rdzeń (Services\ShipmentTracking) woła trackWaybills().
+ *  - śledzenie: GiveMePackStatusFullHistoryList - rdzeń (Services\ShipmentTracking) woła trackWaybills(),
+ *  - Uniwersalny Pusher: ORLEN wysyła zmiany statusów na public/webhook_plugin.php (handleWebhook()),
+ *    włączany przyciskiem w Integracjach (adminActions() / adminAction(): WebhookRegister / Status / Unregister).
  *
  * Paczki z umowy Allegro (Allegro SMART) nadaje się przez „Wysyłam z Allegro" - metody Allegro
  * w API ORLEN Paczka są zastrzeżone dla Allegro (dokumentacja, rozdz. 2.14).
@@ -453,6 +455,287 @@ final class OrlenPaczkaPlugin extends AbstractPlugin implements Courier
         } catch (\Throwable) {
             return 0;
         }
+    }
+
+    // ================= Uniwersalny Pusher (webhook statusów) =================
+
+    /** Numer paczki w powiadomieniu testowym, które ORLEN wysyła po rejestracji Pushera. */
+    public const PUSH_TEST_PACK = '9999999999999';
+
+    /** Maks. długość NotificationUrl w WebhookRegister. */
+    public const PUSH_URL_MAX = 100;
+
+    /** Nazwy statusów ORLEN Paczka (dokumentacja API, rozdz. 7.3) - powiadomienie Pushera podaje sam numer. */
+    public const STATUS_NAMES = [
+        100 => 'W sortowni regionalnej', 110 => 'W transporcie do sortowni centralnej', 120 => 'W transporcie do punktu odbioru',
+        193 => 'Przekierowanie do automatu paczkowego', 195 => 'Przekierowanie do punktu', 200 => 'Zaawizowana do PwR',
+        201 => 'Anulowane awizo', 210 => 'Nadana w kiosku', 230 => 'W transporcie do ekspedycji z kiosku',
+        240 => 'W transporcie do ekspedycji u kuriera', 241 => 'W transporcie po magazynowaniu', 300 => 'W sortowni centralnej',
+        400 => 'W sortowni centralnej', 401 => 'W sortowni centralnej', 450 => 'W transporcie do ekspedycji z sortowni centralnej',
+        610 => 'Wydana kurierowi do doręczenia', 620 => 'Gotowa do odbioru', 653 => 'W ekspedycji',
+        660 => 'W transporcie do kiosku u kuriera', 665 => 'Przekazana do kiosku', 670 => 'Przekazana do punktu',
+        677 => 'Do nieczynnego kiosku', 679 => 'Niewydana kierowcy', 680 => 'W transporcie do kiosku', 681 => 'Do magazynowania',
+        685 => 'W transporcie do kiosku (DP)', 690 => 'W kiosku', 691 => 'Magazynowanie w punkcie', 695 => 'W kiosku – SMS wysłany',
+        696 => 'Magazynowanie w punkcie – SMS wysłany', 700 => 'W ekspedycji do sortowni centralnej',
+        708 => 'Magazynowanie w punkcie – nieodebrana', 709 => 'Powrót – nieodebrana w terminie', 710 => 'Utracona/Poszukiwana',
+        711 => 'Przesyłka w weryfikacji', 712 => 'Zatrzymana', 714 => 'Nieczynny punkt', 729 => 'Powrót – niepoprawny kiosk',
+        739 => 'Nie przekazano do kiosku', 749 => 'Reklamacja', 750 => 'Zwrot do nadawcy', 780 => 'Brak możliwości doręczenia do punktu',
+        790 => 'Zwrot do ekspedycji', 800 => 'Zwrot do sortowni', 888 => 'Archiwizacja', 900 => 'Zwrot do nadawcy',
+        999 => 'Zniszczona – zagubiona', 1000 => 'Odebrana przez klienta', 1100 => 'Odebrana', 1200 => 'Odebrana – zwrot',
+        1220 => 'Zwrot do nadawcy', 2000 => 'Likwidacja',
+    ];
+
+    /** Czy ORLEN Paczka sama przysyła zmiany statusów (Pusher włączony w Integracjach). */
+    public function pushActive(): bool
+    {
+        return (string) $this->cfg('pusher_active', '') === '1' && (string) $this->cfg('pusher_token', '') !== '';
+    }
+
+    /**
+     * Powiadomienie Uniwersalnego Pushera (rdzeń: public/webhook_plugin.php?a=<id konta>).
+     * Treść: {"PackCode":1234567890123,"PackCodePrev":null,"Status":"200","Updated":"2025-06-26T01:02:03.225694","Operator":"ORLEN-PACZKA"}.
+     * HTTP 200 = przyjęte; inny kod = ORLEN ponowi powiadomienie za 5 minut (dokumentacja Pushera, rozdz. 5.3).
+     * @param array{method:string,headers:array<string,string>,query:array<string,mixed>,body:string,account_id:int} $request
+     * @return array{status:int,body:string}
+     */
+    public function handleWebhook(array $request, \PDO $pdo): array
+    {
+        if (strtoupper((string) ($request['method'] ?? '')) !== 'POST') {
+            return ['status' => 405, 'body' => 'POST only'];
+        }
+        $token = (string) $this->cfg('pusher_token', '');
+        if ($token === '' || !hash_equals($token, self::requestToken($request))) {
+            Logger::warn('ORLEN Paczka Pusher: powiadomienie bez poprawnego tokenu - odrzucone', ['account' => $request['account_id'] ?? 0]);
+            return ['status' => 401, 'body' => 'unauthorized'];
+        }
+        $data = json_decode((string) ($request['body'] ?? ''), true, 8, JSON_BIGINT_AS_STRING);
+        if (!is_array($data) || !isset($data['PackCode'], $data['Status'])) {
+            Logger::warn('ORLEN Paczka Pusher: nieczytelne powiadomienie', ['body' => mb_substr((string) ($request['body'] ?? ''), 0, 300)]);
+            return ['status' => 400, 'body' => 'bad payload'];
+        }
+        $pack = self::packCode($data['PackCode']);
+        $prev = self::packCode($data['PackCodePrev'] ?? null);
+        [$trans, $attr] = self::splitStatus((string) $data['Status']);
+        $updated = (string) ($data['Updated'] ?? '');
+        Logger::info('ORLEN Paczka Pusher: ' . $pack . ' status ' . $data['Status'], ['prev' => $prev, 'updated' => $updated]);
+
+        $matched = 0;
+        if ($pack !== self::PUSH_TEST_PACK) {
+            $code = self::statusCode($trans, $attr);
+            if ($code !== null) {
+                $event = ['code' => $code, 'description' => self::statusName($trans, $attr), 'occurredAt' => self::eventTime($updated)];
+                $matched = \Pase\Services\ShipmentTracking::applyPush($pdo, self::CARRIER, $pack, $event);
+                // Zwrot operacyjny (POWROT) może mieć nowy numer - wtedy dopasowujemy po numerze pierwotnej paczki.
+                if ($matched === 0 && $prev !== '' && in_array($attr, ['POWROT', '2_POWROT'], true)) {
+                    $matched = \Pase\Services\ShipmentTracking::applyPush($pdo, self::CARRIER, $prev, $event);
+                }
+            }
+        }
+        $this->rememberPush($pdo, (int) ($request['account_id'] ?? 0), [
+            'at' => date('c'), 'pack' => $pack, 'status' => (string) $data['Status'], 'matched' => $matched,
+        ]);
+        return ['status' => 200, 'body' => 'ok'];
+    }
+
+    /** Token z nagłówka Authorization (Bearer albo hasło Basic) albo z parametru k w adresie. */
+    public static function requestToken(array $request): string
+    {
+        $auth = '';
+        foreach ($request['headers'] ?? [] as $name => $value) {
+            if (strtolower((string) $name) === 'authorization') {
+                $auth = trim((string) $value);
+            }
+        }
+        if (preg_match('/^Bearer\s+(\S+)$/i', $auth, $m)) {
+            return $m[1];
+        }
+        if (preg_match('/^Basic\s+(\S+)$/i', $auth, $m)) {
+            $pair = (string) base64_decode($m[1], true);
+            return str_contains($pair, ':') ? substr($pair, strpos($pair, ':') + 1) : '';
+        }
+        $k = $request['query']['k'] ?? '';
+        return is_string($k) ? $k : '';
+    }
+
+    /** „1000", „100_POWROT", „100_2_POWROT", „100_ZWROT" -> [1000, ''], [100, 'POWROT']... */
+    public static function splitStatus(string $status): array
+    {
+        $status = strtoupper(trim($status));
+        if (!preg_match('/^(\d+)(?:_(.+))?$/', $status, $m)) {
+            return [0, ''];
+        }
+        return [(int) $m[1], (string) ($m[2] ?? '')];
+    }
+
+    private static function statusName(int $trans, string $attr): string
+    {
+        $name = self::STATUS_NAMES[$trans] ?? ('Status ' . $trans);
+        return match ($attr) {
+            'POWROT', '2_POWROT' => $name . ' (powrót do nadawcy)',
+            'ZWROT'              => $name . ' (zwrot konsumencki)',
+            default              => $name,
+        };
+    }
+
+    /** Numer paczki z JSON (liczba albo tekst; null = brak). */
+    private static function packCode(mixed $v): string
+    {
+        if ($v === null || is_array($v) || is_bool($v)) {
+            return '';
+        }
+        if (is_float($v)) {
+            return number_format($v, 0, '', '');
+        }
+        return preg_replace('/\D/', '', (string) $v) ?? '';
+    }
+
+    private function rememberPush(\PDO $pdo, int $accountId, array $info): void
+    {
+        if ($accountId <= 0) {
+            return;
+        }
+        try {
+            (new \Pase\Repository\SettingsRepository($pdo))->setMany(['ORLENPACZKA_PUSH_LAST_' . $accountId => json_encode($info, JSON_UNESCAPED_UNICODE)]);
+        } catch (\Throwable $e) {
+            Logger::warn('ORLEN Paczka Pusher: nie zapisano znacznika ostatniego powiadomienia: ' . $e->getMessage());
+        }
+    }
+
+    /** Ostatnie powiadomienie Pushera dla konta (do panelu integracji). */
+    public static function lastPush(\PDO $pdo, int $accountId): ?array
+    {
+        try {
+            $raw = (new \Pase\Repository\SettingsRepository($pdo))->get('ORLENPACZKA_PUSH_LAST_' . $accountId);
+        } catch (\Throwable) {
+            return null;
+        }
+        $v = $raw !== null ? json_decode($raw, true) : null;
+        return is_array($v) ? $v : null;
+    }
+
+    /**
+     * Adres powiadomień: {APP_BASE_URL}/webhook_plugin.php?a=<id konta>, z tokenem w parametrze k, jeśli zmieści się
+     * w limicie 100 znaków (token idzie też w nagłówku Authorization; parametr ratuje hostingi, które ucinają ten nagłówek).
+     */
+    public static function pusherUrl(string $baseUrl, int $accountId, string $token): string
+    {
+        $url = rtrim(trim($baseUrl), '/') . '/webhook_plugin.php?a=' . $accountId;
+        $withToken = $url . '&k=' . $token;
+        return strlen($withToken) <= self::PUSH_URL_MAX ? $withToken : $url;
+    }
+
+    // ----- Panel integracji (rdzeń: public/admin/integration_edit.php) -----
+
+    /** Przyciski pod formularzem integracji: akcja => etykieta. */
+    public function adminActions(): array
+    {
+        return $this->pushActive()
+            ? ['pusher_status' => 'Sprawdź Pusher w ORLEN Paczka', 'pusher_on' => 'Zarejestruj Pusher ponownie', 'pusher_off' => 'Wyłącz Pusher']
+            : ['pusher_on' => '⚡ Włącz Uniwersalny Pusher'];
+    }
+
+    /**
+     * Opis stanu Pushera nad przyciskami. @param array{account_id:int,base_url:string,pdo:\PDO,local:bool} $ctx
+     * @return string[] akapity (tekst)
+     */
+    public function adminInfo(array $ctx): array
+    {
+        $lines = ['Uniwersalny Pusher: ORLEN Paczka sama wysyła do CRM każdą zmianę statusu paczki, więc etap przesyłki zmienia się od razu, '
+            . 'a CRM nie musi co chwilę pytać o statusy (sprawdza je już tylko co ' . \Pase\Services\ShipmentTracking::PUSH_RECHECK_HOURS . ' godz. na wszelki wypadek).'];
+        if (!$this->pushActive()) {
+            $lines[] = 'Stan: wyłączony. Zmiany statusów CRM pobiera z harmonogramu „Śledzenie przesyłek”.';
+            return $lines;
+        }
+        $lines[] = 'Stan: włączony. Adres powiadomień: ' . self::maskToken((string) $this->cfg('pusher_url', '')) . '.';
+        $last = self::lastPush($ctx['pdo'], (int) $ctx['account_id']);
+        if ($last === null) {
+            $lines[] = 'Nie przyszło jeszcze żadne powiadomienie od ORLEN Paczka.';
+        } else {
+            $when = date('Y-m-d H:i', strtotime((string) $last['at']) ?: time());
+            $lines[] = 'Ostatnie powiadomienie: ' . $when . ' — '
+                . (($last['pack'] ?? '') === self::PUSH_TEST_PACK ? 'testowe (paczka 9999999999999).'
+                    : 'paczka ' . $last['pack'] . ', status ' . $last['status'] . ((int) ($last['matched'] ?? 0) > 0 ? '.' : ' (nie ma jej w CRM).'));
+        }
+        return $lines;
+    }
+
+    /**
+     * Akcja z panelu integracji. $ctx['save'] zapisuje config konta (fn(array $config): void).
+     * @param array{account_id:int,base_url:string,pdo:\PDO,local:bool,save:callable} $ctx
+     * @return array{ok:bool,message:string}
+     */
+    public function adminAction(string $action, array $ctx): array
+    {
+        if (trim((string) $this->cfg('partner_id', '')) === '' || trim((string) $this->cfg('partner_key', '')) === '') {
+            return ['ok' => false, 'message' => 'Najpierw wpisz i zapisz PartnerID i PartnerKey.'];
+        }
+        $config = $this->config;
+        switch ($action) {
+            case 'pusher_on':
+                $base = trim((string) ($ctx['base_url'] ?? ''));
+                if (!empty($ctx['local'])) {
+                    return ['ok' => false, 'message' => 'CRM działa w trybie lokalnym (na tym komputerze) — ORLEN Paczka nie ma jak wysłać do niego powiadomień. Statusy pobiera harmonogram.'];
+                }
+                if (!preg_match('#^https?://#i', $base) || str_contains($base, 'twojsklep.pl')) {
+                    return ['ok' => false, 'message' => 'Ustaw adres CRM (APP_BASE_URL) w Konfiguracji — na niego ORLEN Paczka wyśle powiadomienia.'];
+                }
+                $token = (string) ($config['pusher_token'] ?? '');
+                if (!preg_match('/^[a-f0-9]{24}$/', $token)) {
+                    $token = bin2hex(random_bytes(12));
+                }
+                $url = self::pusherUrl($base, (int) $ctx['account_id'], $token);
+                if (strlen($url) > self::PUSH_URL_MAX) {
+                    return ['ok' => false, 'message' => 'Adres powiadomień jest dłuższy niż 100 znaków, a tyle przyjmuje ORLEN Paczka: ' . $url];
+                }
+                // Token zapisujemy PRZED rejestracją: ORLEN od razu wysyła powiadomienie testowe i musi przejść autoryzację.
+                $config['pusher_token'] = $token;
+                ($ctx['save'])($config);
+                $r = $this->client()->webhookRegister($url, $token);
+                if (!$r['ok']) {
+                    $config['pusher_active'] = '';
+                    ($ctx['save'])($config);
+                    return ['ok' => false, 'message' => 'ORLEN Paczka nie zarejestrowała Pushera: ' . $r['message']];
+                }
+                $status = (string) ($r['pusher']['Status'] ?? '');
+                $config['pusher_active'] = '1';
+                $config['pusher_url'] = $url;
+                ($ctx['save'])($config);
+                return ['ok' => true, 'message' => 'Pusher włączony' . ($status !== '' ? ' (status w ORLEN Paczka: ' . $status . ')' : '')
+                    . '. ORLEN Paczka wyśle teraz powiadomienie testowe — odśwież stronę, by zobaczyć, czy dotarło.'
+                    . (str_starts_with(strtolower($url), 'http://') ? ' Uwaga: adres CRM nie używa HTTPS, ORLEN zaleca HTTPS.' : '')];
+
+            case 'pusher_status':
+                $r = $this->client()->webhookStatus();
+                if (!$r['ok']) {
+                    return ['ok' => false, 'message' => 'Nie udało się sprawdzić Pushera: ' . $r['message']];
+                }
+                $p = $r['pusher'];
+                $status = (string) ($p['Status'] ?? '');
+                if ($status !== '' && strcasecmp($status, 'Active') !== 0 && ($config['pusher_active'] ?? '') === '1') {
+                    $config['pusher_active'] = '';
+                    ($ctx['save'])($config);
+                }
+                return ['ok' => strcasecmp($status, 'Active') === 0,
+                        'message' => 'Pusher w ORLEN Paczka: ' . ($status !== '' ? $status : 'brak danych')
+                            . (($p['Annotation'] ?? '') !== '' ? ' — ' . $p['Annotation'] : '')
+                            . (($p['NotificationUrl'] ?? '') !== '' ? '. Adres: ' . self::maskToken((string) $p['NotificationUrl']) : '') . '.'];
+
+            case 'pusher_off':
+                $r = $this->client()->webhookUnregister();
+                if (!$r['ok']) {
+                    return ['ok' => false, 'message' => 'ORLEN Paczka nie wyłączyła Pushera: ' . $r['message']];
+                }
+                $config['pusher_active'] = '';
+                ($ctx['save'])($config);
+                return ['ok' => true, 'message' => 'Pusher wyłączony. Statusy paczek znów pobiera harmonogram „Śledzenie przesyłek”.'];
+        }
+        return ['ok' => false, 'message' => 'Nieznana akcja.'];
+    }
+
+    /** Adres bez tokenu (do wyświetlenia w panelu). */
+    private static function maskToken(string $url): string
+    {
+        return preg_replace('/([?&]k=)[^&]+/', '$1•••', $url) ?? $url;
     }
 
     // ================= Punkty odbioru =================

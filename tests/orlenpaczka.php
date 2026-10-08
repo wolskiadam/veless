@@ -237,5 +237,104 @@ check($tr['waybills']['2100012345678'][1] === ['code' => 'AVAILABLE_FOR_PICKUP',
 $x->loadXML($calls[0]['xml']);
 check($x->getElementsByTagNameNS('*', 'string')->length === 2, 'Jedno zapytanie dla wielu paczek');
 
+// --- Uniwersalny Pusher: rejestracja, status, wyłączenie ---
+$hook = static fn(string $op, string $status, string $err = '0', string $des = '') => soap($op, "<{$op}Result><Err>{$err}</Err><ErrDes>{$des}</ErrDes><Data><PartnerID>PARTNER01</PartnerID>"
+    . "<Status>{$status}</Status><Annotation>Webhook {$status}</Annotation><AuthorizationType>OAuth2StaticToken</AuthorizationType><UserName /><Password>sekret-token</Password>"
+    . "<NotificationUrl>https://crm.example.com/webhook_plugin.php?a=7&amp;k=abc</NotificationUrl></Data></{$op}Result>");
+$responses['WebhookRegister'] = $hook('WebhookRegister', 'Active');
+$calls = [];
+$r = $plugin->client()->webhookRegister('https://crm.example.com/webhook_plugin.php?a=7', 'tok123');
+check($r['ok'] && $r['pusher']['Status'] === 'Active' && !isset($r['pusher']['Password']), 'WebhookRegister: status z odpowiedzi, token nie wraca');
+$x = new DOMDocument();
+$x->loadXML($calls[0]['xml']);
+$val = static fn(string $n) => $x->getElementsByTagNameNS('*', $n)->item(0)?->textContent;
+check($val('AuthorizationType') === 'OAuth2StaticToken' && $val('Password') === 'tok123' && $val('NotificationUrl') === 'https://crm.example.com/webhook_plugin.php?a=7'
+    && $val('PartnerID') === 'PARTNER01', 'WebhookRegister: token statyczny (Bearer) i adres powiadomień');
+$responses['WebhookRegister'] = $hook('WebhookRegister', '', '12', 'Endpoint returned 401');
+check(!$plugin->client()->webhookRegister('https://x', 't')['ok'], 'WebhookRegister: błąd z ErrDes');
+$responses['WebhookStatus'] = $hook('WebhookStatus', 'Active');
+$responses['WebhookUnregister'] = $hook('WebhookUnregister', 'Unregistered');
+check($plugin->client()->webhookStatus()['pusher']['NotificationUrl'] === 'https://crm.example.com/webhook_plugin.php?a=7&k=abc', 'WebhookStatus: aktualny adres');
+check($plugin->client()->webhookUnregister()['pusher']['Status'] === 'Unregistered', 'WebhookUnregister');
+
+// --- Pusher: adres, token, status ---
+check(OrlenPaczkaPlugin::pusherUrl('https://klubwoskarzy.pl/crm/', 12, str_repeat('a', 24)) === 'https://klubwoskarzy.pl/crm/webhook_plugin.php?a=12&k=' . str_repeat('a', 24), 'Adres z tokenem w parametrze k');
+$longBase = 'https://' . str_repeat('x', 50) . '.pl/crm/public';
+check(OrlenPaczkaPlugin::pusherUrl($longBase, 12, str_repeat('a', 24)) === $longBase . '/webhook_plugin.php?a=12', 'Za długi adres: bez parametru k (token tylko w nagłówku)');
+check(OrlenPaczkaPlugin::requestToken(['headers' => ['Authorization' => 'Bearer abc']]) === 'abc', 'Token z nagłówka Bearer');
+check(OrlenPaczkaPlugin::requestToken(['headers' => ['authorization' => 'Basic ' . base64_encode('user:p:ss')]]) === 'p:ss', 'Token jako hasło Basic');
+check(OrlenPaczkaPlugin::requestToken(['headers' => [], 'query' => ['k' => 'zz']]) === 'zz' && OrlenPaczkaPlugin::requestToken([]) === '', 'Token z parametru k, brak tokenu');
+check(OrlenPaczkaPlugin::splitStatus('200') === [200, ''] && OrlenPaczkaPlugin::splitStatus('100_2_POWROT') === [100, '2_POWROT']
+    && OrlenPaczkaPlugin::splitStatus('1200_zwrot') === [1200, 'ZWROT'] && OrlenPaczkaPlugin::splitStatus('x') === [0, ''], 'Status z atrybutem');
+
+// --- Pusher: włączanie z panelu integracji ---
+$saved = [];
+$ctx = ['account_id' => 7, 'base_url' => 'https://crm.example.com', 'pdo' => null, 'local' => false,
+        'save' => static function (array $c) use (&$saved): void { $saved[] = $c; }];
+$seenToken = null;
+$responses['WebhookRegister'] = static function (string $xml) use (&$saved, &$seenToken, $hook): string {
+    $seenToken = end($saved)['pusher_token'] ?? null;   // co było zapisane w chwili rejestracji
+    return $hook('WebhookRegister', 'Active');
+};
+$calls = [];
+$r = $plugin->adminAction('pusher_on', $ctx);
+$cfgOn = end($saved);
+check($r['ok'] && $cfgOn['pusher_active'] === '1' && preg_match('/^[a-f0-9]{24}$/', $cfgOn['pusher_token']) === 1, 'Włącz Pusher: token wygenerowany, Pusher aktywny');
+check($seenToken === $cfgOn['pusher_token'], 'Token zapisany przed rejestracją (powiadomienie testowe przechodzi autoryzację)');
+check($cfgOn['pusher_url'] === 'https://crm.example.com/webhook_plugin.php?a=7&k=' . $cfgOn['pusher_token'] && str_contains($calls[0]['xml'], 'webhook_plugin.php?a=7&amp;k='), 'Adres powiadomień z id konta');
+$on = $plugin->withConfig($cfgOn);
+check($on->pushActive() && array_keys($on->adminActions()) === ['pusher_status', 'pusher_on', 'pusher_off'] && !$plugin->pushActive(), 'Przyciski zależą od stanu Pushera');
+$saved = [];
+$on->adminAction('pusher_on', $ctx);
+check(end($saved)['pusher_token'] === $cfgOn['pusher_token'], 'Ponowna rejestracja zostawia ten sam token');
+$responses['WebhookRegister'] = $hook('WebhookRegister', '', '12', 'Endpoint returned 401');
+$saved = [];
+$r = $plugin->adminAction('pusher_on', $ctx);
+check(!$r['ok'] && str_contains($r['message'], '401') && end($saved)['pusher_active'] === '', 'Odrzucona rejestracja: Pusher nieaktywny, błąd ORLEN w komunikacie');
+check(!$plugin->adminAction('pusher_on', ['local' => true] + $ctx)['ok'], 'Tryb lokalny: nie da się włączyć');
+check(!$plugin->adminAction('pusher_on', ['base_url' => 'https://twojsklep.pl/pase/public'] + $ctx)['ok'], 'Bez adresu CRM: nie da się włączyć');
+check(!(new OrlenPaczkaPlugin())->withConfig([])->adminAction('pusher_on', $ctx)['ok'], 'Bez PartnerID: nie da się włączyć');
+$responses['WebhookStatus'] = $hook('WebhookStatus', 'Unregistered');
+$saved = [];
+$r = $on->adminAction('pusher_status', $ctx);
+check(!$r['ok'] && str_contains($r['message'], 'Unregistered') && end($saved)['pusher_active'] === '' && str_contains($r['message'], 'k=•••'), 'Status: wyrejestrowany w ORLEN = wyłączony w CRM, token zamaskowany');
+$saved = [];
+check($on->adminAction('pusher_off', $ctx)['ok'] && end($saved)['pusher_active'] === '', 'Wyłącz Pusher');
+
+// --- Pusher: powiadomienie ---
+$db = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$db->exec('CREATE TABLE settings (setting_key TEXT PRIMARY KEY, setting_value TEXT)');
+$db->exec('CREATE TABLE shipments (id INTEGER PRIMARY KEY, woo_order_id INTEGER, integration_id INTEGER, courier_code TEXT, waybill_no TEXT, bl_order_id TEXT,
+    order_ref TEXT, price REAL, status TEXT, label_link TEXT, request_payload TEXT, response_payload TEXT, created_at TEXT, updated_at TEXT,
+    tracking_status TEXT, tracking_code TEXT, tracking_carrier TEXT, tracking_at TEXT, tracking_checked_at TEXT, tracking_events TEXT)');
+$db->exec("INSERT INTO shipments (id, integration_id, courier_code, waybill_no, status) VALUES (1, 7, 'ORLEN Paczka', '2100012345678', 'created')");
+$tok = $cfgOn['pusher_token'];
+$req = static fn(array $body, array $headers = []) => ['method' => 'POST', 'headers' => $headers + ['authorization' => 'Bearer ' . $tok], 'query' => [],
+    'body' => json_encode($body), 'account_id' => 7];
+$ev = static fn(string $status, string $updated, int $pack = 2100012345678, ?int $prev = null) => ['PackCode' => $pack, 'PackCodePrev' => $prev, 'Status' => $status, 'Updated' => $updated, 'Operator' => 'ORLEN-PACZKA'];
+$sh = static fn() => $db->query('SELECT * FROM shipments WHERE id = 1')->fetch(PDO::FETCH_ASSOC);
+check($on->handleWebhook($req($ev('200', '2000-01-01T00:00:00', 9999999999999)), $db)['status'] === 200 && OrlenPaczkaPlugin::lastPush($db, 7)['pack'] === '9999999999999', 'Powiadomienie testowe 9999999999999: 200 i zapamiętane');
+check($sh()['tracking_status'] === null, 'Powiadomienie testowe niczego nie zmienia');
+check($on->handleWebhook($req($ev('200', '2026-10-08T10:00:00'), ['authorization' => 'Bearer zly']), $db)['status'] === 401, 'Zły token: 401');
+check($plugin->handleWebhook($req($ev('200', '2026-10-08T10:00:00')), $db)['status'] === 401, 'Pusher bez tokenu w konfiguracji: 401');
+check($on->handleWebhook(['method' => 'GET'] + $req([]), $db)['status'] === 405, 'GET: 405');
+check($on->handleWebhook(['body' => 'nie json'] + $req([]), $db)['status'] === 400, 'Nieczytelna treść: 400');
+$r = $on->handleWebhook($req($ev('690', '2026-10-08T09:45:23.225694')), $db);
+$row = $sh();
+$evs = json_decode((string) $row['tracking_events'], true);
+check($r['status'] === 200 && $row['tracking_status'] === 'ready_for_pickup' && $row['tracking_carrier'] === 'ORLEN', 'Status 690: paczka czeka w punkcie');
+check($evs === [['at' => '2026-10-08T09:45:23+02:00', 'code' => 'AVAILABLE_FOR_PICKUP', 'desc' => 'W kiosku']], 'Zdarzenie z nazwą statusu i czasem polskim');
+$on->handleWebhook($req($ev('690', '2026-10-08T09:45:23.225694')), $db);
+check(count(json_decode((string) $sh()['tracking_events'], true)) === 1, 'Ponowione powiadomienie zapisane raz');
+$on->handleWebhook($req($ev('690_POWROT', '2026-10-15T08:00:00', 2100099999999, 2100012345678)), $db);
+$evs = json_decode((string) $sh()['tracking_events'], true);
+check($sh()['tracking_status'] === 'issue' && str_contains(end($evs)['desc'], 'powrót do nadawcy'), 'Powrót pod nowym numerem: dopasowany po numerze pierwotnym');
+$on->handleWebhook($req($ev('1200_ZWROT', '2026-10-16T08:00:00', 2100088888888, 2100012345678)), $db);
+check($sh()['tracking_status'] === 'issue', 'Zwrot konsumencki (osobna paczka) nie zmienia etapu wysyłki');
+$r = $on->handleWebhook($req($ev('1000', '2026-10-17T08:00:00', 2100077777777)), $db);
+check($r['status'] === 200 && OrlenPaczkaPlugin::lastPush($db, 7)['matched'] === 0, 'Nieznana paczka: 200, bez zmian');
+$r = $on->handleWebhook(['headers' => [], 'query' => ['k' => $tok]] + $req($ev('1000', '2026-10-16T12:00:00')), $db);
+check($r['status'] === 200 && $sh()['tracking_status'] === 'delivered', 'Token w parametrze k (serwer uciął nagłówek): odebrana');
+
 @unlink($tmpPoints);
 echo "\nAll $checks checks passed.\n";

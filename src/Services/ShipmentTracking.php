@@ -185,7 +185,7 @@ final class ShipmentTracking
 
         // Wtyczki kurierskie z własnym śledzeniem (np. ORLEN Paczka): ich paczki pytamy najpierw u nich,
         // a to, czego nie znają, idzie dalej zwykłą drogą (InPost / Allegro).
-        $rows = $this->trackOwn($rows, $now, $changed, $errors, $tried);
+        $rows = $this->trackOwn($rows, $now, $changed, $errors, $tried, $fallback);
 
         // Grupujemy po przewoźniku - jedno zapytanie obsługuje max 20 numerów jednego przewoźnika.
         $groups = [];
@@ -297,7 +297,7 @@ final class ShipmentTracking
      * @param array<int,string> $tried
      * @return array<int,array<string,mixed>>
      */
-    private function trackOwn(array $rows, string $now, int &$changed, array &$errors, array &$tried): array
+    private function trackOwn(array $rows, string $now, int &$changed, array &$errors, array &$tried, bool $onDemand = false): array
     {
         $trackers = $this->trackerPlugins();
         if ($trackers === []) {
@@ -313,8 +313,17 @@ final class ShipmentTracking
             }
             $byAccount[$acc][] = $sh;
         }
+        // Wtyczka, do której przewoźnik sam wysyła zmiany statusów (webhook, np. Uniwersalny Pusher ORLEN Paczka):
+        // w harmonogramie pytamy ją tylko co PUSH_RECHECK_HOURS (zabezpieczenie na zgubione powiadomienie).
+        $recheck = date('Y-m-d H:i:s', time() - self::PUSH_RECHECK_HOURS * 3600);
         foreach ($byAccount as $acc => $list) {
             $plugin = $trackers[$acc];
+            if (!$onDemand && method_exists($plugin, 'pushActive') && $plugin->pushActive()) {
+                $list = array_values(array_filter($list, static fn($s) => (string) ($s['tracking_checked_at'] ?? '') < $recheck));
+                if ($list === []) {
+                    continue;
+                }
+            }
             $carrier = (string) $plugin->trackingCarrier();
             try {
                 $res = $plugin->trackWaybills(array_map(static fn($s) => trim((string) $s['waybill_no']), $list));
@@ -532,6 +541,56 @@ final class ShipmentTracking
             }
         }
         return $isChange;
+    }
+
+    /** Co ile godzin harmonogram sprawdza paczki przewoźnika, który sam przysyła statusy (webhook). */
+    public const PUSH_RECHECK_HOURS = 6;
+
+    /**
+     * Status z powiadomienia przewoźnika (webhook, np. Uniwersalny Pusher ORLEN Paczka) dla paczki o numerze $waybill.
+     * Dopisuje zdarzenie do historii przesyłki (to samo zdarzenie drugi raz niczego nie zmienia) i, gdy zmienia się
+     * etap, uruchamia reguły 'shipment.status' - tak samo jak śledzenie z harmonogramu.
+     * @param array{code:string,description?:string,occurredAt:string} $event kod jak w śledzeniu Allegro (DELIVERED...)
+     * @return int ile przesyłek ma ten numer
+     */
+    public static function applyPush(PDO $pdo, string $carrier, string $waybill, array $event, ?array $allegroConfig = null): int
+    {
+        $w = self::normWaybill($waybill);
+        if ($w === '' || !isset(self::CODE_MAP[(string) ($event['code'] ?? '')])) {
+            return 0;
+        }
+        $stmt = $pdo->prepare("SELECT * FROM shipments WHERE status = 'created' AND UPPER(REPLACE(waybill_no, ' ', '')) = ?");
+        $stmt->execute([$w]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if ($rows === []) {
+            return 0;
+        }
+        if ($allegroConfig === null) {
+            try {
+                $allegroConfig = Runtime::config('allegro');
+            } catch (\Throwable) {
+                $allegroConfig = [];
+            }
+        }
+        $self = new self($pdo, new \stdClass(), $allegroConfig, null, []);
+        $now = date('Y-m-d H:i:s');
+        $new = ['code' => (string) $event['code'], 'description' => (string) ($event['description'] ?? ''), 'occurredAt' => (string) $event['occurredAt']];
+        foreach ($rows as $sh) {
+            $statuses = [];
+            $dup = false;
+            foreach (json_decode((string) ($sh['tracking_events'] ?? ''), true) ?: [] as $e) {
+                if (($e['code'] ?? '') === self::MANUAL) {
+                    continue;   // wpis „ustawiono ręcznie" nie jest statusem przewoźnika
+                }
+                $dup = $dup || (($e['at'] ?? '') === $new['occurredAt'] && ($e['code'] ?? '') === $new['code']);
+                $statuses[] = ['code' => (string) ($e['code'] ?? ''), 'description' => (string) ($e['desc'] ?? ''), 'occurredAt' => (string) ($e['at'] ?? '')];
+            }
+            if (!$dup) {
+                $statuses[] = $new;
+            }
+            $self->apply($sh, $carrier, ['waybill' => $sh['waybill_no'], 'trackingDetails' => ['statuses' => $statuses]], $now);
+        }
+        return count($rows);
     }
 
     /** Oznaczenie etapu ustawionego ręcznie (tracking_code). */

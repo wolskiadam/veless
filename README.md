@@ -149,6 +149,15 @@ nadaje się dalej przez „Wysyłam z Allegro”.
   (`GetAvailablePickups` + `CallPickupNew`, pierwszy wolny przedział od wybranego dnia).
 - **Śledzenie:** harmonogram i przycisk ↻ pytają ORLEN Paczka (`GiveMePackStatusFullHistoryList`) o paczki nadane
   przez wtyczkę i o paczki ORLEN wpisane ręcznie; czego ORLEN nie zna, sprawdzamy jak dotąd przez Allegro.
+- **Uniwersalny Pusher** (webhook statusów, dokumentacja „Uniwersalny PUSHER” v1.1): przycisk „Włącz Uniwersalny
+  Pusher” na stronie integracji rejestruje w ORLEN Paczka (`WebhookRegister`, autoryzacja `OAuth2StaticToken`) adres
+  `{APP_BASE_URL}/webhook_plugin.php?a=<id konta>`. ORLEN wysyła tam każdą zmianę statusu paczki (JSON), a CRM od razu
+  zmienia etap przesyłki i uruchamia reguły „Status przesyłki”. Token idzie w nagłówku `Authorization: Bearer` i, jeśli
+  adres zmieści się w 100 znakach, także w parametrze `k` (część hostingów ucina nagłówek). Powtórzone powiadomienie
+  zapisuje się raz; błąd bazy zwraca kod ≠ 200, więc ORLEN ponowi je za 5 minut. Przy włączonym Pusherze harmonogram
+  sprawdza paczki ORLEN już tylko co 6 godzin (na wypadek zgubionego powiadomienia), przycisk ↻ działa jak zawsze.
+  Na stronie integracji widać ostatnie powiadomienie; są też przyciski „Sprawdź Pusher” (`WebhookStatus`) i
+  „Wyłącz Pusher” (`WebhookUnregister`). Nie działa w trybie lokalnym (ORLEN nie ma jak dotrzeć do komputera).
 - Nie obsługujemy: zwrotów konsumenckich, nadania bez etykiety (kod nadania), protokołu przekazania.
   COD i ubezpieczenie ORLEN Paczka wycofała — wtyczka ich nie wysyła.
 

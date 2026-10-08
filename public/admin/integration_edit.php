@@ -120,8 +120,32 @@ $allegroSettingsMap = [
     'app_url'       => 'ALLEGRO_APP_URL',
 ];
 
+// --- Akcje wtyczki (przyciski z adminActions(), np. włączenie Pushera ORLEN Paczka) ---
+$pluginActionResult = null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['plugin_action']) && $id && $existing) {
+    csrfCheck();
+    $actPlugin = \Pase\Plugin\PluginRegistry::forAccount($existing['type'], $existing['config']);
+    $action = (string) $_POST['plugin_action'];
+    if ($actPlugin !== null && method_exists($actPlugin, 'adminAction') && array_key_exists($action, $actPlugin->adminActions())) {
+        try {
+            $pluginActionResult = $actPlugin->adminAction($action, [
+                'account_id' => $id,
+                'base_url'   => (string) (new SettingsRepository($pdo))->get('APP_BASE_URL', ''),
+                'pdo'        => $pdo,
+                'local'      => \Pase\Support\AppMode::isLocal(),
+                'save'       => static function (array $config) use ($repo, $id): void { $repo->updateConfig($id, $config); },
+            ]);
+        } catch (\Throwable $e) {
+            $pluginActionResult = ['ok' => false, 'message' => $e->getMessage()];
+        }
+        $existing = $repo->find($id) ?? $existing;
+    } else {
+        $pluginActionResult = ['ok' => false, 'message' => 'Nieznana akcja.'];
+    }
+}
+
 // --- Zapis ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['plugin_action'])) {
     csrfCheck();
     $type = $_POST['type'] ?? $type;
     $name = trim($_POST['name'] ?? '');
@@ -412,7 +436,7 @@ require __DIR__ . '/header.php';
 
         <p style="margin-top:18px">
             <button class="btn" type="submit"><?= $existing ? 'Zapisz' : 'Dodaj integrację' ?></button>
-            <?php if ($id && in_array($type, ['woocommerce', 'blpaczka', 'allegro', 'wfirma', 'tiktokshop'], true)): ?>
+            <?php if ($id && (in_array($type, ['woocommerce', 'blpaczka', 'allegro', 'wfirma', 'tiktokshop'], true) || $type === 'orlenpaczka')): ?>
                 <a class="btn secondary" href="?id=<?= $id ?>&action=test">Testuj połączenie</a>
             <?php endif; ?>
             <?php if ($id && $type === 'allegro'): ?>
@@ -429,6 +453,32 @@ require __DIR__ . '/header.php';
             <?= $wooTest['ok'] ? '✅ ' : '❌ ' ?><?= htmlspecialchars($wooTest['message']) ?>
             <?php if (!empty($wooTest['status'])): ?>(HTTP <?= (int)$wooTest['status'] ?>)<?php endif; ?>
         </div>
+    <?php endif; ?>
+
+    <?php
+    // Panel wtyczki: opis stanu (adminInfo) + przyciski akcji (adminActions) - np. Uniwersalny Pusher ORLEN Paczka.
+    $panelPlugin = ($id && $existing) ? \Pase\Plugin\PluginRegistry::forAccount($existing['type'], $existing['config']) : null;
+    if ($panelPlugin !== null && method_exists($panelPlugin, 'adminActions') && method_exists($panelPlugin, 'adminInfo')):
+        $panelInfo = $panelPlugin->adminInfo(['account_id' => $id, 'base_url' => (string) $appBaseUrl, 'pdo' => $pdo, 'local' => \Pase\Support\AppMode::isLocal()]);
+    ?>
+        <hr style="margin:16px 0;border:0;border-top:1px solid #eee">
+        <?php foreach ($panelInfo as $i => $line): ?>
+            <p style="font-size:13px;color:<?= $i === 0 ? '#555' : '#222' ?>;margin:6px 0 0"><?= htmlspecialchars((string) $line) ?></p>
+        <?php endforeach; ?>
+        <?php if ($pluginActionResult !== null): ?>
+            <div class="flash <?= $pluginActionResult['ok'] ? 'ok' : 'err' ?>" style="margin-top:10px"><?= $pluginActionResult['ok'] ? '✅ ' : '❌ ' ?><?= htmlspecialchars((string) $pluginActionResult['message']) ?></div>
+        <?php endif; ?>
+        <?php if (canEdit()): ?>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+            <?php foreach ($panelPlugin->adminActions() as $actKey => $actLabel): ?>
+                <form method="post" style="margin:0">
+                    <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
+                    <input type="hidden" name="plugin_action" value="<?= htmlspecialchars((string) $actKey) ?>">
+                    <button class="btn secondary" type="submit"><?= htmlspecialchars((string) $actLabel) ?></button>
+                </form>
+            <?php endforeach; ?>
+        </div>
+        <?php endif; ?>
     <?php endif; ?>
 
     <?php if ($id && $type === 'blpaczka'): ?>

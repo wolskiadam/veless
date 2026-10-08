@@ -184,6 +184,52 @@ final class OrlenPaczkaClient
         return ['ok' => true, 'message' => '', 'events' => $events];
     }
 
+    // ================= Uniwersalny Pusher (webhook statusów) =================
+
+    /**
+     * Rejestracja adresu, na który ORLEN Paczka wysyła zmiany statusów paczek (WebhookRegister).
+     * Autoryzacja OAuth2StaticToken: ORLEN dołącza do każdego powiadomienia nagłówek „Authorization: Bearer <token>".
+     * Po rejestracji ORLEN wysyła powiadomienie testowe dla paczki 9999999999999.
+     * @return array{ok:bool,message:string,pusher?:array<string,string>}
+     */
+    public function webhookRegister(string $notificationUrl, string $token): array
+    {
+        return $this->webhook('WebhookRegister', [
+            'AuthorizationType' => 'OAuth2StaticToken',
+            'UserName'          => '',
+            'Password'          => $token,
+            'LoginUrl'          => '',
+            'NotificationUrl'   => $notificationUrl,
+        ]);
+    }
+
+    /** Aktualna konfiguracja Pushera (WebhookStatus): Status Active / Unregistered, NotificationUrl... */
+    public function webhookStatus(): array
+    {
+        return $this->webhook('WebhookStatus', []);
+    }
+
+    /** Wyłączenie Pushera (WebhookUnregister) - ORLEN czyści też kolejkę niedoręczonych powiadomień. */
+    public function webhookUnregister(): array
+    {
+        return $this->webhook('WebhookUnregister', []);
+    }
+
+    private function webhook(string $operation, array $params): array
+    {
+        $r = $this->call($operation, $this->auth() + $params);
+        if (!$r['ok']) {
+            return $r;
+        }
+        $checked = $this->checked($r, self::firstRow($r['doc'], 'Err'));
+        if (!$checked['ok']) {
+            return $checked;
+        }
+        $data = self::firstRow($r['doc'], 'NotificationUrl') ?? self::firstRow($r['doc'], 'Annotation') ?? [];
+        unset($data['Password']);   // token nie wraca do panelu ani do logów
+        return ['ok' => true, 'message' => '', 'pusher' => $data];
+    }
+
     // ================= Podjazd kuriera =================
 
     /** Dostępne przedziały podjazdu kuriera dla kodu pocztowego (GetAvailablePickups). */

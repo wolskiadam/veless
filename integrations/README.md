@@ -209,7 +209,16 @@ Opcjonalnie:
   `trackWaybills(array $numery): array` (`['ok', 'message', 'waybills' => [numer => [['code', 'description', 'occurredAt'], …]]]`,
   kody jak w śledzeniu Allegro: `PENDING`, `IN_TRANSIT`, `RELEASED_FOR_DELIVERY`, `AVAILABLE_FOR_PICKUP`, `NOTICE_LEFT`,
   `DELIVERED`, `RETURNED`, `ISSUE`). `Services\ShipmentTracking` pyta wtyczkę o paczki nadane przez jej konto i o paczki
-  jej przewoźnika wpisane ręcznie, zanim zapyta Allegro.
+  jej przewoźnika wpisane ręcznie, zanim zapyta Allegro. Gdy przewoźnik sam przysyła statusy, wtyczka ma
+  `pushActive(): bool` (true = harmonogram pyta ją tylko co `ShipmentTracking::PUSH_RECHECK_HOURS`), a status z
+  powiadomienia zapisuje `ShipmentTracking::applyPush($pdo, $przewoźnik, $numer, ['code', 'description', 'occurredAt'])`.
+- Webhooki: `handleWebhook(array $request, PDO $pdo): array` (`['status' => kod HTTP, 'body' => tekst]`) odbiera żądania
+  na `public/webhook_plugin.php?a=<id konta>` (`$request`: `method`, `headers` z kluczami małymi literami, `query`, `body`,
+  `account_id`). Autoryzację robi wtyczka. Przykład: Uniwersalny Pusher ORLEN Paczka.
+- Panel na stronie integracji: `adminInfo(array $ctx): array` (akapity tekstu), `adminActions(): array`
+  (`['akcja' => 'etykieta przycisku']`) i `adminAction(string $akcja, array $ctx): array` (`['ok', 'message']`).
+  `$ctx`: `account_id`, `base_url` (APP_BASE_URL), `pdo`, `local` (tryb lokalny), w akcjach też `save` (fn(array $config)
+  zapisuje config konta).
 - `Pase\Plugin\Contract\CourierAsync` — dla przewoźników tworzących przesyłkę asynchronicznie:
   `createShipment()` może zwrócić `pending => true` z tymczasowym `external_id`; rdzeń zapisze
   przesyłkę jako `pending` i przy kolejnym otwarciu zamówienia wywoła `resolveShipment($id)`.

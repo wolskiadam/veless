@@ -44,6 +44,7 @@ $process = null;
 try {
     file_put_contents("$temp/.env", "TOTP_REQUIRE_ADMIN=0\n");
     foreach (glob("$root/public/admin/*.php") as $f) { if (!in_array(basename($f), ['bootstrap_admin.php', 'db_admin.php'], true)) { copy($f, "$temp/public/admin/" . basename($f)); } }
+    copy("$root/public/webhook_plugin.php", "$temp/public/webhook_plugin.php");
     foreach (glob("$root/public/admin/assets/*.js") as $f) { copy($f, "$temp/public/admin/assets/" . basename($f)); }
     foreach (['orlenpaczka', 'allegro'] as $p) { foreach (glob("$root/integrations/{$p}/*.php") as $f) { copy($f, "$temp/integrations/{$p}/" . basename($f)); } }
     foreach (glob("$root/lang/*.php") as $f) { copy($f, "$temp/lang/" . basename($f)); }
@@ -62,6 +63,9 @@ try {
         'PutCustomerPackCanceled'          => $soap('PutCustomerPackCanceled', '<Err>000</Err><ErrDes>saved</ErrDes><PackCode>2100055566677</PackCode>'),
         'GiveMePackStatusFullHistoryList'  => $soap('GiveMePackStatusFullHistoryList', '<PackStatus><PackCode>2100055566677</PackCode><Trans>200</Trans><Trans_Des>Zaawizowana do PwR</Trans_Des><Data>2026-10-08T10:00:00Z</Data><Attribute /></PackStatus>'
             . '<PackStatus><PackCode>2100055566677</PackCode><Trans>240</Trans><Trans_Des>W transporcie do ekspedycji u kuriera</Trans_Des><Data>2026-10-08T15:30:00Z</Data><Attribute /></PackStatus>'),
+        'WebhookRegister'   => $soap('WebhookRegister', '<Err>0</Err><ErrDes /><Data><Status>Active</Status><Annotation>Webhook registered and activated</Annotation></Data>'),
+        'WebhookStatus'     => $soap('WebhookStatus', '<Err>0</Err><ErrDes /><Data><Status>Active</Status><Annotation>Webhook registered and activated</Annotation><NotificationUrl>x</NotificationUrl></Data>'),
+        'WebhookUnregister' => $soap('WebhookUnregister', '<Err>0</Err><ErrDes /><Data><Status>Unregistered</Status><Annotation>Webhook unregistered</Annotation></Data>'),
         'GiveMeAllLocationWithAllDataWithZipCode' => $soap('GiveMeAllLocationWithAllDataWithZipCode',
             $pt('WA-116263-K1-02', '116263', 'MARSZAŁKOWSKA', 'Warszawa', '00-950') . $pt('KR-300100-A1-01', '300100', 'FLORIAŃSKA', 'Kraków', '31-019')),
     ];
@@ -184,6 +188,50 @@ try {
     ok(!str_contains($vpage['body'], 'Nadaj przez ORLEN Paczka'), 'Viewer does not get the send form');
     $deny = request($viewer, 'admin/courier_shipment.php', ['csrf' => $csrf, 'integration' => 2, 'woo_order_id' => 501, 'action' => 'send']);
     ok($deny['status'] !== 200 || empty($deny['json']['ok']), 'Viewer cannot send');
+
+    // --- Uniwersalny Pusher: włączenie w Integracjach i powiadomienia od ORLEN Paczka ---
+    $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('APP_BASE_URL', " . $pdo->quote(rtrim($base, '/')) . ")");
+    $ip = request($boss, 'admin/integration_edit.php?id=2');
+    ok($ip['status'] === 200 && str_contains($ip['body'], 'Włącz Uniwersalny Pusher') && str_contains($ip['body'], 'Stan: wyłączony'), 'Integration page offers the pusher');
+    preg_match('/name="csrf" value="([a-f0-9]+)"/', $ip['body'], $m);
+    $on = request($boss, 'admin/integration_edit.php?id=2', ['csrf' => $m[1], 'plugin_action' => 'pusher_on']);
+    $acc = json_decode((string) $pdo->query('SELECT config FROM integration_accounts WHERE id = 2')->fetchColumn(), true);
+    ok($on['status'] === 200 && str_contains($on['body'], 'Pusher włączony') && $acc['pusher_active'] === '1' && $acc['partner_id'] === 'PARTNER01', 'Pusher on: registered, rest of the config kept');
+    $tok = (string) $acc['pusher_token'];
+    $reg = array_values(array_filter($calls(), static fn($c) => $c['op'] === 'WebhookRegister'))[0] ?? null;
+    ok($reg !== null && str_contains($reg['xml'], '<NotificationUrl>' . rtrim($base, '/') . '/webhook_plugin.php?a=2&amp;k=' . $tok . '</NotificationUrl>')
+        && str_contains($reg['xml'], '<Password>' . $tok . '</Password>'), 'WebhookRegister got the CRM address and the token');
+    $hook = static function (array $body, array $headers = [], string $query = '') use ($base): array {
+        $h = curl_init($base . 'webhook_plugin.php?a=2' . $query);
+        curl_setopt_array($h, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode($body), CURLOPT_RETURNTRANSFER => true, CURLOPT_PROXY => '',
+            CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json'], $headers)]);
+        $out = curl_exec($h);
+        return ['status' => curl_getinfo($h, CURLINFO_RESPONSE_CODE), 'body' => $out];
+    };
+    $bearer = ['Authorization: Bearer ' . $tok];
+    $test = $hook(['PackCode' => 9999999999999, 'PackCodePrev' => null, 'Status' => '200', 'Updated' => '2000-01-01T00:00:00', 'Operator' => 'ORLEN-PACZKA'], $bearer);
+    ok($test['status'] === 200, 'Test notification 9999999999999 answered 200');
+    ok(str_contains(request($boss, 'admin/integration_edit.php?id=2')['body'], 'testowe (paczka 9999999999999)'), 'Integration page shows the test notification arrived');
+    ok($hook(['PackCode' => 2100055566677, 'Status' => '690', 'Updated' => '2026-10-08T17:05:00.1'])['status'] === 401, 'Notification without the token: 401');
+    ok($hook(['PackCode' => 2100055566677, 'Status' => '690', 'Updated' => '2026-10-08T17:05:00.1'], $bearer, '&a=999')['status'] === 404
+        && $hook([], [], '')['status'] === 401, 'Unknown account: 404, empty body without token: 401');
+    $pushed = $hook(['PackCode' => 2100055566677, 'PackCodePrev' => null, 'Status' => '690', 'Updated' => '2026-10-08T17:05:00.225694', 'Operator' => 'ORLEN-PACZKA'], $bearer);
+    $row = $pdo->query('SELECT tracking_status, tracking_events FROM shipments WHERE id = ' . (int) $sh['id'])->fetch(PDO::FETCH_ASSOC);
+    ok($pushed['status'] === 200 && $row['tracking_status'] === 'ready_for_pickup' && count(json_decode($row['tracking_events'], true)) === 3, 'Notification 690: parcel waits at the point, event added');
+    $hook(['PackCode' => 2100055566677, 'PackCodePrev' => null, 'Status' => '690', 'Updated' => '2026-10-08T17:05:00.225694', 'Operator' => 'ORLEN-PACZKA'], $bearer);
+    ok(count(json_decode((string) $pdo->query('SELECT tracking_events FROM shipments WHERE id = ' . (int) $sh['id'])->fetchColumn(), true)) === 3, 'Repeated notification stored once');
+    $viaQuery = $hook(['PackCode' => 2100055566677, 'Status' => '610', 'Updated' => '2026-10-09T08:00:00'], [], '&k=' . $tok);
+    ok($viaQuery['status'] === 200 && $pdo->query('SELECT tracking_status FROM shipments WHERE id = ' . (int) $sh['id'])->fetchColumn() === 'out_for_delivery', 'Token in the address works when the server drops Authorization');
+    $notActive = request($boss, 'admin/integration_edit.php?id=2');
+    ok(str_contains($notActive['body'], 'Wyłącz Pusher') && str_contains($notActive['body'], 'paczka 2100055566677, status 610'), 'Integration page shows the last notification');
+    preg_match('/name="csrf" value="([a-f0-9]+)"/', $notActive['body'], $m);
+    $st = request($boss, 'admin/integration_edit.php?id=2', ['csrf' => $m[1], 'plugin_action' => 'pusher_status']);
+    ok(str_contains($st['body'], 'Pusher w ORLEN Paczka: Active'), 'Check pusher status');
+    $off = request($boss, 'admin/integration_edit.php?id=2', ['csrf' => $m[1], 'plugin_action' => 'pusher_off']);
+    $acc = json_decode((string) $pdo->query('SELECT config FROM integration_accounts WHERE id = 2')->fetchColumn(), true);
+    ok(str_contains($off['body'], 'Pusher wyłączony') && $acc['pusher_active'] === '' && $acc['sender_city'] === 'Warszawa', 'Pusher off');
+    ok(request($boss, 'admin/integration_edit.php?id=2', ['csrf' => 'zly', 'plugin_action' => 'pusher_on'])['status'] === 419
+        && $calls()[count($calls()) - 1]['op'] === 'WebhookUnregister', 'Pusher action needs a valid CSRF token');
 
     $cancel = request($boss, 'admin/shipment_cancel.php', ['csrf' => $csrf, 'shipment' => $sh['id']])['json'];
     ok($cancel['ok'] && $pdo->query('SELECT status FROM shipments WHERE id = ' . (int) $sh['id'])->fetchColumn() === 'cancelled', 'Cancel through ORLEN Paczka');

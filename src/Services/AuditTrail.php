@@ -52,7 +52,7 @@ final class AuditTrail
     {
         // Allowlist prevents accidental retention of passwords, customer contacts and payloads.
         $allowed = array_flip(['pase_status', 'lifecycle', 'local_items', 'contact_fields', 'invoice_fields',
-            'document_type', 'provider', 'remote_id', 'integration_id', 'merged_into', 'absorbed', 'paid_amount', 'no_shipping', 'planned_ship_date']);
+            'document_type', 'provider', 'remote_id', 'integration_id', 'merged_into', 'absorbed', 'paid_amount', 'no_shipping', 'planned_ship_date', 'manual_shop_id']);
         $clean = static function (array $values) use ($allowed): array {
             $values = array_intersect_key($values, $allowed);
             if (isset($values['local_items']) && is_array($values['local_items'])) {

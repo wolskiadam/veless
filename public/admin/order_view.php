@@ -170,6 +170,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             (new \Pase\Services\AuditTrail($pdo))->changeOrder($wooOrderId, 'order.no_shipping_changed', ['no_shipping' => $flag]);
         }
         $flashOk = $flag ? 'Oznaczono jako zamówienie wirtualne - nie wymaga wysyłki.' : 'Zamówienie znów wymaga wysyłki.';
+    } elseif ($act === 'set_manual_shop') {
+        // Sklep zamówienia dodanego ręcznie - tylko w CRM (konto kurierskie / nadawca, CourierShipping::servesShop).
+        $shopId = (int) ($_POST['shop_id'] ?? 0);
+        $shopList = \Pase\Services\ManualOrders::shops($pdo);
+        if ($shopId > 0 && !isset($shopList[$shopId])) {
+            $flashErr = 'Nie ma takiego sklepu.';
+        } else {
+            (new \Pase\Services\ManualOrders($pdo))->setShop($wooOrderId, $shopId > 0 ? $shopId : null);
+            $flashOk = $shopId > 0 ? 'Sklep zamówienia: ' . $shopList[$shopId] . '.' : 'Zamówienie bez przypisanego sklepu.';
+        }
     } elseif ($act === 'set_planned_ship_date') {
         // Planowana data nadania - tylko w CRM; klient widzi ją na swojej stronie zamówienia (Services\PlannedShipDate).
         try {
@@ -1881,6 +1891,23 @@ foreach ($absorbedOrders as $ab) {
             <tr><th>Numer CRM</th><td><strong><?= $row['pase_number'] !== null ? '#' . (int)$row['pase_number'] : '—' ?></strong></td></tr>
             <?php if ($isManualOrder): ?>
             <tr><th>Źródło</th><td><span class="pill ok" style="font-size:11px">dodane ręcznie w CRM</span> <?= $g($row, 'order_number') ?><?php if (!empty($o['crm_created_by'])): ?> <span style="color:#888">· <?= htmlspecialchars((string) $o['crm_created_by']) ?></span><?php endif; ?></td></tr>
+            <?php $manualShopId = (int) ($row['manual_shop_id'] ?? 0); $manualShops = \Pase\Services\ManualOrders::shops($pdo, $manualShopId); ?>
+            <?php if ($manualShops !== [] || $manualShopId > 0): ?>
+            <tr><th>Sklep</th><td>
+                <?php if (canEdit()): ?>
+                <form method="post" style="display:inline-flex;gap:6px;align-items:center;margin:0">
+                    <input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="action" value="set_manual_shop">
+                    <select name="shop_id" onchange="this.form.submit()" style="padding:3px 6px;font-size:13px">
+                        <option value="">— nie wybrano —</option>
+                        <?php foreach ($manualShops as $msId => $msName): ?>
+                            <option value="<?= (int) $msId ?>" <?= $manualShopId === (int) $msId ? 'selected' : '' ?>><?= htmlspecialchars($msName) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <noscript><button class="btn secondary" type="submit">Zapisz</button></noscript>
+                </form>
+                <?php else: ?><?= htmlspecialchars($manualShops[$manualShopId] ?? '—') ?><?php endif; ?>
+            </td></tr>
+            <?php endif; ?>
             <?php else: ?>
             <tr><th>Numer w sklepie</th><td><?= $g($row, 'order_number', (string)$wooOrderId) ?> <span style="color:#aaa">(Woo #<?= (int)$wooOrderId ?>)</span></td></tr>
             <?php endif; ?>

@@ -39,6 +39,9 @@ if (PayuPayouts::available()) {
     }
 }
 
+// Sklep, z którego jest zamówienie (woo_orders.manual_shop_id) - np. który nadawca / konto kurierskie.
+$shops = ManualOrders::shops($pdo);
+
 $errors = [];
 $form = $_POST;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -112,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' && (int) ($_GET['from'] ?? 0) > 0) {
         if ($form['billing_nip'] !== '') {
             $form['wants_invoice'] = '1';
         }
+        $form['shop_id'] = (int) ($src['integration_id'] ?? 0) ?: (int) ($src['manual_shop_id'] ?? 0);
     }
 }
 
@@ -210,6 +214,25 @@ require __DIR__ . '/header.php';
 
 <form method="post" id="newOrderForm">
 <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
+
+<?php if ($shops !== []):
+    $shopSel = (int) ($form['shop_id'] ?? 0);
+    if (!isset($shops[$shopSel]) && count($shops) === 1) {
+        $shopSel = (int) array_key_first($shops);
+    } ?>
+<div class="card">
+    <div class="no-field" style="max-width:420px">
+        <label>Sklep, z którego jest zamówienie</label>
+        <select name="shop_id" required>
+            <option value="">— wybierz sklep —</option>
+            <?php foreach ($shops as $sid => $sname): ?>
+                <option value="<?= (int) $sid ?>" <?= $shopSel === (int) $sid ? 'selected' : '' ?>><?= htmlspecialchars($sname) ?></option>
+            <?php endforeach; ?>
+        </select>
+        <div class="no-hint">Zamówienie zostaje tylko w CRM. Sklep decyduje m.in. o koncie kurierskim i nadawcy przy „Nadaj przez” (Integracje → „Używaj dla zamówień ze sklepów”).</div>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="card">
     <strong>Dane klienta</strong>

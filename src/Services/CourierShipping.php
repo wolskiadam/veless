@@ -64,25 +64,30 @@ final class CourierShipping
         return $out;
     }
 
-    /** Wtyczka kurierska konta (albo null). */
-    /** Klucz sklepu w ustawieniu „Używaj dla zamówień ze sklepów”: zamówienia dodane w CRM (bez integracji). */
-    public const MANUAL_SHOP = 'manual';
-
     /**
      * Czy konto kurierskie obsługuje zamówienie z tego sklepu. config['shops'] = lista id kont sklepów
-     * (integration_accounts) i/lub MANUAL_SHOP; pusta lista = wszystkie sklepy. Dzięki temu np. dwa konta
-     * ORLEN Paczka z różnymi nadawcami mogą obsługiwać dwa sklepy.
+     * (integration_accounts); pusta lista = wszystkie sklepy. Dzięki temu np. dwa konta ORLEN Paczka
+     * z różnymi nadawcami mogą obsługiwać dwa sklepy.
+     *
+     * Sklep zamówienia: integration_id (Woo, Allegro, TikTok...), a przy zamówieniu dodanym ręcznie w CRM
+     * sklep wybrany w formularzu (woo_orders.manual_shop_id, Services\ManualOrders). Ręczne zamówienie bez
+     * przypisanego sklepu (sprzed tej opcji) obsługuje każde konto.
      * @param array<string,mixed> $account wiersz integration_accounts (z configiem)
      * @param array{row:array,payload:array} $order
      */
     public static function servesShop(array $account, array $order): bool
     {
         $shops = $account['config']['shops'] ?? [];
-        if (!is_array($shops) || $shops === []) {
+        // Stara wartość 'manual' (osobna opcja dla zamówień ręcznych, już nieużywana) nic nie znaczy.
+        $shops = array_values(array_filter(array_map('strval', is_array($shops) ? $shops : []), 'ctype_digit'));
+        if ($shops === []) {
             return true;
         }
-        $shopId = (int) ($order['row']['integration_id'] ?? 0);
-        return in_array($shopId > 0 ? (string) $shopId : self::MANUAL_SHOP, array_map('strval', $shops), true);
+        $shopId = (int) ($order['row']['integration_id'] ?? 0) ?: (int) ($order['row']['manual_shop_id'] ?? 0);
+        if ($shopId <= 0) {
+            return true;
+        }
+        return in_array((string) $shopId, $shops, true);
     }
 
     /** Konto kurierskie po id (wiersz integration_accounts) albo null. */

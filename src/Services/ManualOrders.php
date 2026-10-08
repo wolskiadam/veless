@@ -19,6 +19,10 @@ use Pase\Support\Logger;
  * Numery: woo_order_id z zakresu 8 000 000 001 - 8 999 999 999 (Woo ma małe numery, Allegro 9 000 000 000+),
  * numer zamówienia „R1”, „R2”... i zwykły kolejny numer CRM.
  *
+ * Sklep: przy dodaniu wybieramy, z którego sklepu jest zamówienie (woo_orders.manual_shop_id = id konta sklepu
+ * z integration_accounts). Tylko w CRM - nic nie idzie do sklepu; decyduje np. o koncie kurierskim / nadawcy
+ * (CourierShipping::servesShop). integration_id zostaje NULL, żeby żadna synchronizacja nie dotykała zamówienia.
+ *
  * Magazyn: pozycje z SKU z magazynu CRM zdejmują stan w CRM (pase_stock, a wpisany stan faktyczny razem z nim)
  * i kolejkują wysłanie stanu do sklepu - tak samo jak sprzedaż na Allegro. Pozycje spoza magazynu (sama nazwa
  * i cena) wchodzą do zamówienia i na fakturę bez ruchu na magazynie.
@@ -39,6 +43,56 @@ final class ManualOrders
     ];
 
     public function __construct(private readonly PDO $pdo, private readonly ?Queue $queue = null) {}
+
+    public static function migrate(PDO $pdo): void
+    {
+        if (!LowStock::columnExists($pdo, 'woo_orders', 'manual_shop_id')) {
+            $pdo->exec('ALTER TABLE woo_orders ADD COLUMN manual_shop_id INT NULL');
+        }
+    }
+
+    /**
+     * Sklepy do wyboru: konta integracji, z których przychodzą zamówienia (WooCommerce, Allegro, TikTok Shop...).
+     * $keepId - konto już przypisane do zamówienia; zostaje na liście, nawet gdy jest wyłączone.
+     * @return array<int,string> id konta => nazwa
+     */
+    public static function shops(PDO $pdo, int $keepId = 0): array
+    {
+        $out = [];
+        try {
+            $sources = \Pase\Plugin\PluginRegistry::withCapability(\Pase\Plugin\Capability::ORDER_SOURCE);
+            foreach ((new \Pase\Repository\IntegrationAccountRepository($pdo))->all() as $acc) {
+                $type = (string) $acc['type'];
+                if (!isset($sources[$type]) || (empty($acc['is_active']) && (int) $acc['id'] !== $keepId)) {
+                    continue;
+                }
+                $typeName = $sources[$type]->name;
+                $name = trim((string) ($acc['name'] ?? ''));
+                $out[(int) $acc['id']] = $name !== '' && $name !== $typeName ? $name . ' (' . $typeName . ')' : $typeName;
+            }
+        } catch (\Throwable $e) {
+            Logger::warn('Lista sklepów dla zamówienia ręcznego: ' . $e->getMessage());
+        }
+        return $out;
+    }
+
+    /** Zmienia sklep zamówienia ręcznego (null = bez sklepu). Zwraca true, gdy coś się zmieniło. */
+    public function setShop(int $wooOrderId, ?int $shopId): bool
+    {
+        if (!self::isManual($wooOrderId)) {
+            return false;
+        }
+        self::migrate($this->pdo);
+        $st = $this->pdo->prepare('SELECT manual_shop_id FROM woo_orders WHERE woo_order_id = ?');
+        $st->execute([$wooOrderId]);
+        $cur = $st->fetchColumn();
+        if ($cur === false || (int) $cur === (int) $shopId) {
+            return false;
+        }
+        $this->pdo->prepare('UPDATE woo_orders SET manual_shop_id = ? WHERE woo_order_id = ?')->execute([$shopId, $wooOrderId]);
+        (new AuditTrail($this->pdo))->record($wooOrderId, 'order.manual_shop_changed', ['manual_shop_id' => $cur !== null ? (int) $cur : null], ['manual_shop_id' => $shopId]);
+        return true;
+    }
 
     public static function isManual(int $wooOrderId): bool
     {
@@ -74,6 +128,13 @@ final class ManualOrders
                 'country'    => strtoupper($str($prefix . 'country', 2)) ?: 'PL',
             ];
         };
+        $shops = self::shops($this->pdo);
+        $shopId = (int) ($post['shop_id'] ?? 0);
+        if ($shops !== [] && !isset($shops[$shopId])) {
+            $errors[] = 'Wybierz sklep, z którego jest zamówienie.';
+            $shopId = 0;
+        }
+
         $billing = $address('billing_') + ['email' => $str('billing_email', 190), 'phone' => $str('billing_phone', 40)];
         if ($billing['email'] !== '' && !filter_var($billing['email'], FILTER_VALIDATE_EMAIL)) {
             $errors[] = 'Adres e-mail „' . $billing['email'] . '” jest niepoprawny.';
@@ -180,6 +241,7 @@ final class ManualOrders
             'invoice'   => $invoice,
             'note'      => mb_substr(trim((string) ($post['customer_note'] ?? '')), 0, 2000),
             'status'    => $str('pase_status', 32) ?: 'new',
+            'shop_id'   => $shopId > 0 ? $shopId : null,
         ]];
     }
 
@@ -231,6 +293,10 @@ final class ManualOrders
             ]);
         });
         (new \Pase\Repository\WooOrderRepository($this->pdo))->assignNumberIfMissing($id);
+        if (!empty($order['shop_id'])) {
+            self::migrate($this->pdo);
+            $this->pdo->prepare('UPDATE woo_orders SET manual_shop_id = ? WHERE woo_order_id = ?')->execute([(int) $order['shop_id'], $id]);
+        }
         if (!empty($order['no_shipping'])) {
             // Zamówienie wirtualne - bez ikony „Do wysyłki” (OrderIndicators).
             $this->pdo->prepare('UPDATE woo_orders SET no_shipping = 1 WHERE woo_order_id = ?')->execute([$id]);

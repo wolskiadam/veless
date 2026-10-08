@@ -56,6 +56,8 @@ try {
     copy("$root/public/admin/assets/loc-picker.js", "$temp/public/admin/assets/loc-picker.js");
     mkdir("$temp/integrations/payu", 0700, true);
     foreach (glob("$root/integrations/payu/*.php") as $f) { copy($f, "$temp/integrations/payu/" . basename($f)); }
+    mkdir("$temp/integrations/woocommerce", 0700, true);   // sklep do wyboru w formularzu (Capability::ORDER_SOURCE)
+    foreach (glob("$root/integrations/woocommerce/*.php") as $f) { copy($f, "$temp/integrations/woocommerce/" . basename($f)); }
     foreach (glob("$root/lang/*.php") as $f) { copy($f, "$temp/lang/" . basename($f)); }
     file_put_contents("$temp/public/admin/bootstrap_admin.php", '<?php \Pase\Support\PagePermissions::migrate($pdo);');
 
@@ -63,7 +65,7 @@ try {
     $boot = '<?php if (!defined("PASE_ROOT")) { define("PASE_ROOT", ' . var_export($temp, true) . ');'
         . 'spl_autoload_register(static function($c) { if (str_starts_with($c, "Pase\\\\")) require ' . var_export("$root/src/", true)
         . ' . str_replace("\\\\", "/", substr($c, 5)) . ".php";'
-        . ' if (str_starts_with($c, "PasePlugin\\\\Payu\\\\")) require PASE_ROOT . "/integrations/payu/" . substr($c, 16) . ".php"; });'
+        . ' if (str_starts_with($c, "PasePlugin\\\\")) { [$v, $r] = explode("\\\\", substr($c, 11), 2); require PASE_ROOT . "/integrations/" . strtolower($v) . "/" . $r . ".php"; } });'
         . '\Pase\Support\Env::load(PASE_ROOT . "/.env");'
         . 'if (!function_exists("t")) { function t($k, $v = []) { return \Pase\Support\I18n::t($k, $v); } } }'
         . 'return ["db" => [], "allegro" => []];';
@@ -153,6 +155,8 @@ try {
     ok(str_contains($list['body'], 'href="order_new.php"'), 'Orders list has the "+ Nowe zamówienie" button');
     $form = request($boss, 'admin/order_new.php');
     ok($form['status'] === 200 && str_contains($form['body'], 'Dane klienta') && str_contains($form['body'], '"GB-1L":{"n":"GINGERBREAD 1l","p":"49.90","s":5}'), 'Form shows with the warehouse catalogue');
+    ok(str_contains($form['body'], 'name="shop_id" required') && str_contains($form['body'], '<option value="1" selected>Mój Sklep (WooCommerce)</option>')
+        && !str_contains($form['body'], 'PayU sklep (PayU)'), 'Form asks for the shop (only shop selected by default, PayU is not a shop)');
     ok(str_contains($form['body'], 'Od razu utwórz link do płatności PayU') && str_contains($form['body'], 'PayU - link do płatności'), 'Form offers a PayU payment link');
 
     // Błąd formularza: nic nie zapisane, dane zostają w formularzu.
@@ -165,10 +169,11 @@ try {
         'billing_address_1' => 'Leśna 5', 'billing_postcode' => '60-001', 'billing_city' => 'Poznań', 'billing_country' => 'PL',
         'item_sku' => ['GB-1L', ''], 'item_name' => ['', 'Zestaw prezentowy'], 'item_price' => ['49.90', '20'], 'item_qty' => ['2', '1'],
         'shipping_method' => 'InPost Paczkomat', 'shipping_cost' => '13.99', 'payment_method' => 'payu_link', 'payu_create' => '1', 'payu_shop' => '7', 'payu_days' => '3',
-        'pase_status' => 'new', 'customer_note' => 'Na prezent']);
+        'pase_status' => 'new', 'customer_note' => 'Na prezent', 'shop_id' => '1']);
     $id = (int) $pdo->query('SELECT MAX(woo_order_id) FROM woo_orders')->fetchColumn();
     ok(in_array($r['status'], [302, 303], true) && str_contains($r['headers'], 'order_view.php?id=' . $id) && $id === 8000000001, 'Order saved and user sent to the order page');
     $row = $pdo->query("SELECT * FROM woo_orders WHERE woo_order_id = $id")->fetch(PDO::FETCH_ASSOC);
+    ok((int) $row['manual_shop_id'] === 1, 'Manual order remembers its shop');
     ok($row['integration_id'] === null && $row['order_number'] === 'R1' && (float) $row['total'] === 133.79 && (int) $row['pase_number'] === 13, 'Manual order: CRM only, R1, total with shipping, next CRM number');
     ok((int) $pdo->query("SELECT pase_stock FROM products WHERE sku = 'GB-1L'")->fetchColumn() === 3, 'Warehouse stock lowered by 2');
     $req = $created(1);
@@ -220,8 +225,19 @@ try {
     // Kopia danych klienta z poprzedniego zamówienia.
     $f2 = request($boss, 'admin/order_new.php?from=' . $id);
     ok(str_contains($f2['body'], 'value="Ewa"') && str_contains($f2['body'], 'value="Leśna 5"') && str_contains($f2['body'], 'value="ewa@example.com"'), 'Customer data copied from a previous order');
+    ok(str_contains($f2['body'], '<option value="1" selected>Mój Sklep (WooCommerce)</option>'), 'Shop copied from the previous order');
+
+    // Sklep zamówienia ręcznego można zmienić na stronie zamówienia.
+    $pdo->exec("INSERT INTO integration_accounts (id, type, name, is_active, config) VALUES (8, 'woocommerce', 'Klub Woskarzy', 1, '{}')");
+    $page = request($boss, 'admin/order_view.php?id=' . $id);
+    ok(str_contains($page['body'], 'value="set_manual_shop"') && str_contains($page['body'], '<option value="8" >Klub Woskarzy (WooCommerce)</option>'), 'Order page lets you change the shop');
+    request($boss, 'admin/order_view.php?id=' . $id, ['csrf' => csrfOf($page['body']), 'action' => 'set_manual_shop', 'shop_id' => '8']);
+    ok((int) $pdo->query("SELECT manual_shop_id FROM woo_orders WHERE woo_order_id = $id")->fetchColumn() === 8, 'Shop changed');
+    request($boss, 'admin/order_view.php?id=' . $id, ['csrf' => csrfOf($page['body']), 'action' => 'set_manual_shop', 'shop_id' => '7']);
+    ok((int) $pdo->query("SELECT manual_shop_id FROM woo_orders WHERE woo_order_id = $id")->fetchColumn() === 8, 'PayU account is not accepted as a shop');
+    ok(!str_contains(request($viewer, 'admin/order_view.php?id=' . $id)['body'], 'value="set_manual_shop"'), 'Viewer sees the shop but cannot change it');
     $hist = request($boss, 'admin/order_history.php?id=' . $id);
-    ok(str_contains($hist['body'], 'Dodanie zamówienia ręcznie'), 'Creation in the order history');
+    ok(str_contains($hist['body'], 'Dodanie zamówienia ręcznie') && str_contains($hist['body'], 'Sklep zamówienia ręcznego'), 'Creation and shop change in the order history');
     $flt = request($boss, 'admin/index.php?source=manual');
     ok(str_contains($flt['body'], 'order_view.php?id=' . $id) && !str_contains($flt['body'], 'order_view.php?id=501') && str_contains($flt['body'], 'Ręczne'), 'Source filter "Dodane ręcznie" and badge');
 

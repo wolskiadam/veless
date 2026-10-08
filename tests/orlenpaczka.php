@@ -52,6 +52,10 @@ $cfg = ['partner_id' => 'PARTNER01', 'partner_key' => 'Tajne<&>Haslo', 'env' => 
 $plugin = (new OrlenPaczkaPlugin())->withConfig($cfg);
 check($plugin instanceof Courier && $plugin->manifest()->type === 'orlenpaczka', 'Wtyczka kurierska o typie orlenpaczka');
 check(in_array('partner_key', $plugin->manifest()->secretKeys(), true), 'PartnerKey jest sekretem');
+$icon = $plugin->manifest()->iconHtml('20px');
+check(str_starts_with($icon, '<span class="plugin-logo" style="width:20px;height:20px') && str_contains($icon, '<svg width="100%" height="100%" viewBox="0 0 80 80"')
+    && (new DOMDocument())->loadXML($icon), 'Ikona: logo ORLEN Paczka (poprawny SVG) zamiast emoji');
+check((new \Pase\Plugin\PluginManifest(type: 'x', name: 'X', icon: '<b>'))->iconHtml() === '&lt;b&gt;', 'Bez logo: emoji, escapowane');
 
 // --- koperta SOAP ---
 $env = OrlenPaczkaClient::envelope('LabelPrintDuplicateListTwo', ['PartnerID' => 'A', 'PartnerKey' => 'x<y', 'PackCodeList' => ['string' => ['1', '2']]]);

@@ -308,7 +308,7 @@ require __DIR__ . '/header.php';
         // Etykieta/ikona typu z manifestu wtyczki (galeria); fallback dla wFirma.
         $typeMeta = ['label' => $type, 'icon' => '🔌'];
         foreach (\Pase\Plugin\PluginRegistry::manifests() as $mf) {
-            if ($mf->type === $type) { $typeMeta = ['label' => $mf->name, 'icon' => $mf->icon]; break; }
+            if ($mf->type === $type) { $typeMeta = ['label' => $mf->name, 'icon' => $mf->iconHtml('1em')]; break; }
         }
         if ($type === 'wfirma') { $typeMeta = ['label' => 'wFirma', 'icon' => '📄']; }
         ?>

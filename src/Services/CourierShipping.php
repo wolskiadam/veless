@@ -55,7 +55,7 @@ final class CourierShipping
             if (method_exists($plugin, 'supportsOrder') && !$plugin->supportsOrder($order)) {
                 continue;
             }
-            $out[] = ['account' => $acc, 'plugin' => $plugin, 'name' => $mf->name, 'icon' => $mf->icon,
+            $out[] = ['account' => $acc, 'plugin' => $plugin, 'name' => $mf->name, 'icon' => $mf->iconHtml(),
                       'color' => $mf->color, 'type' => $mf->type];
         }
         return $out;

@@ -70,7 +70,7 @@ require __DIR__ . '/header.php';
 <div class="card">
     <p style="color:#888;font-size:13px;margin:0 0 12px">Wybierz produkt z magazynu, żeby przygotować i wystawić ofertę. Formularz wypełni się danymi produktu (tytuł, opis, zdjęcia, cena, stan).</p>
     <form method="get" class="oa-filters">
-        <input type="search" name="q" value="<?= $e($q) ?>" placeholder="Szukaj: nazwa, SKU lub EAN" style="flex:1;min-width:220px">
+        <input type="search" name="q" value="<?= $e($q) ?>" placeholder="Szukaj: nazwa, SKU lub EAN" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other" style="flex:1;min-width:220px">
         <select name="st">
             <option value="">Wszystkie</option>
             <option value="none" <?= $st === 'none' ? 'selected' : '' ?>>Niewystawione</option>

@@ -192,7 +192,7 @@ require __DIR__ . '/header.php';
 <div class="card">
     <form method="get" class="g1-search">
         <input type="hidden" name="tab" value="<?= $e($tab) ?>">
-        <input type="search" name="q" value="<?= $e($q) ?>" placeholder="Szukaj: GTIN / EAN, nazwa, SKU…" aria-label="Szukaj">
+        <input type="search" name="q" value="<?= $e($q) ?>" placeholder="Szukaj: GTIN / EAN, nazwa, SKU…" aria-label="Szukaj" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other">
         <button class="btn secondary" type="submit">Szukaj</button>
         <?php if ($q !== ''): ?><a href="<?= $e($tabLink($tab)) ?>" class="g1-muted">wyczyść</a><?php endif; ?>
     </form>

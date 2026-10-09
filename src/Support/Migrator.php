@@ -34,6 +34,7 @@ final class Migrator
         \Pase\Services\AllegroDashboard::migrate($this->pdo);
         \Pase\Services\OrderReturns::migrate($this->pdo);
         \Pase\Services\AllegroFeedback::migrate($this->pdo);
+        \Pase\Services\AllegroInbox::migrate($this->pdo);
         \Pase\Services\Customers::migrate($this->pdo);
         \Pase\Services\EmailLog::migrate($this->pdo);
         if (!$this->allTablesExist()) {

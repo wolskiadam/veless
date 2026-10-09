@@ -77,6 +77,8 @@ jobs:
       - run: php tests/invoice_email.php
       - run: php tests/allegro_feedback.php
       - run: php tests/allegro_threads.php
+      - run: php tests/allegro_inbox.php
+      - run: php tests/allegro_inbox_http.php
       - run: php tests/customers.php
       - run: php tests/order_margins.php
       - run: php tests/order_margins_http.php

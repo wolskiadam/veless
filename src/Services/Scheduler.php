@@ -141,6 +141,14 @@ final class Scheduler
                 $client = \PasePlugin\Allegro\AllegroPlugin::makeClient($this->pdo, $this->allegroConfig());
                 if ($client->bearerToken() !== null) {
                     $r = (new AllegroFeedback($this->pdo))->sync($client);
+                    // Rozmowy z Centrum wiadomości do listy w CRM (wyszukiwarka, archiwum).
+                    $inbox = new AllegroInbox($this->pdo);
+                    $ri = $inbox->sync($client);
+                    if (!$ri['ok']) {
+                        $r['ok'] = false;
+                        $r['messages'][] = 'Wiadomości: ' . $ri['message'];
+                    }
+                    $inbox->autoArchive(TaskTimings::get($this->settings, 'ARCHIVE_AFTER_DAYS'));
                     $this->settings->setMany([AllegroFeedback::SYNC_ERROR_KEY => implode(' | ', $r['messages'])]);
                     if (!$r['ok']) {
                         Logger::warn('Scheduler[allegro_feedback]: ' . implode(' | ', $r['messages']));

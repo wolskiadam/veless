@@ -55,6 +55,8 @@ final class WooProductImportHandler
         $variation['images'] = !empty($variation['image']['src'])
             ? [$variation['image']]
             : ($parent['images'] ?? []);
+        // Zdjęcia produktu głównego osobno (products.parent_images) - na karcie wariantu pokazujemy oba.
+        $variation['__parent_images'] = \Pase\Services\VariantParentImages::fromWoo($parent);
         // Pola własne (meta_data): wariant dziedziczy pola rodzica, własne wartości wariantu wygrywają.
         $meta = [];
         foreach (array_merge($parent['meta_data'] ?? [], $variation['meta_data'] ?? []) as $m) {
@@ -167,6 +169,9 @@ final class WooProductImportHandler
         }
 
         $isNew = $this->repo->upsert($sku, $fields, $payload);
+        if (!empty($payload['__is_variation']) && is_array($payload['__parent_images'] ?? null)) {
+            $this->repo->setParentImages($sku, $payload['__parent_images']);
+        }
         $this->customFields?->applyFromPayload($sku, $payload);
         Logger::info(
             'WooProductImport: ' . ($isNew ? 'dodano' : 'zaktualizowano') . " produkt SKU {$sku}",

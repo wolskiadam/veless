@@ -64,6 +64,11 @@ final class Migrator
             Logger::warn('Auto-migracja: products.min_stock - ' . $e->getMessage());
         }
         try {
+            \Pase\Services\VariantParentImages::migrate($this->pdo);   // products.parent_images - zdjęcia produktu głównego wariantu
+        } catch (\Throwable $e) {
+            Logger::warn('Auto-migracja: products.parent_images - ' . $e->getMessage());
+        }
+        try {
             \Pase\Services\WooCustomFields::migrate($this->pdo);   // product_fields.woo_meta_key - pola pobierane ze sklepu
         } catch (\Throwable $e) {
             Logger::warn('Auto-migracja: product_fields.woo_meta_key - ' . $e->getMessage());

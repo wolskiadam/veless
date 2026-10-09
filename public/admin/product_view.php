@@ -205,6 +205,21 @@ if ($p === null) {
 }
 
 $images     = json_decode($p['images'] ?? '[]', true) ?: [];
+// Wariant: obok własnego zdjęcia także zdjęcia produktu głównego (tylko podgląd w CRM).
+$parentImages = null;
+if (!empty($p['woo_variation_id'])) {
+    $parentImages = \Pase\Services\VariantParentImages::decode($p['parent_images'] ?? null);
+    if ($parentImages === null) {
+        try {
+            $parentImages = (new \Pase\Services\VariantParentImages($pdo))->backfill([$p], 1)[(int) $p['id']] ?? null;
+        } catch (\Throwable $e) {
+            $parentImages = null;
+        }
+    }
+}
+$gallery    = \Pase\Services\VariantParentImages::gallery(\Pase\Services\VariantParentImages::fromWoo(['images' => $images]), $parentImages);
+$ownGallery    = array_values(array_filter($gallery, static fn($g) => !$g['parent']));
+$parentGallery = array_values(array_filter($gallery, static fn($g) => $g['parent']));
 $categories = json_decode($p['categories'] ?? '[]', true) ?: [];
 $attributes = json_decode($p['attributes'] ?? '{}', true) ?: [];
 
@@ -543,16 +558,26 @@ try {
 
     <!-- Prawa: zdjęcia -->
     <div class="card">
-        <strong>Zdjęcia (<?= count($images) ?>)</strong>
-        <?php if (empty($images)): ?>
+        <strong>Zdjęcia (<?= count($gallery) ?>)</strong>
+        <?php if (empty($gallery)): ?>
             <p style="color:#888;font-size:13px;margin-top:8px">Brak zdjęć.</p>
         <?php else: ?>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:10px">
-                <?php foreach ($images as $src): ?>
-                    <img src="<?= htmlspecialchars($src) ?>" alt="" loading="lazy" onclick="pvOpenLightbox(this.src)"
-                         style="width:100%;height:110px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb;cursor:zoom-in">
-                <?php endforeach; ?>
-            </div>
+            <?php foreach ([[$ownGallery, !empty($p['woo_variation_id']) ? 'Wariant' : null], [$parentGallery, 'Z produktu głównego']] as [$group, $groupLabel]): ?>
+                <?php if ($group === []) { continue; } ?>
+                <?php if ($groupLabel !== null && $parentGallery !== []): ?>
+                    <p style="margin:12px 0 0;font-size:12px;color:#888;font-weight:600"><?= htmlspecialchars($groupLabel) ?> (<?= count($group) ?>)</p>
+                <?php endif; ?>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:<?= $groupLabel !== null && $parentGallery !== [] ? '6' : '10' ?>px">
+                    <?php foreach ($group as $img): ?>
+                        <img src="<?= htmlspecialchars($img['src']) ?>" alt="" loading="lazy" onclick="pvOpenLightbox(this.src)"
+                             <?= $img['parent'] ? 'title="Zdjęcie produktu głównego"' : '' ?>
+                             style="width:100%;height:110px;object-fit:cover;border-radius:8px;border:1px solid #e5e7eb;cursor:zoom-in">
+                    <?php endforeach; ?>
+                </div>
+            <?php endforeach; ?>
+            <?php if ($parentGallery !== []): ?>
+                <p style="color:#888;font-size:12px;margin:8px 0 0">Zdjęcia produktu głównego są tylko podglądem w CRM — nie trafiają do wariantu w sklepie ani do oferty Allegro.</p>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
 </div>

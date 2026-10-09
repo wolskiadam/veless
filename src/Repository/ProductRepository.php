@@ -85,6 +85,14 @@ final class ProductRepository
         return $stmt->rowCount() === 1;
     }
 
+    /** Zdjęcia produktu głównego wariantu (patrz VariantParentImages). @param string[] $urls */
+    public function setParentImages(string $sku, array $urls): void
+    {
+        \Pase\Services\VariantParentImages::migrate($this->pdo);
+        $this->pdo->prepare('UPDATE products SET parent_images = ? WHERE sku = ?')
+            ->execute([json_encode(array_values($urls), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $sku]);
+    }
+
     public function findBySku(string $sku): ?array
     {
         $stmt = $this->pdo->prepare('SELECT * FROM products WHERE sku = ? LIMIT 1');

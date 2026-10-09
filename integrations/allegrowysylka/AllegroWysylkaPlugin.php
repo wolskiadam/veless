@@ -546,6 +546,8 @@ final class AllegroWysylkaPlugin extends AbstractPlugin implements CourierAsync
      * Ustawia sposób nadania w danych przesyłki.
      *   INPOST        : usługa "sendingAtPoint" = nadanie w punkcie; bez niej = podjazd kuriera.
      *   POCZTA POLSKA : "sendAtApm" (nadanie w Automacie Pocztex), gdy dostępna.
+     *   ALLEGRO       : "sendingAtPoint", gdy Allegro ją podało; Allegro One (One Box) - bez flagi,
+     *                   paczkę nadaje się w dowolnym One Box / One Punkcie.
      *   inni          : nadanie w punkcie tylko, gdy Allegro podało punkt nadawcy; kurier = domyślne.
      * @return array{ok:bool,message:string,input:array}
      */
@@ -578,8 +580,14 @@ final class AllegroWysylkaPlugin extends AbstractPlugin implements CourierAsync
                 unset($input['sender']['point']); // kurier odbiera z adresu nadawcy
             }
         } elseif ($handover === 'point') {
-            if (in_array('sendAtApm', $available, true)) {
+            if (in_array('sendingAtPoint', $available, true)) {
+                $services[] = 'sendingAtPoint'; // np. Allegro International obsługiwane przez InPost
+            } elseif (in_array('sendAtApm', $available, true)) {
                 $services[] = 'sendAtApm';
+            } elseif ($carrier === 'ALLEGRO') {
+                // Allegro One (One Box, One Punkt, One Kurier): ta sama przesyłka i etykieta -
+                // paczkę zanosi się do dowolnego automatu One Box / One Punktu, API nie ma na to flagi.
+                // Podjazd kuriera to osobne zamówienie odbioru (patrz orderPickup).
             } elseif (empty($input['sender']['point'])) {
                 return ['ok' => false, 'input' => $input, 'message' => 'Ten przewoźnik' . ($carrier ? " ({$carrier})" : '')
                     . ' nie ma nadania w punkcie przez API — wybierz „podjazd kuriera”.'];

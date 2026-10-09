@@ -299,6 +299,59 @@ final class PayuPayouts
     }
 
     /** @return list<array<string,mixed>> ostatnie wypłaty, najnowsze pierwsze */
+    /** Okresy listy „Wypłaty zlecone z CRM” (System → PayU). Domyślnie bieżący miesiąc. */
+    public const PERIODS = ['week' => 'Ten tydzień', 'month' => 'Ten miesiąc', 'prev_month' => 'Poprzedni miesiąc', 'quarter' => 'Ostatnie 3 miesiące', 'all' => 'Wszystkie'];
+    public const DEFAULT_PERIOD = 'month';
+
+    /** @return array{0:?string,1:?string} [od, do) okresu w formacie Y-m-d H:i:s; null = bez granicy */
+    public static function periodRange(string $period, ?\DateTimeImmutable $now = null): array
+    {
+        $now ??= new \DateTimeImmutable();
+        $fmt = static fn(\DateTimeImmutable $d): string => $d->format('Y-m-d 00:00:00');
+        return match ($period) {
+            'week' => [$fmt($now->modify('monday this week')), null],
+            'prev_month' => [$fmt($now->modify('first day of last month')), $fmt($now->modify('first day of this month'))],
+            'quarter' => [$fmt($now->modify('first day of this month')->modify('-2 months')), null],
+            'all' => [null, null],
+            default => [$fmt($now->modify('first day of this month')), null],
+        };
+    }
+
+    /**
+     * Strona listy wypłat z wybranego okresu, najnowsze pierwsze. Wypłaty jeszcze w toku (nie zrealizowane,
+     * nie anulowane, bez błędu) są zawsze na liście, niezależnie od okresu - żeby nic oczekującego nie zniknęło.
+     * @return array{rows:list<array<string,mixed>>,total:int,page:int,pages:int}
+     */
+    public function historyPage(string $period, int $page = 1, int $perPage = 20, ?\DateTimeImmutable $now = null): array
+    {
+        self::migrate($this->pdo);
+        [$from, $to] = self::periodRange(isset(self::PERIODS[$period]) ? $period : self::DEFAULT_PERIOD, $now);
+        $where = [];
+        $args = [];
+        if ($from !== null) {
+            $where[] = 'created_at >= ?';
+            $args[] = $from;
+        }
+        if ($to !== null) {
+            $where[] = 'created_at < ?';
+            $args[] = $to;
+        }
+        $sql = ' FROM payu_payouts';
+        if ($where !== []) {
+            $sql .= ' WHERE (' . implode(' AND ', $where) . ') OR status NOT IN (' . implode(',', array_fill(0, count(self::FINAL), '?')) . ')';
+            $args = array_merge($args, self::FINAL);
+        }
+        $st = $this->pdo->prepare('SELECT COUNT(*)' . $sql);
+        $st->execute($args);
+        $total = (int) $st->fetchColumn();
+        $perPage = max(1, $perPage);
+        $pages = max(1, (int) ceil($total / $perPage));
+        $page = max(1, min($page, $pages));
+        $st = $this->pdo->prepare('SELECT *' . $sql . ' ORDER BY id DESC LIMIT ' . $perPage . ' OFFSET ' . (($page - 1) * $perPage));
+        $st->execute($args);
+        return ['rows' => $st->fetchAll(PDO::FETCH_ASSOC), 'total' => $total, 'page' => $page, 'pages' => $pages];
+    }
+
     public function history(int $limit = 50): array
     {
         self::migrate($this->pdo);

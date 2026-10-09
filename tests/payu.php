@@ -171,6 +171,22 @@ $payoutReply = null;
 $payu->refreshOpen();
 check($payu->find($ext)['status'] === 'REALIZED', 'open payouts refreshed from PayU');
 check(count($payu->history()) === 3 && $payu->history()[0]['ext_payout_id'] === $ext3, 'history newest first');
+// Lista wypłat: okres (domyślnie bieżący miesiąc) + strony; wypłaty w toku zawsze widoczne.
+$now = new DateTimeImmutable('2026-10-09 20:00:00');
+$pdo->exec("UPDATE payu_payouts SET created_at = '2026-10-08 10:00:00'");
+$ins = $pdo->prepare("INSERT INTO payu_payouts (ext_payout_id, amount, status, created_at) VALUES (?, 100, ?, ?)");
+foreach ([['old-sep', 'REALIZED', '2026-09-15 10:00:00'], ['old-aug', 'REALIZED', '2026-08-01 10:00:00'], ['old-pending', 'PENDING', '2026-07-01 10:00:00'], ['early-oct', 'REALIZED', '2026-10-02 10:00:00']] as $r) { $ins->execute($r); }
+$ids = static fn(array $h): array => array_column($h['rows'], 'ext_payout_id');
+$m = $payu->historyPage('month', 1, 20, $now);
+check($m['total'] === 5 && in_array('old-pending', $ids($m), true) && !in_array('old-sep', $ids($m), true), 'month: this month + payouts still pending, older hidden');
+$w = $payu->historyPage('week', 1, 20, $now);
+check($w['total'] === 4 && !in_array('early-oct', $ids($w), true), 'week: from Monday of this week (+ pending)');
+$pm = $payu->historyPage('prev_month', 1, 20, $now);
+check($ids($pm) === ['old-pending', 'old-sep', $ext3], 'previous month only (+ pending and unknown-status payouts)');
+check($payu->historyPage('all', 1, 20, $now)['total'] === 7 && $payu->historyPage('bogus', 1, 20, $now)['total'] === 5, 'all shows everything, unknown period falls back to month');
+$p1 = $payu->historyPage('all', 1, 3, $now); $p3 = $payu->historyPage('all', 3, 3, $now);
+check($p1['pages'] === 3 && count($p1['rows']) === 3 && count($p3['rows']) === 1 && $payu->historyPage('all', 99, 3, $now)['page'] === 3, 'pagination');
+$pdo->exec("DELETE FROM payu_payouts WHERE ext_payout_id IN ('old-sep','old-aug','old-pending','early-oct')");
 check(PayuPayouts::statusLabel('REALIZED') === 'zrealizowana' && PayuPayouts::statusLabel('NEW_ONE') === 'NEW_ONE', 'status labels');
 
 // Kilka sklepów: osobne konta, osobne klucze, wypłata idzie kluczami sklepu, z którego wypłacamy.

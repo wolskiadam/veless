@@ -105,7 +105,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 $currencies = array_unique(array_filter(array_map(static fn(array $s): ?string => $s['balance']['currency'] ?? null, $shops)));
 $sumAvailable = count($shops) > 1 && count($currencies) === 1
     ? array_sum(array_map(static fn(array $s): int => (int) ($s['balance']['available'] ?? 0), $shops)) : null;
-$history = $payu->history();
+$period = isset(PayuPayouts::PERIODS[$_GET['period'] ?? '']) ? (string) $_GET['period'] : PayuPayouts::DEFAULT_PERIOD;
+$historyPage = $payu->historyPage($period, (int) ($_GET['page'] ?? 1));
+$history = $historyPage['rows'];
+$anyPayouts = $history !== [] || (int) $pdo->query('SELECT COUNT(*) FROM payu_payouts')->fetchColumn() > 0;
+$historyLink = static fn(int $p): string => 'payu.php?' . http_build_query(['period' => $period, 'page' => $p]) . '#wyplaty';
 $fmtDate = static fn(?string $d): string => $d ? date('d.m.Y H:i', strtotime($d)) : '—';
 $pill = static fn(string $s): string => $s === 'REALIZED' ? 'ok' : (in_array($s, ['ERROR', 'CANCELED', 'UNKNOWN'], true) ? 'bad' : 'warn');
 
@@ -207,11 +211,25 @@ require __DIR__ . '/header.php';
 <?php endif; ?>
 <?php endif; ?>
 
-<div class="card">
-    <h3 style="margin-top:0">Wypłaty zlecone z CRM</h3>
-    <?php if (!$history): ?>
+<div class="card" id="wyplaty">
+    <div class="pu-head">
+        <h3>Wypłaty zlecone z CRM</h3>
+        <?php if ($anyPayouts): ?>
+        <form method="get" action="payu.php#wyplaty" style="display:flex;gap:8px;align-items:center;font-size:13px">
+            <label for="pu-period" class="pu-muted">Okres</label>
+            <select id="pu-period" name="period" onchange="this.form.submit()">
+                <?php foreach (PayuPayouts::PERIODS as $k => $label): ?><option value="<?= $e($k) ?>"<?= $k === $period ? ' selected' : '' ?>><?= $e($label) ?></option><?php endforeach; ?>
+            </select>
+            <noscript><button class="btn secondary" type="submit">Pokaż</button></noscript>
+        </form>
+        <?php endif; ?>
+    </div>
+    <?php if (!$anyPayouts): ?>
         <p class="pu-muted">Jeszcze nie zlecono żadnej wypłaty z CRM.</p>
+    <?php elseif (!$history): ?>
+        <p class="pu-muted">Brak wypłat w tym okresie. Wybierz „Wszystkie”, żeby zobaczyć starsze.</p>
     <?php else: ?>
+    <p class="pu-muted" style="margin:0 0 8px"><?= $e(PayuPayouts::PERIODS[$period]) ?>: <?= (int) $historyPage['total'] ?> <?= $historyPage['total'] === 1 ? 'wypłata' : ($historyPage['total'] % 10 >= 2 && $historyPage['total'] % 10 <= 4 && ($historyPage['total'] % 100 < 10 || $historyPage['total'] % 100 >= 20) ? 'wypłaty' : 'wypłat') ?><?= $period !== 'all' ? ' · wypłaty w toku są widoczne zawsze' : '' ?></p>
     <table>
         <thead><tr><th>Data</th><th>Sklep</th><th>Kwota</th><th>Tytuł</th><th>Status</th><th>Numer PayU</th><th>Zlecił</th><th></th></tr></thead>
         <tbody>
@@ -233,6 +251,7 @@ require __DIR__ . '/header.php';
         <?php endforeach; ?>
         </tbody>
     </table>
+    <?php $pagerPage = $historyPage['page']; $pagerPages = $historyPage['pages']; $pagerLink = $historyLink; require __DIR__ . '/_pager.php'; ?>
     <?php endif; ?>
 </div>
 <?php require __DIR__ . '/footer.php'; ?>

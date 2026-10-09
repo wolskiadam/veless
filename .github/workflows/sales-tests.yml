@@ -101,6 +101,7 @@ jobs:
       - run: php tests/virtual_products.php
       - run: php tests/automation_actions.php
       - run: php tests/manual_shipment_cost.php
+      - run: php tests/allegro_wysylka_handover.php
       - run: php tests/shipment_tracking.php
       - run: php tests/extensions.php
       - run: php tests/extensions_http.php

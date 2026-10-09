@@ -120,6 +120,8 @@ try {
 
     $page = request($boss, 'admin/order_view.php?id=501');
     ok($page['status'] === 200 && !str_contains($page['body'], 'Ten klient ma inne niewysłane zamówienia') && !str_contains($page['body'], 'Scal z tym'), 'Order page does not suggest merging other orders');
+    ok(str_contains($page['body'], '<a href="product_view.php?id=1" title="Pokaż produkt w magazynie">GINGERBREAD 1l</a>')
+        && str_contains($page['body'], '<a href="product_view.php?id=1" title="Pokaż produkt w magazynie">GB-1L</a>'), 'Product name and SKU link to the warehouse product');
 
     $page = request($boss, 'admin/order_merge.php?ids=501,502');
     ok($page['status'] === 200 && str_contains($page['body'], 'inny adres dostawy') && str_contains($page['body'], 'name="accept"'), 'Merge screen warns about a different address');
@@ -132,6 +134,7 @@ try {
     $page = request($boss, 'admin/order_view.php?id=501');
     ok(str_contains($page['body'], 'Scalono: dołączono zamówień 1') && str_contains($page['body'], 'MULLED WINE 1l') && str_contains($page['body'], 'Razem paczka'), 'Main order shows absorbed products and parcel total');
     ok(str_contains($page['body'], '169.70'), 'Main order shows the summed price');
+    ok(str_contains($page['body'], '<a href="product_view.php?id=2" title="Pokaż produkt w magazynie">MULLED WINE 1l</a>'), 'Absorbed order products link to the warehouse too');
     $page = request($boss, 'admin/order_view.php?id=502');
     ok(str_contains($page['body'], 'faktura lub paragon obejmuje całą paczkę') && !str_contains($page['body'], 'value="issue_wfirma_document"'), 'Absorbed order points to the parcel document on the main order');
     ok(str_contains($page['body'], 'Scalone z zamówieniem') && str_contains($page['body'], 'przesyłkę nadaj tam') && !str_contains($page['body'], 'margin-bottom:4px">Nadaj przez'), 'Absorbed order blocks a separate shipment');

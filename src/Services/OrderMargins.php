@@ -456,38 +456,10 @@ final class OrderMargins
         }
     }
 
-    /**
-     * Produkt z magazynu dla pozycji. Allegro (po AllegroOrderMapper) ma product_id = id w CRM;
-     * WooCommerce ma product_id/variation_id ze sklepu, więc najpierw SKU, potem ID wariantu i produktu.
-     * @return array{id:int,sku:string,name:?string,purchase_cost:mixed}|null
-     */
+    /** @return array{id:int,sku:string,name:?string,purchase_cost:mixed}|null */
     private function matchProduct(array $li, bool $isAllegro): ?array
     {
-        $q = static function (PDO $pdo, string $where, array $args): ?array {
-            $s = $pdo->prepare("SELECT id, sku, name, purchase_cost FROM products WHERE $where LIMIT 1");
-            $s->execute($args);
-            $r = $s->fetch(PDO::FETCH_ASSOC);
-            return $r ? ['id' => (int) $r['id']] + $r : null;
-        };
-        $pid = (int) ($li['product_id'] ?? 0);
-        if ($isAllegro && $pid > 0 && ($r = $q($this->pdo, 'id = ?', [$pid]))) {
-            return $r;
-        }
-        $sku = trim((string) ($li['sku'] ?? ''));
-        if ($sku !== '' && ($r = $q($this->pdo, 'sku = ?', [$sku]))) {
-            return $r;
-        }
-        if ($isAllegro) {
-            return null;
-        }
-        $vid = (int) ($li['variation_id'] ?? 0);
-        if ($vid > 0) {
-            return $q($this->pdo, 'woo_variation_id = ?', [$vid]);
-        }
-        if ($pid > 0) {
-            return $q($this->pdo, 'woo_product_id = ? AND (woo_variation_id IS NULL OR woo_variation_id = 0)', [$pid]);
-        }
-        return null;
+        return OrderItemProducts::match($this->pdo, $li, $isAllegro);
     }
 
     /** Pozycje bez kosztu dostają koszt produktu, gdy został wpisany później. */

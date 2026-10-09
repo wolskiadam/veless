@@ -317,7 +317,7 @@ require __DIR__ . '/header.php';
         <?php if (canEdit()): ?>
             <form method="post" style="display:flex;gap:8px;flex-wrap:wrap" onsubmit="return confirm('Połączyć tych klientów w jedną kartę?')">
                 <input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="action" value="merge"><input type="hidden" name="customer_id" value="<?= $id ?>">
-                <input name="other" required placeholder="E-mail, telefon, login Allegro albo nr zamówienia drugiego klienta" style="flex:1;min-width:260px">
+                <input type="search" name="other" required placeholder="Adres mailowy, telefon, nick Allegro albo nr zamówienia drugiego klienta" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other" style="flex:1;min-width:260px">
                 <button class="btn secondary" type="submit">Połącz z tym klientem</button>
             </form>
         <?php endif; ?>
@@ -376,7 +376,7 @@ require __DIR__ . '/header.php';
             <?php endif; ?>
         </div>
         <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0">
-            <input name="q" value="<?= $e($q) ?>" placeholder="Imię, e-mail, telefon, login Allegro, nr zamówienia" style="flex:1;min-width:240px">
+            <input type="search" name="q" value="<?= $e($q) ?>" placeholder="Imię, adres mailowy, telefon, nick Allegro, nr zamówienia" aria-label="Szukaj klientów" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other" style="flex:1;min-width:240px">
             <select name="sort">
                 <option value="last"<?= $sort === 'last' ? ' selected' : '' ?>>Ostatnio kupujący</option>
                 <option value="orders"<?= $sort === 'orders' ? ' selected' : '' ?>>Najwięcej zamówień</option>

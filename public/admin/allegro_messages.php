@@ -138,9 +138,9 @@ require __DIR__ . '/header.php';
 <div class="al-msg-layout">
     <!-- LEWA: wątki -->
     <div class="card" style="padding:8px">
-        <form method="get" class="al-search">
+        <form method="get" class="al-search" role="search" autocomplete="off">
             <?php if ($listFilter !== ''): ?><input type="hidden" name="f" value="<?= $e($listFilter) ?>"><?php endif; ?>
-            <input type="search" name="q" value="<?= $e($q) ?>" placeholder="Szukaj: login, nr zamówienia, treść…">
+            <input type="search" name="q" value="<?= $e($q) ?>" placeholder="Szukaj: kupujący, nr zamówienia, treść…" aria-label="Szukaj rozmów" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other">
         </form>
         <div class="fb-filters">
             <?php foreach (['' => 'Rozmowy', 'unread' => 'Nieprzeczytane', 'archive' => 'Archiwum'] as $k => $label):

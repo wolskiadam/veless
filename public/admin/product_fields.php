@@ -210,7 +210,7 @@ $wooTech = array_values(array_filter($discovered, static fn($d) => $d['technical
     <?php if ($discovered === []): ?>
         <p style="color:#888;font-size:13px">Sklep nie zwrócił żadnych dodatkowych pól w pobranych produktach.</p>
     <?php else: ?>
-        <input type="search" id="wooFilter" placeholder="Szukaj pola, np. image albo color" style="width:320px;margin-bottom:8px"
+        <input type="search" id="wooFilter" placeholder="Szukaj pola, np. image albo color" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other" style="width:320px;margin-bottom:8px"
                oninput="var q=this.value.toLowerCase();document.querySelectorAll('.woo-meta tr[data-k]').forEach(function(r){r.style.display=r.dataset.k.indexOf(q)>-1?'':'none'});if(q)document.querySelectorAll('.woo-meta-more').forEach(function(d){d.open=true})">
         <table class="woo-meta">
             <tr><th>Klucz w sklepie</th><th>Produktów</th><th>Przykładowa wartość</th><th></th></tr>

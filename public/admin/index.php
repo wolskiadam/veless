@@ -350,7 +350,7 @@ unset($searchHidden['q'], $searchHidden['p']);
         <button type="submit" class="side-search-submit" title="<?= htmlspecialchars(t('orders.search')) ?>" aria-label="<?= htmlspecialchars(t('orders.search')) ?>">
             <svg class="side-search-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         </button>
-        <input type="search" name="q" id="ordersSearchInput" value="<?= htmlspecialchars($q) ?>" placeholder="<?= htmlspecialchars(t('orders.search')) ?>" class="side-search-input" autocomplete="off">
+        <input type="search" name="q" id="ordersSearchInput" value="<?= htmlspecialchars($q) ?>" placeholder="<?= htmlspecialchars(t('orders.search')) ?>" class="side-search-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other">
         <button type="submit" id="ordersSearchClear" class="side-search-clear" title="Wyczyść wyszukiwanie" aria-label="Wyczyść wyszukiwanie" <?= $q === '' ? 'hidden' : '' ?> onclick="document.getElementById('ordersSearchInput').value='';">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>

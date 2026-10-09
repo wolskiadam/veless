@@ -1531,7 +1531,7 @@ foreach ($absorbedOrders as $ab) {
                     <span id="tplPickLabel">Nie wybrano</span><span aria-hidden="true">▾</span>
                 </button>
                 <div class="tpl-pick-panel" id="tplPickPanel" hidden>
-                    <input type="search" id="tplPickSearch" placeholder="Szukaj szablonu..." autocomplete="off">
+                    <input type="search" id="tplPickSearch" placeholder="Szukaj szablonu..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other">
                     <div class="tpl-pick-list" id="tplPickList" role="listbox">
                         <div class="tpl-pick-opt" role="option" data-id="0">Nie wybrano</div>
                         <div class="tpl-pick-group">Szablony e-mail</div>

@@ -133,6 +133,7 @@ try {
     ok(str_contains($page['body'], 'kupiec1') && !str_contains($page['body'], '>kupiec34<') && str_contains($page['body'], '1 / 2 (34)'), 'First page shows 30 of 34 conversations with a pager');
     ok(str_contains($page['body'], 'Nieprzeczytane (1)') && str_contains($page['body'], 'Archiwum (1)'), 'Filter chips show unread and archive counts');
     ok(str_contains($page['body'], 'Zamówienie #11'), 'Conversation shows its CRM order number');
+    ok(preg_match('~<input type="search" name="q"[^>]*>~', $page['body'], $sm) === 1 && str_contains($sm[0], 'autocomplete="off"') && str_contains($sm[0], 'data-1p-ignore') && stripos($sm[0], 'login') === false, 'Search field does not look like a login field to password managers');
     $p2 = request($boss, 'admin/allegro_messages.php?p=2');
     ok(str_contains($p2['body'], 'kupiec34') && !str_contains($p2['body'], '>kupiec35<'), 'Second page has the older ones, archived one hidden');
     $s = request($boss, 'admin/allegro_messages.php?q=' . urlencode('wosk sojowy'));

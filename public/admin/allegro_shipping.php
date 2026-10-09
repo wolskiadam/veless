@@ -164,7 +164,7 @@ if ($mode !== 'list') {
                 <input name="name" value="<?= $e($rateName) ?>" maxlength="100" required style="width:100%">
             </div>
             <div class="sr-tools">
-                <input type="search" id="srSearch" placeholder="Szukaj metody dostawy…">
+                <input type="search" id="srSearch" placeholder="Szukaj metody dostawy…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other">
                 <label class="sr-chk"><input type="checkbox" id="srOnlyOn"> tylko włączone</label>
             </div>
         </div>

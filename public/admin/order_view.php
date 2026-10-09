@@ -646,8 +646,9 @@ if ($sourceType === 'allegro') {
         $thumbAllegro = null;
     }
 }
-$thumbSvc = new \Pase\Services\OrderItemThumbnails($pdo, $thumbAllegro);
+$thumbSvc = new \Pase\Services\OrderItemThumbnails($pdo, $thumbAllegro, new \Pase\Services\VariantParentImages($pdo));
 $itemThumbs = $thumbSvc->forItems($items);
+$itemParentThumbs = $thumbSvc->parentThumbs;   // warianty: główne zdjęcie produktu głównego
 if ($thumbSvc->fetchedFromAllegro !== [] && !$isLocallyEdited && isset($o['line_items'])) {
     foreach ($thumbSvc->fetchedFromAllegro as $i => $url) {
         if (isset($o['line_items'][$i])) {
@@ -679,6 +680,7 @@ try {
     \Pase\Support\Logger::warn('Scalanie: nie udało się odczytać scalonych zamówień - ' . $e->getMessage());
 }
 $mergedThumbs = $mergedExtraItems !== [] ? $thumbSvc->forItems($mergedExtraItems) : [];
+$mergedParentThumbs = $mergedExtraItems !== [] ? $thumbSvc->parentThumbs : [];
 // Produkt w magazynie dla każdej pozycji (nazwa i SKU prowadzą do karty produktu). Allegro i zamówienia ręczne
 // mają w product_id id z CRM, WooCommerce - id ze sklepu (patrz Services\OrderItemProducts).
 $itemProductIds = [];
@@ -1365,11 +1367,16 @@ foreach ($absorbedOrders as $ab) {
 
     <table style="margin-top:10px">
         <tr><th></th><th>ID</th><th>Nazwa produktu</th><th>SKU</th><th>Ilość</th><th>Cena</th><th>Suma</th></tr>
-        <?php foreach ($items as $itIdx => $it): $thumb = $itemThumbs[$itIdx] ?? null; ?>
+        <?php foreach ($items as $itIdx => $it): $thumb = $itemThumbs[$itIdx] ?? null; $pThumb = $itemParentThumbs[$itIdx] ?? null; ?>
             <tr>
                 <td style="width:56px">
                     <?php if ($thumb): ?>
+                        <div style="position:relative;width:48px">
                         <a href="<?= htmlspecialchars($thumb) ?>" class="item-thumb" data-caption="<?= htmlspecialchars((string) ($it['name'] ?? '')) ?>" target="_blank" rel="noopener"><img src="<?= htmlspecialchars($thumb) ?>" alt="" loading="lazy" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;display:block"></a>
+                        <?php if ($pThumb): ?>
+                            <a href="<?= htmlspecialchars($pThumb) ?>" class="item-thumb item-thumb-parent" title="Zdjęcie produktu głównego" data-caption="<?= htmlspecialchars('Produkt główny: ' . (string) ($it['name'] ?? '')) ?>" target="_blank" rel="noopener"><img src="<?= htmlspecialchars($pThumb) ?>" alt="Produkt główny" loading="lazy"></a>
+                        <?php endif; ?>
+                        </div>
                     <?php else: ?>
                         <span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:6px;background:#f1f3f4;color:#bbb;font-size:16px">—</span>
                     <?php endif; ?>
@@ -1402,11 +1409,16 @@ foreach ($absorbedOrders as $ab) {
                     <?php endif; ?>
                 </div>
             </td></tr>
-            <?php foreach ($mergedExtraItems as $mIdx => $it): if ((int) $it['merged_from'] !== $abId) { continue; } $thumb = $mergedThumbs[$mIdx] ?? null; ?>
+            <?php foreach ($mergedExtraItems as $mIdx => $it): if ((int) $it['merged_from'] !== $abId) { continue; } $thumb = $mergedThumbs[$mIdx] ?? null; $pThumb = $mergedParentThumbs[$mIdx] ?? null; ?>
             <tr class="merged-item">
                 <td style="width:56px">
                     <?php if ($thumb): ?>
+                        <div style="position:relative;width:48px">
                         <a href="<?= htmlspecialchars($thumb) ?>" class="item-thumb" data-caption="<?= htmlspecialchars((string) ($it['name'] ?? '')) ?>" target="_blank" rel="noopener"><img src="<?= htmlspecialchars($thumb) ?>" alt="" loading="lazy" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;display:block"></a>
+                        <?php if ($pThumb): ?>
+                            <a href="<?= htmlspecialchars($pThumb) ?>" class="item-thumb item-thumb-parent" title="Zdjęcie produktu głównego" data-caption="<?= htmlspecialchars('Produkt główny: ' . (string) ($it['name'] ?? '')) ?>" target="_blank" rel="noopener"><img src="<?= htmlspecialchars($pThumb) ?>" alt="Produkt główny" loading="lazy"></a>
+                        <?php endif; ?>
+                        </div>
                     <?php else: ?>
                         <span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:6px;background:#f1f3f4;color:#bbb;font-size:16px">—</span>
                     <?php endif; ?>
@@ -3183,6 +3195,9 @@ foreach ($absorbedOrders as $ab) {
 #thumb-lightbox .tlb-prev{left:16px;top:50%;transform:translateY(-50%);font-size:30px}
 #thumb-lightbox .tlb-next{right:16px;top:50%;transform:translateY(-50%);font-size:30px}
 a.item-thumb{cursor:zoom-in}
+/* Wariant: główne zdjęcie produktu głównego w rogu miniatury */
+a.item-thumb-parent{position:absolute;right:-8px;bottom:-8px;width:26px;height:26px;border-radius:50%;overflow:hidden;border:2px solid #fff;box-shadow:0 0 0 1px #e5e7eb;background:#fff}
+a.item-thumb-parent img{width:100%;height:100%;object-fit:cover;display:block}
 </style>
 <script>
 (function () {

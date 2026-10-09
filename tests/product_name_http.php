@@ -71,6 +71,7 @@ try {
     file_put_contents("$temp/woo/index.php", '<?php file_put_contents(__DIR__ . "/requests.log", $_SERVER["REQUEST_METHOD"] . " " . parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH) . " " . file_get_contents("php://input") . "\n", FILE_APPEND);'
         . 'header("Content-Type: application/json");'
         . 'if (str_contains($_SERVER["REQUEST_URI"], "/products/300")) { http_response_code(401); echo json_encode(["message" => "Brak uprawnień"]); return; }'
+        . 'if ($_SERVER["REQUEST_METHOD"] === "GET" && str_contains($_SERVER["REQUEST_URI"], "/products/400")) { echo json_encode(["id" => 400, "images" => [["src" => "https://sklep.test/rodzic-glowne.jpg"], ["src" => "https://sklep.test/wariant-braz.jpg"], ["src" => "https://sklep.test/rodzic-galeria.jpg"]]]); return; }'
         . 'echo json_encode(["id" => 1]);');
     $free = static function (): string { $s = stream_socket_server('tcp://127.0.0.1:0'); $a = stream_socket_get_name($s, false); fclose($s); return $a; };
     $shopAddr = $free();
@@ -96,6 +97,8 @@ try {
     $pins->execute([2, 'moj-sklep-1', 'Dostęp Miesięczny', 9999, 1, 200, null]);
     $pins->execute([3, 'ODMOWA-1', 'Stara nazwa', 1, 1, 300, null]);
     $pins->execute([4, 'GB-1L-BRAZ', 'Gingerbread', 3, 1, 400, 401]);
+    $pins->execute([5, 'GB-1L-BIAL', 'Gingerbread', 2, 1, 400, 402]);
+    $pdo->exec("UPDATE products SET images = '[\"https://sklep.test/wariant-braz.jpg\"]' WHERE id = 4");
     $pdo->prepare("INSERT INTO integration_accounts (id, type, name, is_active, config) VALUES (1, 'woocommerce', 'Mój Sklep', 1, ?)")
         ->execute([json_encode(['base_url' => "http://$shopAddr", 'consumer_key' => 'ck', 'consumer_secret' => 'cs'])]);
     $pdo->exec("CREATE TABLE woo_orders (id INTEGER PRIMARY KEY, woo_order_id INTEGER UNIQUE, integration_id INTEGER, pase_status TEXT, status TEXT, currency TEXT, total REAL,
@@ -136,6 +139,19 @@ try {
 
     $body = $save($boss, 3, 'Nowa nazwa');
     ok(str_contains($body, 'odrzucił zmianę (HTTP 401: Brak uprawnień)') && $nameOf(3) === 'Stara nazwa', 'Shop refuses: name unchanged, reason shown');
+
+    // Wariant: karta pokazuje też zdjęcia produktu głównego (jedno pobranie rodzica, zapis dla wszystkich wariantów).
+    $page = request($boss, 'admin/product_view.php?id=4');
+    ok(str_contains($page['body'], 'Zdjęcia (3)') && str_contains($page['body'], 'Z produktu głównego (2)')
+        && strpos($page['body'], 'wariant-braz.jpg') < strpos($page['body'], 'rodzic-glowne.jpg')
+        && str_contains($page['body'], 'rodzic-galeria.jpg'), 'Variant card: own photo first, then parent photos without duplicates');
+    ok(substr_count($shopLog(), 'GET /wp-json/wc/v3/products/400 ') === 1
+        && json_decode((string) $pdo->query('SELECT parent_images FROM products WHERE id = 5')->fetchColumn(), true)
+            === ['https://sklep.test/rodzic-glowne.jpg', 'https://sklep.test/wariant-braz.jpg', 'https://sklep.test/rodzic-galeria.jpg'],
+        'Parent photos fetched once and stored for sibling variants');
+    request($boss, 'admin/product_view.php?id=5');
+    ok(substr_count($shopLog(), 'GET /wp-json/wc/v3/products/400 ') === 1, 'Stored parent photos are not fetched again');
+    ok(!str_contains(request($boss, 'admin/product_view.php?id=1')['body'], 'Z produktu głównego'), 'Ordinary product: no parent section');
 
     $before = $shopLog();
     $body = $save($boss, 4, 'Gingerbread brązowy');

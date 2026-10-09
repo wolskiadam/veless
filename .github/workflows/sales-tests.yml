@@ -87,6 +87,7 @@ jobs:
       - run: php tests/woo_custom_fields.php
       - run: php tests/woo_custom_fields_http.php
       - run: php tests/product_name_http.php
+      - run: php tests/variant_parent_images.php
       - run: php tests/actual_stock.php
       - run: php tests/gs1.php
       - run: php tests/payu.php

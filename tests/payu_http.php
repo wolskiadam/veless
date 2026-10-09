@@ -137,6 +137,12 @@ try {
     ok(count(file("$temp/payu/posted.log")) === 1, 'Repeated confirmation (refresh) sends nothing');
     $page = request($boss, 'admin/payu.php');
     ok(str_contains($page['body'], 'już zlecona') && str_contains($page['body'], 'Wypłata wrzesień') && str_contains($page['body'], 'zrealizowana'), 'History shows the payout, status refreshed');
+    ok(str_contains($page['body'], 'name="period"') && str_contains($page['body'], '<option value="month" selected>'), 'Payout list has a period selector, this month by default');
+    $pdo->exec("UPDATE payu_payouts SET created_at = '2020-01-15 10:00:00'");
+    $old = request($boss, 'admin/payu.php?period=month');
+    $all = request($boss, 'admin/payu.php?period=all');
+    ok(str_contains($old['body'], 'Brak wypłat w tym okresie') && !str_contains($old['body'], 'Wypłata wrzesień') && str_contains($all['body'], 'Wypłata wrzesień'), 'Old finished payouts hidden from this month, visible under all');
+    $pdo->exec("UPDATE payu_payouts SET created_at = '" . date('Y-m-d H:i:s') . "'");
 
     // Drugi sklep PayU: osobne konto, osobne saldo i formularz, suma dostępnych.
     $pdo->exec("INSERT INTO integration_accounts (id, type, name, is_active, config) VALUES (8, 'payu', 'Sklep drugi', 1, '" . json_encode(['client_id' => '2', 'client_secret' => 's2', 'shop_id' => 'Sh0p2XYZ', 'environment' => 'production']) . "')");

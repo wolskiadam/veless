@@ -14,6 +14,7 @@ declare(strict_types=1);
 
 use Pase\Repository\SettingsRepository;
 use Pase\Services\AllegroFeedback;
+use Pase\Services\AllegroInbox;
 use Pase\Services\AllegroThreads;
 use PasePlugin\Allegro\AllegroPlugin;
 
@@ -24,6 +25,7 @@ requireRole(['admin', 'editor']);
 $config = require PASE_ROOT . '/config/config.php';
 $client = AllegroPlugin::makeClient($pdo, $config['allegro'] ?? []);
 $feedback = new AllegroFeedback($pdo);
+$inbox = new AllegroInbox($pdo);
 $settings = new SettingsRepository($pdo);
 
 $tab = (string) ($_GET['tab'] ?? 'messages');
@@ -59,6 +61,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         } elseif ($action === 'issue_reply') {
             $r = $feedback->replyToIssue($client, (string) ($_POST['issue_id'] ?? ''), (string) ($_POST['text'] ?? ''), (string) ($_POST['type'] ?? 'REGULAR'));
             flash($r['message'], $r['ok'] ? 'ok' : 'err');
+        } elseif ($action === 'thread_archive' || $action === 'thread_restore') {
+            $tid = trim((string) ($_POST['thread_id'] ?? ''));
+            $ok = $action === 'thread_archive' ? $inbox->archive($tid) : $inbox->restore($tid);
+            flash($ok ? ($action === 'thread_archive' ? 'Rozmowa przeniesiona do archiwum.' : 'Rozmowa przywrócona z archiwum.') : 'Nie znaleziono tej rozmowy.', $ok ? 'ok' : 'err');
         } elseif ($action === 'rating_answer') {
             $r = $feedback->answerRating($client, (string) ($_POST['rating_id'] ?? ''), (string) ($_POST['text'] ?? ''));
             flash($r['message'], $r['ok'] ? 'ok' : 'err');
@@ -68,35 +74,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
 }
 
 $counts = $feedback->counts();
-$threads = [];
 $threadsRes = ['ok' => true, 'message' => ''];
 $messages = [];
-if ($tab === 'messages') {
-    // Allegro oddaje wątki stronami (page.id) - pobieramy do 3 stron najnowszych rozmów.
-    $threadsRes = $client->messageThreads();
-    $threads    = $threadsRes['threads'];
-    for ($next = $threadsRes['next'], $page = 1; $threadsRes['ok'] && $next !== '' && $page < 3; $page++) {
-        $more = $client->messageThreads($next);
-        if (!$more['ok']) {
-            break;
-        }
-        $threads = array_merge($threads, $more['threads']);
-        $next = $more['next'];
-    }
-    $me         = $threads !== [] || $threadId !== '' ? $client->accountLogin() : '';
-    $messages   = $threadId !== '' ? $client->threadMessages($threadId) : [];
-    // Otwarty wątek = przeczytany: oznaczamy go na Allegro i zdejmujemy z dzwoneczka.
-    if ($threadId !== '') {
-        foreach ($threads as &$t) {
-            if ((string) ($t['id'] ?? '') === $threadId && empty($t['read'])) {
-                $client->markThreadRead($threadId);
-                $t['read'] = true;
-            }
-        }
-        unset($t);
-        \Pase\Services\Notifications::forgetAllegroThread($threadId);
-    }
+$listFilter = (string) ($_GET['f'] ?? '');
+if (!in_array($listFilter, ['', 'unread', 'archive'], true)) {
+    $listFilter = '';
 }
+$q = trim((string) ($_GET['q'] ?? ''));
+$list = ['rows' => [], 'total' => 0, 'page' => 1, 'pages' => 1];
+$inboxCounts = ['unread' => 0, 'archive' => 0];
+$open = null;
+$openRow = null;
+$me = '';
+if ($tab === 'messages') {
+    // Rozmowy są zapisane w CRM (lista, wyszukiwarka, archiwum). Przy wejściu dociągamy z Allegro
+    // tylko najnowszą stronę zmienionych rozmów; starsze i pełne pierwsze pobranie robi cron.
+    $threadsRes = $client->bearerToken() !== null
+        ? $inbox->sync($client, 1, false)
+        : ['ok' => false, 'message' => 'Brak tokenu Allegro — połącz konto.'];
+    if ($threadId !== '') {
+        $me = $client->accountLogin();
+        $open = $client->messageThread($threadId);
+        $messages = $client->threadMessages($threadId);
+        // Otwarta rozmowa = przeczytana: oznaczamy ją na Allegro i zdejmujemy z dzwoneczka.
+        if ($open !== null && empty($open['read'])) {
+            $client->markThreadRead($threadId);
+        }
+        if ($open !== null) {
+            $inbox->opened($open, $messages, $me);
+        }
+        \Pase\Services\Notifications::forgetAllegroThread($threadId);
+        $openRow = $inbox->thread($threadId);
+    }
+    $list = $inbox->page($listFilter, $q, max(1, (int) ($_GET['p'] ?? 1)));
+    $inboxCounts = $inbox->counts();
+}
+$listUrl = static function (array $over = []) use ($listFilter, $q, $list): string {
+    $params = array_filter(['f' => $listFilter, 'q' => $q, 'p' => $list['page'] > 1 ? $list['page'] : null] + [], static fn($v) => $v !== null && $v !== '');
+    $params = array_filter(array_merge($params, $over), static fn($v) => $v !== null && $v !== '');
+    return 'allegro_messages.php' . ($params ? '?' . http_build_query($params) : '');
+};
 
 $e = static fn($v) => htmlspecialchars((string) $v);
 $PAGE_TITLE = 'Wiadomości Allegro';
@@ -121,26 +138,45 @@ require __DIR__ . '/header.php';
 <div class="al-msg-layout">
     <!-- LEWA: wątki -->
     <div class="card" style="padding:8px">
-        <strong style="display:block;padding:8px 8px 10px">Wątki</strong>
-        <?php if ($threads === []): ?>
-            <p style="color:#888;padding:8px;font-size:13px">Brak wiadomości.</p>
-        <?php else: ?>
-            <?php foreach ($threads as $t):
-                $tid = (string) ($t['id'] ?? '');
-                $login = AllegroThreads::buyerLogin($t, $me);
-                $login = $login !== '' ? $login : '(kupujący)';
-                $read = !empty($t['read']);
-                $problem = AllegroThreads::isProblem($t);
-            ?>
-                <a class="al-thread <?= $threadId === $tid ? 'on' : '' ?> <?= $read ? '' : 'unread' ?>"
-                   href="allegro_messages.php?thread=<?= urlencode($tid) ?>">
-                    <span style="min-width:0">
-                        <span class="al-thread-name"><?= $e($login) ?></span>
-                        <?php if ($problem): ?><span class="al-tag" title="<?= $e(AllegroThreads::subTypeLabel($t['subType'] ?? null)) ?>">Problem z zakupem<?= AllegroThreads::isClosed($t) ? ' · zamknięty' : '' ?></span><?php endif; ?>
-                    </span>
-                    <?php if (!$read): ?><span class="al-dot" title="Nieprzeczytane"></span><?php endif; ?>
-                </a>
+        <form method="get" class="al-search">
+            <?php if ($listFilter !== ''): ?><input type="hidden" name="f" value="<?= $e($listFilter) ?>"><?php endif; ?>
+            <input type="search" name="q" value="<?= $e($q) ?>" placeholder="Szukaj: login, nr zamówienia, treść…">
+        </form>
+        <div class="fb-filters">
+            <?php foreach (['' => 'Rozmowy', 'unread' => 'Nieprzeczytane', 'archive' => 'Archiwum'] as $k => $label):
+                $n = $k === 'unread' ? $inboxCounts['unread'] : ($k === 'archive' ? $inboxCounts['archive'] : 0); ?>
+                <a href="<?= $e($listUrl(['f' => $k, 'p' => null, 'thread' => null])) ?>" class="<?= $listFilter === $k ? 'on' : '' ?>"><?= $e($label) ?><?= $n > 0 ? ' (' . $n . ')' : '' ?></a>
             <?php endforeach; ?>
+        </div>
+        <?php if ($list['rows'] === []): ?>
+            <p style="color:#888;padding:8px;font-size:13px"><?= $q !== '' ? 'Nic nie znaleziono.' : ($listFilter === 'archive' ? 'Archiwum jest puste.' : 'Brak rozmów.') ?></p>
+        <?php endif; ?>
+        <?php foreach ($list['rows'] as $t):
+            $tid = (string) $t['remote_id'];
+            $read = (int) $t['is_read'] === 1;
+            $orderNo = AllegroInbox::orderLabel($t);
+            $when = '';
+            if ($t['last_message_at']) {
+                try { $when = (new DateTimeImmutable($t['last_message_at'], new DateTimeZone('UTC')))->setTimezone(new DateTimeZone('Europe/Warsaw'))->format('d.m H:i'); } catch (\Throwable) {}
+            }
+        ?>
+            <a class="al-thread <?= $threadId === $tid ? 'on' : '' ?> <?= $read ? '' : 'unread' ?>"
+               href="<?= $e($listUrl(['thread' => $tid])) ?>">
+                <span style="min-width:0;flex:1">
+                    <span class="al-thread-top"><span class="al-thread-name"><?= $e($t['buyer_login'] ?: '(kupujący)') ?></span><span class="al-when"><?= $e($when) ?></span></span>
+                    <?php if ($t['type'] === AllegroThreads::PROBLEM): ?><span class="al-tag">Problem z zakupem<?= $t['status'] === 'CLOSED' ? ' · zamknięty' : '' ?></span><?php endif; ?>
+                    <span class="al-snip"><?= $t['last_role'] === 'SELLER' ? 'Ty: ' : '' ?><?= $e(mb_strimwidth((string) ($t['last_text'] ?? ''), 0, 70, '…')) ?></span>
+                    <?php if ($orderNo !== ''): ?><span class="al-snip">Zamówienie <?= $e($orderNo) ?></span><?php endif; ?>
+                </span>
+                <?php if (!$read): ?><span class="al-dot" title="Nieprzeczytane"></span><?php endif; ?>
+            </a>
+        <?php endforeach; ?>
+        <?php if ($list['pages'] > 1): ?>
+            <div class="al-pager">
+                <?php if ($list['page'] > 1): ?><a href="<?= $e($listUrl(['p' => $list['page'] - 1, 'thread' => $threadId ?: null])) ?>">← Nowsze</a><?php else: ?><span></span><?php endif; ?>
+                <span><?= $list['page'] ?> / <?= $list['pages'] ?> (<?= $list['total'] ?>)</span>
+                <?php if ($list['page'] < $list['pages']): ?><a href="<?= $e($listUrl(['p' => $list['page'] + 1, 'thread' => $threadId ?: null])) ?>">Starsze →</a><?php else: ?><span></span><?php endif; ?>
+            </div>
         <?php endif; ?>
     </div>
 
@@ -148,24 +184,33 @@ require __DIR__ . '/header.php';
     <div class="card">
         <?php if ($threadId === ''): ?>
             <p style="color:#888">Wybierz wątek z listy po lewej.</p>
-        <?php elseif ($messages === []): ?>
+        <?php elseif ($messages === [] && $openRow === null): ?>
             <p style="color:#888">Brak wiadomości w tym wątku (lub brak dostępu).</p>
         <?php else: ?>
             <?php
                 // Allegro zwraca od najnowszej - pokazujemy jak w komunikatorze: najstarsza u góry.
                 usort($messages, static fn($a, $b) => strcmp((string) ($a['createdAt'] ?? ''), (string) ($b['createdAt'] ?? '')));
                 $tz = new DateTimeZone('Europe/Warsaw');
-                $buyer = '';
-                $open = null;
-                foreach ($threads as $t) { if ((string) ($t['id'] ?? '') === $threadId) { $open = $t; $buyer = AllegroThreads::buyerLogin($t, $me); } }
+                $buyer = $open !== null ? AllegroThreads::buyerLogin($open, $me) : (string) ($openRow['buyer_login'] ?? '');
+                $orderNo = $openRow !== null ? AllegroInbox::orderLabel($openRow) : '';
                 foreach ($messages as $m) { if ($buyer === '' && !AllegroThreads::isMine((array) ($m['author'] ?? []), $me)) { $buyer = (string) ($m['author']['login'] ?? ''); } }
             ?>
             <div class="al-conv-head">
                 <span>Rozmowa z <strong><?= $e($buyer !== '' ? $buyer : 'kupującym') ?></strong>
+                    <?php if ($orderNo !== ''): ?> · <a href="order_view.php?id=<?= (int) $openRow['woo_order_id'] ?>">Zamówienie <?= $e($orderNo) ?> →</a><?php endif; ?>
                     <?php if ($open !== null && AllegroThreads::isProblem($open)): ?> · <a class="al-tag" href="allegro_messages.php?tab=issues&amp;issue=<?= urlencode($threadId) ?>">Problem z zakupem →</a><?php endif; ?></span>
+                <?php if (canEdit() && $openRow !== null): $inArchive = (int) $openRow['archived'] === 1; ?>
+                    <form method="post" style="margin:0">
+                        <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
+                        <input type="hidden" name="action" value="<?= $inArchive ? 'thread_restore' : 'thread_archive' ?>">
+                        <input type="hidden" name="thread_id" value="<?= $e($threadId) ?>">
+                        <button class="btn secondary" type="submit" title="<?= $inArchive ? 'Wróci na listę rozmów' : 'Archiwum jest tylko w CRM — na Allegro rozmowa zostaje bez zmian' ?>"><?= $inArchive ? '↩ Przywróć z archiwum' : '🗄 Do archiwum' ?></button>
+                    </form>
+                <?php endif; ?>
                 <span class="al-legend"><i class="lg theirs"></i> kupujący <i class="lg mine"></i> Ty (sprzedawca)</span>
             </div>
             <div class="al-conv" id="alConv">
+                <?php if ($messages === []): ?><p style="color:#888">Nie udało się teraz pobrać tej rozmowy z Allegro.</p><?php endif; ?>
                 <?php foreach ($messages as $m):
                     $a = $m['author'] ?? [];
                     // beta.v1: author.role BUYER / SELLER (w zwykłych rozmowach USER - wtedy po loginie konta).
@@ -215,6 +260,15 @@ require __DIR__ . '/header.php';
     .al-thread.unread .al-thread-name { font-weight:700; }
     .al-tag { display:block; font-size:11px; font-weight:600; color:#a3341f; text-decoration:none; }
     .al-conv-head a.al-tag { display:inline; font-size:12px; }
+    .al-search input { width:100%; box-sizing:border-box; padding:7px 10px; border:1px solid #ddd; border-radius:8px; font-size:13px; margin:4px 0 8px; }
+    .al-thread-top { display:flex; justify-content:space-between; gap:6px; }
+    .al-when { font-size:11px; color:#999; white-space:nowrap; }
+    .al-snip { display:block; font-size:12px; color:#777; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .al-pager { display:flex; justify-content:space-between; align-items:center; gap:6px; padding:8px 4px 2px; font-size:12px; color:#777; }
+    .al-pager a { color:#ff5a00; text-decoration:none; font-weight:600; }
+    .fb-filters { display:flex; gap:6px; flex-wrap:wrap; padding:4px 4px 10px; }
+    .fb-filters a { padding:4px 10px; border-radius:14px; background:#f1f3f5; color:#444; text-decoration:none; font-size:12px; }
+    .fb-filters a.on { background:#ff5a00; color:#fff; }
     .al-dot { width:8px; height:8px; border-radius:50%; background:#ff5a00; flex-shrink:0; }
     .al-conv { display:flex; flex-direction:column; gap:10px; max-height:480px; overflow:auto; padding:4px; }
     .al-conv-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; padding:0 4px 10px; border-bottom:1px solid #eef0f3; margin-bottom:10px; font-size:14px; }

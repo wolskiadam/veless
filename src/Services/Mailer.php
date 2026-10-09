@@ -75,6 +75,9 @@ final class Mailer
     public function send(string $toEmail, string $subject, string $htmlBody, array $meta = [], array $attachments = []): array
     {
         [$ok, $msg] = $this->deliver($toEmail, $subject, $htmlBody, $attachments);
+        if (($meta['type'] ?? '') === 'automation' && (int) ($meta['order_id'] ?? 0) > 0) {
+            $meta['body'] = EmailLog::bodyText($htmlBody);   // klient widzi treść na stronie zamówienia
+        }
         EmailLog::recordAttempt($meta, $toEmail, $subject, (string) ($this->cfg['from_email'] ?? ''), $ok, $ok ? '' : $msg);
         return [$ok, $msg];
     }

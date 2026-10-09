@@ -38,6 +38,7 @@ jobs:
       - run: php tests/plugin_sandbox_report.php
       - run: php tests/quick_login_http.php
       - run: php tests/planned_ship_date_http.php
+      - run: php tests/client_page_messages_http.php
       - run: node tests/two_factor_ui.js
       - run: php tests/operational_health.php
       - run: php tests/sales_workflow.php

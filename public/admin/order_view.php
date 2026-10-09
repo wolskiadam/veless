@@ -446,8 +446,8 @@ $msgRepo->markClientRead($wooOrderId);
 // Otwarte zamówienie znika z „Nowych zamówień" w dzwoneczku tego użytkownika.
 try { (new \Pase\Services\Notifications($pdo))->dismissOrder((int) (currentUserId() ?? 0), $wooOrderId); } catch (\Throwable) {}
 $thread = $msgRepo->thread($wooOrderId);
-// Maile z automatyzacji (dziennik e-maili) w wątku jako wiadomości automatyczne. Dziennik nie trzyma
-// treści maila, więc pokazujemy temat i szablon. Czas w dzienniku jest w UTC - zamieniamy na polski.
+// Maile z automatyzacji (dziennik e-maili) w wątku jako wiadomości automatyczne: temat, szablon i treść
+// (treść zapisywana od wersji ze stroną klienta; starsze wpisy mają sam temat). Czas w dzienniku jest w UTC - zamieniamy na polski.
 try {
     $autoMails = (new \Pase\Services\EmailLog($pdo))->forOrder($wooOrderId);
     if ($autoMails !== []) {
@@ -464,6 +464,7 @@ try {
                 'sender'     => 'auto',
                 'author_name'=> 'Wiadomość automatyczna',
                 'body'       => (string) $am['subject'],
+                'mail_body'  => (string) ($am['body'] ?? ''),
                 'created_at' => (new DateTimeImmutable((string) $am['created_at'], new DateTimeZone('UTC')))->setTimezone($plZone)->format('Y-m-d H:i:s'),
                 'template'   => $key !== '' ? $tplNames[$key] : '',
                 'recipient'  => (string) $am['recipient'],
@@ -1484,6 +1485,9 @@ foreach ($absorbedOrders as $ab) {
                     · <?= htmlspecialchars(($t = strtotime((string) $m['created_at'])) ? date('d.m.Y H:i', $t) : (string) $m['created_at']) ?>
                 </div>
                 <div class="msg-body">✉️ <?= htmlspecialchars($m['body']) ?></div>
+                <?php if ($m['mail_body'] !== ''): ?>
+                    <details class="msg-auto-body"><summary>Treść</summary><div class="msg-body"><?= \Pase\Support\TextLinks::html($m['mail_body']) ?></div></details>
+                <?php endif; ?>
                 <div style="font-size:11px;color:#888;margin-top:2px">
                     do <?= htmlspecialchars($m['recipient']) ?>
                     <?php if ($m['failed']): ?> · <span style="color:#b3261e" title="<?= htmlspecialchars($m['error']) ?>">nie wysłano</span><?php endif; ?>
@@ -2193,6 +2197,8 @@ foreach ($absorbedOrders as $ab) {
     .msg-bubble.is-staff { align-self:flex-end; background:#e8f0fe; }
     .msg-bubble.is-client { align-self:flex-start; background:#f1f3f5; }
     .msg-bubble.is-auto { align-self:flex-end; background:#fbf6ea; border:1px dashed #e0cfa6; }
+    .msg-auto-body { margin-top:4px; font-size:12px; }
+    .msg-auto-body summary { cursor:pointer; color:#888; }
     .msg-auto-tag { display:inline-block; font-size:10px; font-weight:600; color:#8a6a1f; background:#f3e7c7; border-radius:6px; padding:0 6px; margin-right:4px; }
     .msg-body { font-size:13.5px; line-height:1.45; word-break:break-word; }
     .msg-body.is-clamped { max-height:7.5em; overflow:hidden; -webkit-mask-image:linear-gradient(#000 65%, transparent); mask-image:linear-gradient(#000 65%, transparent); }

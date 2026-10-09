@@ -59,6 +59,8 @@ return [
     'client.history.status' => 'Status changed to: {status}',
     'client.history.shipped' => 'Parcel shipped: {carrier} {waybill}',
     'client.history.parcel' => 'Parcel: {desc}',
+    'client.history.locked' => 'Messages in this order: {n}. Confirm the e-mail or phone number from the order to read them.',
+    'client.history.email' => 'e-mail',
     'client.lock.title' => 'Messages are temporarily locked',
     'client.lock.intro' => 'To exchange messages with the shop, please confirm your identity — enter the e-mail address or phone number given in the order. This protects your data and keeps the conversation secure.',
     'client.lock.unlock' => 'Unlock access',

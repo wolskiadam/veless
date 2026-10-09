@@ -161,7 +161,8 @@ final class OrderIconDetails
                 'status' => $label,
                 'status_class' => $class,
                 'progress' => $cancelled || $status === 'error' ? 0 : (self::PROGRESS[$trk] ?? ($status === 'pending' ? 5 : 25)),
-                'last_event' => is_array($last) ? (string) (($last['desc'] ?? '') !== '' ? $last['desc'] : ($last['code'] ?? '')) : '',
+                'last_event' => is_array($last) ? (string) (($last['desc'] ?? '') !== ''
+                    ? \Pase\Support\TrackingText::display((string) $last['desc'], (string) ($last['code'] ?? '')) : ($last['code'] ?? '')) : '',
                 'last_at' => $lastAt !== '' ? self::localTime($lastAt) : '',
                 'cancelled' => $cancelled,
                 'missing' => $missing,

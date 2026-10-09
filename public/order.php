@@ -367,8 +367,9 @@ foreach ($shipments as $sh) {
         $history[] = ['ts' => $ts, 'type' => 'event', 'text' => t('client.history.shipped', ['carrier' => $cn, 'waybill' => (string) ($sh['waybill_no'] ?? '')])];
     }
     foreach (json_decode((string) ($sh['tracking_events'] ?? ''), true) ?: [] as $ev) {
-        if (($ts = $toTs((string) ($ev['at'] ?? ''), true)) !== null && ($ev['desc'] ?? '') !== '') {
-            $history[] = ['ts' => $ts, 'type' => 'event', 'text' => t('client.history.parcel', ['desc' => (string) $ev['desc']])];
+        $evDesc = \Pase\Support\TrackingText::display((string) ($ev['desc'] ?? ''), (string) ($ev['code'] ?? ''), \Pase\Support\I18n::locale());
+        if (($ts = $toTs((string) ($ev['at'] ?? ''), true)) !== null && $evDesc !== '') {
+            $history[] = ['ts' => $ts, 'type' => 'event', 'text' => t('client.history.parcel', ['desc' => $evDesc])];
         }
     }
 }

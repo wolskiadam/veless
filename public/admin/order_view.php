@@ -1656,7 +1656,9 @@ foreach ($absorbedOrders as $ab) {
                                             <?php if ($trkEvents): ?>
                                                 <ul>
                                                     <?php foreach (array_reverse($trkEvents) as $ev): ?>
-                                                        <li><span><?= htmlspecialchars($ev['at'] !== '' ? $trkFmt(date('Y-m-d H:i:s', strtotime($ev['at']))) : '') ?></span> <?= htmlspecialchars($ev['desc'] !== '' ? $ev['desc'] : $ev['code']) ?></li>
+                                                        <?php $evPl = \Pase\Support\TrackingText::display((string) ($ev['desc'] ?? ''), (string) ($ev['code'] ?? ''));
+                                                        $evOrig = trim((string) ($ev['desc'] ?? '')); ?>
+                                                        <li<?= $evPl !== $evOrig ? ' title="' . htmlspecialchars('Przewoźnik: ' . $evOrig) . '"' : '' ?>><span><?= htmlspecialchars($ev['at'] !== '' ? $trkFmt(date('Y-m-d H:i:s', strtotime($ev['at']))) : '') ?></span> <?= htmlspecialchars($evPl !== '' ? $evPl : (string) ($ev['code'] ?? '')) ?></li>
                                                     <?php endforeach; ?>
                                                 </ul>
                                             <?php else: ?>

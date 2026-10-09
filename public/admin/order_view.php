@@ -679,6 +679,26 @@ try {
     \Pase\Support\Logger::warn('Scalanie: nie udało się odczytać scalonych zamówień - ' . $e->getMessage());
 }
 $mergedThumbs = $mergedExtraItems !== [] ? $thumbSvc->forItems($mergedExtraItems) : [];
+// Produkt w magazynie dla każdej pozycji (nazwa i SKU prowadzą do karty produktu). Allegro i zamówienia ręczne
+// mają w product_id id z CRM, WooCommerce - id ze sklepu (patrz Services\OrderItemProducts).
+$itemProductIds = [];
+$mergedProductIds = [];
+try {
+    $itemProductIds = \Pase\Services\OrderItemProducts::ids($pdo, $items, $sourceType === 'allegro' || $isManualOrder);
+    $absorbedCrmIds = [];
+    foreach ($absorbedOrders as $ab) {
+        $abPayload = json_decode((string) ($ab['payload'] ?? ''), true);
+        $absorbedCrmIds[(int) $ab['woo_order_id']] = isset($abPayload['lineItems']) || \Pase\Services\ManualOrders::isManual((int) $ab['woo_order_id']);
+    }
+    foreach ($mergedExtraItems as $mIdx => $it) {
+        $mergedProductIds += \Pase\Services\OrderItemProducts::ids($pdo, [$mIdx => $it], $absorbedCrmIds[(int) $it['merged_from']] ?? false);
+    }
+} catch (\Throwable $e) {
+    \Pase\Support\Logger::warn('Produkty zamówienia: nie udało się dopasować pozycji do magazynu - ' . $e->getMessage());
+}
+$productLink = static function (?int $productId, string $html): string {
+    return $productId ? '<a href="product_view.php?id=' . $productId . '" title="Pokaż produkt w magazynie">' . $html . '</a>' : $html;
+};
 
 // Kontakt: lokalna korekta (jeśli jest) ma pierwszeństwo przed oryginałem ze sklepu.
 // Dotyczy tylko wyświetlania w PASE - NIE zmienia danych w sklepie ani weryfikacji klienta.
@@ -1355,12 +1375,12 @@ foreach ($absorbedOrders as $ab) {
                     <?php endif; ?>
                 </td>
                 <td><?= (int) ($it['variation_id'] ?? 0) ?: ((int) ($it['product_id'] ?? 0) ?: '—') ?></td>
-                <td><strong><?= $g($it, 'name') ?></strong>
+                <td><strong><?= $productLink($itemProductIds[$itIdx] ?? null, $g($it, 'name')) ?></strong>
                     <?php if (($it['in_warehouse'] ?? true) === false): ?>
                         <br><span style="color:#a3341f;font-size:12px">spoza magazynu CRM<?= !empty($it['allegro_offer_id']) ? ' · oferta Allegro ' . htmlspecialchars((string) $it['allegro_offer_id']) : '' ?></span>
                     <?php endif; ?>
                 </td>
-                <td><?= $g($it, 'sku', '—') ?></td>
+                <td><?= $productLink($itemProductIds[$itIdx] ?? null, $g($it, 'sku', '—')) ?></td>
                 <td><?= (int)($it['quantity'] ?? 0) ?></td>
                 <td><?= htmlspecialchars(number_format((float)($it['price'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
                 <td><?= htmlspecialchars(number_format((float)($it['total'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
@@ -1392,8 +1412,8 @@ foreach ($absorbedOrders as $ab) {
                     <?php endif; ?>
                 </td>
                 <td><?= (int) ($it['variation_id'] ?? 0) ?: ((int) ($it['product_id'] ?? 0) ?: '—') ?></td>
-                <td><strong><?= $g($it, 'name') ?></strong></td>
-                <td><?= $g($it, 'sku', '—') ?></td>
+                <td><strong><?= $productLink($mergedProductIds[$mIdx] ?? null, $g($it, 'name')) ?></strong></td>
+                <td><?= $productLink($mergedProductIds[$mIdx] ?? null, $g($it, 'sku', '—')) ?></td>
                 <td><?= (int)($it['quantity'] ?? 0) ?></td>
                 <td><?= htmlspecialchars(number_format((float)($it['price'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
                 <td><?= htmlspecialchars(number_format((float)($it['total'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>

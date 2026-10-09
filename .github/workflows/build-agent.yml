@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Pobierz repozytorium
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Ustaw Pythona
         uses: actions/setup-python@v5

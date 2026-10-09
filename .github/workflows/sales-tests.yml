@@ -51,6 +51,7 @@ jobs:
       - run: php tests/packing_http.php
       - run: php tests/pickup_point.php
       - run: php tests/carrier_label.php
+      - run: php tests/tracking_text.php
       - run: php tests/delivery_progress.php
       - run: php tests/shipment_status_filter.php
       - run: php tests/text_links.php

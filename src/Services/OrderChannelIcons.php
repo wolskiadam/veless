@@ -38,7 +38,7 @@ final class OrderChannelIcons
 
     /** Loga przewoźników (viewBox 0 0 48 24). */
     private const CARRIER_SVG = [
-        'allegro_one' => '<rect width="48" height="24" rx="5" fill="#ff5a00"/><text x="24" y="16.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="12" font-weight="700" fill="#fff">One</text>',
+        'allegro_one' => '<rect width="48" height="24" rx="5" fill="#00a650"/><text x="24" y="16.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="12" font-weight="700" fill="#fff">One</text>',
         'inpost'      => '<rect width="48" height="24" rx="5" fill="#ffcd00"/><text x="24" y="15.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="10.5" font-weight="700" fill="#1d1d1b">InPost</text>',
         'dpd'         => '<rect width="48" height="24" rx="5" fill="#dc0032"/><text x="24" y="16.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="700" fill="#fff">dpd</text>',
         'dhl'         => '<rect width="48" height="24" rx="5" fill="#ffcc00"/><text x="24" y="16.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="900" font-style="italic" fill="#d40511">DHL</text>',

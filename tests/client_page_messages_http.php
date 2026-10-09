@@ -117,8 +117,8 @@ try {
     fclose($pipes[0]);
     for ($i = 0; $i < 100; ++$i) { $p = @stream_socket_client('tcp://' . $address, $e1, $e2, 0.1); if ($p) { fclose($p); break; } usleep(10000); }
 
-    $pdo->exec("CREATE TABLE email_templates (id INTEGER PRIMARY KEY, tpl_key TEXT, name TEXT)");
-    $pdo->exec("INSERT INTO email_templates (tpl_key, name) VALUES ('t', 'Realizujemy')");
+    $pdo->exec("CREATE TABLE email_templates (id INTEGER PRIMARY KEY, tpl_key TEXT, name TEXT, subject TEXT, body TEXT, mail_account_id INTEGER, is_active INTEGER DEFAULT 1, attach_invoice INTEGER DEFAULT 0)");
+    $pdo->exec("INSERT INTO email_templates (tpl_key, name, subject, body) VALUES ('t', 'Realizujemy', 'Realizujemy', '<p>Witaj {{customer_name}},</p><p>Twoje zamówienie {{pase_number}} jest w realizacji.</p>'), ('pusty', 'Pusty', 'X', '')");
     $token = str_repeat('cd34', 12);
     $pdo->exec("UPDATE woo_orders SET client_token = '$token' WHERE woo_order_id = 501");
     $pdo->exec("INSERT INTO order_messages (woo_order_id, sender, author_name, body, created_at) VALUES
@@ -128,13 +128,14 @@ try {
     $log = $pdo->prepare("INSERT INTO email_log (created_at, type, template_key, woo_order_id, recipient, subject, status, body) VALUES (?, ?, 't', ?, 'x@allegromail.pl', ?, ?, ?)");
     $log->execute(['2026-09-20 09:07:00', 'automation', 501, 'Realizujemy Twoje zamówienie', 'sent', "Dzień dobry,\nzamówienie jest w realizacji: https://sklep.test/zamowienie.php?token=1"]);
     $log->execute(['2026-09-20 09:08:00', 'automation', 501, 'Stary mail bez treści', 'sent', null]);
+    $pdo->exec("INSERT INTO email_log (created_at, type, template_key, woo_order_id, recipient, subject, status) VALUES ('2026-09-20 09:08:30', 'automation', 'usuniety', 501, 'x@allegromail.pl', 'Mail z usuniętego szablonu', 'sent')");
     $log->execute(['2026-09-20 09:09:00', 'automation', 501, 'Nieudany mail', 'failed', 'nie poszło']);
     $log->execute(['2026-09-20 09:10:00', 'order_message', 501, 'Kopia odpowiedzi obsługi', 'sent', null]);
     $log->execute(['2026-09-21 09:10:00', 'automation', 502, 'Mail innego zamówienia', 'sent', null]);
 
     $guest = client();
     $pub = request($guest, 'order.php?token=' . $token . '&lang=pl');
-    ok($pub['status'] === 200 && str_contains($pub['body'], 'Wiadomości w tym zamówieniu: 4.'), 'Before verification the customer sees how many messages wait');
+    ok($pub['status'] === 200 && str_contains($pub['body'], 'Wiadomości w tym zamówieniu: 5.'), 'Before verification the customer sees how many messages wait');
     ok(!str_contains($pub['body'], 'Paczka wyjdzie jutro') && !str_contains($pub['body'], 'Realizujemy Twoje'), 'No message content before verification');
 
     $v = request($guest, 'order.php?token=' . $token, ['csrf' => csrfOf($pub['body']), 'action' => 'verify', 'verify_value' => 'ANNA@example.com ']);
@@ -146,7 +147,9 @@ try {
     ok(str_contains($b, 'Realizujemy Twoje zamówienie') && str_contains($b, 'zamówienie jest w realizacji')
         && str_contains($b, 'href="https://sklep.test/zamowienie.php?token=1"'), 'Automatic e-mail shown with subject, text and clickable link');
     ok(str_contains($b, '>11:07<'), 'E-mail time shown in Polish time (log is UTC)');
-    ok(str_contains($b, 'Stary mail bez treści'), 'Older e-mail without stored text shows its subject');
+    ok(str_contains($b, 'Stary mail bez treści') && str_contains($b, 'Witaj Anna Kowalska,') && str_contains($b, 'Twoje zamówienie 11 jest w realizacji.'),
+        'Older e-mail without stored text is rebuilt from its template');
+    ok(str_contains($b, 'Mail z usuniętego szablonu'), 'E-mail whose template is gone still shows its subject');
     ok(!str_contains($b, 'Nieudany mail') && !str_contains($b, 'nie poszło'), 'Failed e-mail not shown');
     ok(!str_contains($b, 'Kopia odpowiedzi obsługi'), 'E-mail copy of a shop reply not doubled');
     ok(!str_contains($b, 'Inne zamówienie') && !str_contains($b, 'Mail innego zamówienia'), 'Other orders\' messages not shown');
@@ -155,8 +158,11 @@ try {
 
     $boss = login('boss');
     $page = request($boss, 'admin/order_view.php?id=501');
-    ok(str_contains($page['body'], 'Realizujemy Twoje zamówienie') && str_contains($page['body'], '<summary>Treść</summary>')
-        && str_contains($page['body'], 'zamówienie jest w realizacji'), 'Admin order page shows the e-mail text under the subject');
+    ok(str_contains($page['body'], 'Realizujemy Twoje zamówienie') && str_contains($page['body'], '<summary>Pokaż pełną treść</summary>')
+        && str_contains($page['body'], 'zamówienie jest w realizacji: <a'), 'Admin order page expands the stored e-mail text');
+    ok(substr_count($page['body'], 'Odtworzona z obecnego szablonu') === 1 && str_contains($page['body'], 'Twoje zamówienie 11 jest w realizacji.'),
+        'Admin sees the rebuilt text of an older e-mail, marked as rebuilt');
+    ok(substr_count($page['body'], '<summary>Pokaż pełną treść</summary>') === 3, 'No expand option when there is nothing to show');
 
     echo "\nAll {$checks} customer page message checks passed.\n";
 } finally {

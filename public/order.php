@@ -298,7 +298,7 @@ if ($isVerified && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ??
 
 $thread    = $isVerified ? $msgRepo->thread($wooOrderId) : [];
 // Maile z automatyzacji (np. „Realizujemy Twoje zamówienie") - klient je dostał, więc widzi je w historii.
-// Tylko wysłane; treść jest w dzienniku od tej wersji, przy starszych mailach sam temat.
+// Tylko wysłane; treść z dziennika, a przy starszych mailach odtworzona z szablonu (AutoMailText).
 $autoMails = [];
 try {
     $autoMails = array_values(array_filter((new \Pase\Services\EmailLog($pdo))->forOrder($wooOrderId),
@@ -378,10 +378,11 @@ foreach ($thread as $m) {
         $history[] = ['ts' => $ts, 'type' => 'message', 'm' => $m];
     }
 }
+$mailText = new \Pase\Services\AutoMailText($pdo);
 foreach ($autoMails as $am) {
     if (($ts = $toTs((string) ($am['created_at'] ?? ''), true)) !== null) {
         $history[] = ['ts' => $ts, 'type' => 'message', 'm' => [
-            'id' => 0, 'sender' => 'auto', 'subject' => (string) $am['subject'], 'body' => (string) ($am['body'] ?? ''),
+            'id' => 0, 'sender' => 'auto', 'subject' => (string) $am['subject'], 'body' => $mailText->forEntry($am)['text'],
         ]];
     }
 }

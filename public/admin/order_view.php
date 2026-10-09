@@ -447,14 +447,16 @@ $msgRepo->markClientRead($wooOrderId);
 try { (new \Pase\Services\Notifications($pdo))->dismissOrder((int) (currentUserId() ?? 0), $wooOrderId); } catch (\Throwable) {}
 $thread = $msgRepo->thread($wooOrderId);
 // Maile z automatyzacji (dziennik e-maili) w wątku jako wiadomości automatyczne: temat, szablon i treść
-// (treść zapisywana od wersji ze stroną klienta; starsze wpisy mają sam temat). Czas w dzienniku jest w UTC - zamieniamy na polski.
+// (zapisana w dzienniku, a przy starszych mailach odtworzona z szablonu - AutoMailText). Czas w dzienniku jest w UTC - zamieniamy na polski.
 try {
     $autoMails = (new \Pase\Services\EmailLog($pdo))->forOrder($wooOrderId);
     if ($autoMails !== []) {
         $tplRepo = new \Pase\Repository\EmailTemplateRepository($pdo);
         $tplNames = [];
         $plZone = new DateTimeZone('Europe/Warsaw');
+        $mailText = new \Pase\Services\AutoMailText($pdo);
         foreach ($autoMails as $am) {
+            $mt = $mailText->forEntry($am);
             $key = (string) ($am['template_key'] ?? '');
             if ($key !== '' && !array_key_exists($key, $tplNames)) {
                 $tplNames[$key] = (string) ($tplRepo->findByKey($key)['name'] ?? $key);
@@ -464,7 +466,8 @@ try {
                 'sender'     => 'auto',
                 'author_name'=> 'Wiadomość automatyczna',
                 'body'       => (string) $am['subject'],
-                'mail_body'  => (string) ($am['body'] ?? ''),
+                'mail_body'  => $mt['text'],
+                'mail_rebuilt' => $mt['reconstructed'],
                 'created_at' => (new DateTimeImmutable((string) $am['created_at'], new DateTimeZone('UTC')))->setTimezone($plZone)->format('Y-m-d H:i:s'),
                 'template'   => $key !== '' ? $tplNames[$key] : '',
                 'recipient'  => (string) $am['recipient'],
@@ -1486,7 +1489,9 @@ foreach ($absorbedOrders as $ab) {
                 </div>
                 <div class="msg-body">✉️ <?= htmlspecialchars($m['body']) ?></div>
                 <?php if ($m['mail_body'] !== ''): ?>
-                    <details class="msg-auto-body"><summary>Treść</summary><div class="msg-body"><?= \Pase\Support\TextLinks::html($m['mail_body']) ?></div></details>
+                    <details class="msg-auto-body"><summary>Pokaż pełną treść</summary>
+                        <?php if ($m['mail_rebuilt']): ?><div class="msg-auto-note">Odtworzona z obecnego szablonu i danych zamówienia (mail wysłany przed zapisywaniem treści, mógł się nieco różnić).</div><?php endif; ?>
+                        <div class="msg-mail-text"><?= \Pase\Support\TextLinks::html($m['mail_body']) ?></div></details>
                 <?php endif; ?>
                 <div style="font-size:11px;color:#888;margin-top:2px">
                     do <?= htmlspecialchars($m['recipient']) ?>
@@ -2200,7 +2205,10 @@ foreach ($absorbedOrders as $ab) {
     .msg-bubble.is-client { align-self:flex-start; background:#f1f3f5; }
     .msg-bubble.is-auto { align-self:flex-end; background:#fbf6ea; border:1px dashed #e0cfa6; }
     .msg-auto-body { margin-top:4px; font-size:12px; }
-    .msg-auto-body summary { cursor:pointer; color:#888; }
+    .msg-auto-body summary { cursor:pointer; color:var(--accent, #8a6a1f); font-weight:600; }
+    .msg-auto-note { color:#888; font-style:italic; margin:4px 0; }
+    .msg-mail-text { font-size:13.5px; line-height:1.45; word-break:break-word; margin-top:4px; }
+    .msg-mail-text a { color:var(--accent, #1a73e8); text-decoration:underline; word-break:break-all; }
     .msg-auto-tag { display:inline-block; font-size:10px; font-weight:600; color:#8a6a1f; background:#f3e7c7; border-radius:6px; padding:0 6px; margin-right:4px; }
     .msg-body { font-size:13.5px; line-height:1.45; word-break:break-word; }
     .msg-body.is-clamped { max-height:7.5em; overflow:hidden; -webkit-mask-image:linear-gradient(#000 65%, transparent); mask-image:linear-gradient(#000 65%, transparent); }

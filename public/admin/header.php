@@ -43,6 +43,13 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
         * { box-sizing:border-box; }
         body { margin:0; font-family:var(--font-ui); background:var(--bg); color:var(--ink); }
         input,select,button,textarea { font-family:inherit; }
+        /* Linki bez własnej klasy: zamiast domyślnego niebieskiego/fioletowego kolor akcentu, a w tabelach kolor tekstu
+           z delikatnym podkreśleniem (jak numer zamówienia na liście). :where() = zerowa specyficzność, więc każda
+           reguła strony wygrywa. */
+        :where(a:not([class])) { color:var(--accent); text-underline-offset:3px; }
+        :where(a:not([class])):hover { color:var(--accent-hover); }
+        :where(td a:not([class])) { color:inherit; text-decoration-color:#cbd3e1; }
+        :where(td a:not([class])):hover { color:var(--accent); text-decoration-color:currentColor; }
         a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
         /* Pełna szerokość jak w sds-generator - bez wąskiego limitu kolumny. */
         .page { width:100%; margin:0; padding:18px 24px 40px; }

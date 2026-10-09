@@ -155,6 +155,9 @@ function pageShell(string $title, string $shopName, string $bodyHtml): void
     .bubble a { color:var(--accent); text-decoration:underline; text-underline-offset:2px; word-break:break-all; }
     .btn-outline { background:var(--surface); border:1.5px solid var(--line); color:var(--ink); border-radius:999px; padding:9px 18px; font-weight:700; font-size:14px; font-family:inherit; cursor:pointer; }
     .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+    .mail-subject { font-weight:700; }
+    .mail-body { margin-top:6px; }
+    .hist-locked { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; font-size:15px; margin:14px 0 4px; }
     .lock-card { text-align:center; padding:34px 24px; }
     .lock-card h3 { font-size:20px; margin:10px 0 8px; }
     .lock-card p { max-width:560px; margin:0 auto 18px; font-size:14px; line-height:1.55; }
@@ -294,6 +297,20 @@ if ($isVerified && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ??
 }
 
 $thread    = $isVerified ? $msgRepo->thread($wooOrderId) : [];
+// Maile z automatyzacji (np. „Realizujemy Twoje zamówienie") - klient je dostał, więc widzi je w historii.
+// Tylko wysłane; treść jest w dzienniku od tej wersji, przy starszych mailach sam temat.
+$autoMails = [];
+try {
+    $autoMails = array_values(array_filter((new \Pase\Services\EmailLog($pdo))->forOrder($wooOrderId),
+        static fn(array $m): bool => ($m['status'] ?? '') === 'sent'));
+} catch (\Throwable) {
+    // starsza baza bez dziennika e-maili
+}
+// Przed potwierdzeniem tożsamości klient widzi tylko, ile wiadomości czeka (bez treści).
+$lockedCount = $isVerified ? 0 : count($msgRepo->thread($wooOrderId)) + count($autoMails);
+if (!$isVerified) {
+    $autoMails = [];
+}
 $statusMap = (new OrderStatusRepository($pdo))->map();
 $statusAll = (new OrderStatusRepository($pdo))->all();
 $shipments = (new ShipmentRepository($pdo))->forOrder($wooOrderId);
@@ -358,6 +375,13 @@ foreach ($shipments as $sh) {
 foreach ($thread as $m) {
     if (($ts = $toTs((string) ($m['created_at'] ?? ''), false)) !== null) {
         $history[] = ['ts' => $ts, 'type' => 'message', 'm' => $m];
+    }
+}
+foreach ($autoMails as $am) {
+    if (($ts = $toTs((string) ($am['created_at'] ?? ''), true)) !== null) {
+        $history[] = ['ts' => $ts, 'type' => 'message', 'm' => [
+            'id' => 0, 'sender' => 'auto', 'subject' => (string) $am['subject'], 'body' => (string) ($am['body'] ?? ''),
+        ]];
     }
 }
 usort($history, static fn($a, $b) => $b['ts'] <=> $a['ts']);
@@ -763,12 +787,30 @@ ob_start(); ?>
             <?php endif; ?>
         </div>
 
+        <?php if ($lockedCount > 0): ?>
+            <div class="card hist-locked">
+                <span>🔒 <?= $e(t('client.history.locked', ['n' => $lockedCount])) ?></span>
+                <button type="button" class="btn-outline" onclick="var f=document.getElementById('msgNew');f.hidden=false;f.scrollIntoView({behavior:'smooth',block:'center'});var b=document.getElementById('unlockBtn');if(b)b.click();"><?= $e(t('client.lock.unlock')) ?></button>
+            </div>
+        <?php endif; ?>
+
         <?php $firstDay = true; foreach ($historyByDay as $day => $entries): ?>
             <h3 class="hist-day"><?= $e($dayLabel($day)) ?><?= $firstDay ? ' - ' . $e(t('client.history.latest')) : '' ?></h3>
             <div class="card hist-card">
                 <?php foreach ($entries as $h): ?>
                     <?php if ($h['type'] === 'event'): ?>
                         <div class="hist-row"><span class="hist-time"><?= $e($fmtDate($h['ts'], 'H:i')) ?></span><span><?= $e($h['text']) ?></span></div>
+                    <?php elseif ($h['m']['sender'] === 'auto'): $m = $h['m']; ?>
+                        <div class="hist-row hist-msg">
+                            <span class="hist-time"><?= $e($fmtDate($h['ts'], 'H:i')) ?></span>
+                            <div class="bubble from-staff">
+                                <div class="meta"><strong><?= $e($shopName) ?></strong> · ✉ <?= $e(t('client.history.email')) ?></div>
+                                <div class="mail-subject"><?= $e($m['subject']) ?></div>
+                                <?php if ($m['body'] !== ''): ?>
+                                    <div class="mail-body"><?= \Pase\Support\TextLinks::html($m['body']) ?></div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
                     <?php else: $m = $h['m']; $staff = $m['sender'] === 'staff'; ?>
                         <div class="hist-row hist-msg">
                             <span class="hist-time"><?= $e($fmtDate($h['ts'], 'H:i')) ?></span>

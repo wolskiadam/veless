@@ -10,8 +10,9 @@ use PDO;
  *
  * Każda próba wysyłki przez Mailer::send() zapisuje jeden wiersz: rodzaj wiadomości,
  * szablon, odbiorcę, temat, konto nadawcy, zamówienie, kto/co ją wywołał i czy się udała.
- * Treści maila nie zapisujemy (dane klienta, linki z tokenami). Wpisy starsze niż
- * KEEP_DAYS są usuwane przy okazji kolejnych zapisów.
+ * Treść (zwykły tekst) zapisujemy tylko dla maili z automatyzacji przypiętych do zamówienia -
+ * klient widzi ją na swojej stronie zamówienia w „Historii i wiadomościach". Pozostałych treści
+ * nie trzymamy (reset hasła, testy). Wpisy starsze niż KEEP_DAYS są usuwane przy kolejnych zapisach.
  *
  * Zapis nigdy nie może zepsuć wysyłki: każdy błąd bazy jest cicho pomijany.
  */
@@ -52,8 +53,14 @@ final class EmailLog
             status VARCHAR(10) NOT NULL,
             error VARCHAR(500) NULL,
             source VARCHAR(20) NULL,
-            actor_name VARCHAR(190) NULL
+            actor_name VARCHAR(190) NULL,
+            body TEXT NULL
         )$tail");
+        try {
+            $pdo->query('SELECT body FROM email_log WHERE 1 = 0');
+        } catch (\PDOException) {
+            $pdo->exec('ALTER TABLE email_log ADD COLUMN body TEXT NULL');
+        }
         foreach (['email_log_created' => '(created_at)', 'email_log_order' => '(woo_order_id)'] as $name => $cols) {
             if ($driver === 'mysql') {
                 if (!$pdo->query("SHOW INDEX FROM email_log WHERE Key_name = '$name'")->fetch()) {
@@ -98,9 +105,10 @@ final class EmailLog
         $orderId = (int) ($meta['order_id'] ?? 0);
         $actorId = $_SESSION['pase_user_id'] ?? null;
         $actor   = $actorId ? (string) ($_SESSION['pase_username'] ?? 'Użytkownik') : null;
+        $body = $type === 'automation' && $orderId > 0 ? trim((string) ($meta['body'] ?? '')) : '';
         $this->pdo->prepare('INSERT INTO email_log
-            (created_at, type, template_key, woo_order_id, recipient, subject, sender, status, error, source, actor_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
+            (created_at, type, template_key, woo_order_id, recipient, subject, sender, status, error, source, actor_name, body)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute([
             gmdate('Y-m-d H:i:s'),
             $type,
             ($meta['template'] ?? '') !== '' ? mb_substr((string) $meta['template'], 0, 100) : null,
@@ -112,11 +120,30 @@ final class EmailLog
             $ok || $error === '' ? null : mb_substr($error, 0, 500),
             \Pase\Support\UsageStats::kind(),
             $actor !== null ? mb_substr($actor, 0, 190) : null,
+            $body !== '' ? mb_substr($body, 0, 20000) : null,
         ]);
         // Sprzątanie rzadko (ok. 1 na 200 zapisów), żeby nie dokładać DELETE do każdej wysyłki.
         if (random_int(1, 200) === 1) {
             $this->purge();
         }
+    }
+
+    /**
+     * Treść maila HTML jako zwykły tekst do pokazania klientowi: jak Mailer::htmlToText, ale link
+     * zostaje adresem („tekst (https://…)"), żeby klient mógł go kliknąć na stronie zamówienia.
+     */
+    public static function bodyText(string $html): string
+    {
+        $html = preg_replace('~<(style|script|head)\b[^>]*>.*?</\1\s*>~is', '', $html) ?? $html;
+        $html = preg_replace_callback('~<a\b[^>]*\bhref\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a\s*>~is', static function (array $m): string {
+            $href = trim(html_entity_decode($m[2], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            $text = trim(html_entity_decode(strip_tags($m[3]), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            if (!preg_match('~^https?://~i', $href) || $text === $href || rtrim($text, '/') === rtrim($href, '/')) {
+                return preg_match('~^https?://~i', $href) ? htmlspecialchars($href, ENT_QUOTES, 'UTF-8') : $m[3];
+            }
+            return $m[3] . ' (' . htmlspecialchars($href, ENT_QUOTES, 'UTF-8') . ')';
+        }, $html) ?? $html;
+        return Mailer::htmlToText($html);
     }
 
     public function purge(int $days = self::KEEP_DAYS): int

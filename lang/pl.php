@@ -59,6 +59,8 @@ return [
     'client.history.status' => 'Zmiana statusu na: {status}',
     'client.history.shipped' => 'Przesyłka nadana: {carrier} {waybill}',
     'client.history.parcel' => 'Przesyłka: {desc}',
+    'client.history.locked' => 'Wiadomości w tym zamówieniu: {n}. Potwierdź e-mail lub telefon z zamówienia, aby je przeczytać.',
+    'client.history.email' => 'e-mail',
     'client.lock.title' => 'Wiadomości są chwilowo zablokowane',
     'client.lock.intro' => 'Aby uzyskać dostęp do wymiany wiadomości ze sklepem, musisz potwierdzić swoją tożsamość — wpisz adres e-mail lub numer telefonu podany w zamówieniu. Chronimy w ten sposób Twoje dane i zapewniamy bezpieczeństwo komunikacji.',
     'client.lock.unlock' => 'Odblokuj dostęp',

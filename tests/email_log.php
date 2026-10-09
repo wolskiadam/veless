@@ -69,6 +69,20 @@ check($log->countsByDay([]) === ['2026-10-01' => ['sent' => 1, 'failed' => 1], '
     'daily counts use Polish local days, newest first');
 check($log->count(['from' => '2026-09-30 00:00:00', 'to' => '2026-09-30 22:00:00']) === 1, 'period bounds: from inclusive, to exclusive');
 
+// --- Treść maili z automatyzacji (do strony klienta) ---
+check(EmailLog::bodyText('<style>p{}</style><p>Cześć <b>Anna</b>,</p><p><a href="https://sklep.test/zamowienie.php?token=ab&amp;x=1">Zobacz zamówienie</a></p><p><a href="https://sklep.test/">https://sklep.test/</a> <a href="mailto:a@b.c">napisz</a></p>')
+    === "Cześć Anna,\n\nZobacz zamówienie (https://sklep.test/zamowienie.php?token=ab&x=1)\n\nhttps://sklep.test/ napisz", 'body text keeps link addresses, drops styles');
+(new Mailer([]))->send('jan@example.test', 'Realizujemy', '<p>Treść <b>maila</b></p>', ['type' => 'automation', 'template' => 't', 'order_id' => 601]);
+(new Mailer([]))->send('jan@example.test', 'Reset', '<p>Tajne</p>', ['type' => 'password_reset', 'order_id' => 601]);
+(new Mailer([]))->send('jan@example.test', 'Bez zamówienia', '<p>X</p>', ['type' => 'automation']);
+$bodies = array_column($log->entries([], 3), 'body', 'subject');
+check($bodies === ['Bez zamówienia' => null, 'Reset' => null, 'Realizujemy' => 'Treść maila'], 'body stored only for automation mails of an order');
+$old = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$old->exec('CREATE TABLE email_log (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, type TEXT, template_key TEXT, woo_order_id INTEGER, recipient TEXT, subject TEXT, sender TEXT, status TEXT, error TEXT, source TEXT, actor_name TEXT)');
+EmailLog::migrate($old);
+EmailLog::migrate($old);
+check($old->query('SELECT body FROM email_log')->fetchAll() === [], 'existing log table gets the body column');
+
 // --- Sprzątanie ---
 $ins->execute([gmdate('Y-m-d H:i:s', time() - 400 * 86400), 'sent']);
 $ins->execute([gmdate('Y-m-d H:i:s'), 'sent']);

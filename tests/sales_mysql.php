@@ -108,6 +108,28 @@ try {
     check($second['client_token'] === $first['client_token'] && $second['pase_number'] === $first['pase_number'], 'Reimport preserves token and number');
     check($second['pase_status'] === $first['pase_status'] && $second['status'] === 'completed', 'Channel status does not overwrite CRM status');
     check($second['local_billing_email'] === 'override@example.invalid' && $second['local_items'] !== null, 'Reimport preserves local edits');
+    // BLIK/PayU: zamówienie pobrane sekundy po złożeniu („wstrzymane”, bez date_paid), opłacone chwilę później.
+    // „Pobrano zamówienie” czeka na wynik płatności, potem status CRM ze sklepu jak przy imporcie już opłaconego.
+    $events = [];
+    \Pase\Plugin\Hooks::addAction('automation.event', static function (string $event, int $id) use (&$events): void { $events[] = "$event:$id"; });
+    $auto = new WooOrderImportHandler($repo, new \Pase\Automation\RuleEngine($pdo, new \Pase\Repository\AutomationRuleRepository($pdo)));
+    $blik = ['id' => 92477, 'number' => '92477', 'status' => 'on-hold', 'payment_method' => 'payulistbanks', 'date_paid' => null, 'total' => '89.70',
+        'currency' => 'PLN', 'date_created_gmt' => '2026-10-11T19:18:07', 'billing' => ['email' => 'blik@example.invalid']];
+    $auto->handle($blik);
+    check($events === [] && !$repo->automationsDone(92477) && $repo->find(92477)['pase_status'] === 'new',
+        'Online payment pending: import waits with "order imported" rules');
+    $auto->handle(['status' => 'processing', 'date_paid' => '2026-10-11T21:18:35', 'date_paid_gmt' => '2026-10-11T19:18:35'] + $blik);
+    check($events === ['order.imported:92477', 'order.paid:92477'] && $repo->automationsDone(92477) && $repo->find(92477)['pase_status'] === 'processing',
+        'Paid later: CRM status from the shop, then "order imported" and "order paid" rules once');
+    $auto->handle(['status' => 'completed', 'date_paid' => '2026-10-11T21:18:35', 'date_paid_gmt' => '2026-10-11T19:18:35'] + $blik);
+    check(count($events) === 2 && $repo->find(92477)['pase_status'] === 'processing', 'Later shop changes do not repeat rules or overwrite CRM status');
+    $events = [];
+    $auto->handle(['id' => 92478, 'number' => '92478', 'status' => 'on-hold', 'payment_method' => 'bacs', 'total' => '5.00', 'currency' => 'PLN', 'billing' => []]);
+    $auto->handle(['id' => 92479, 'number' => '92479', 'status' => 'pending', 'payment_method' => 'payulistbanks', 'total' => '5.00', 'currency' => 'PLN', 'billing' => []]);
+    $auto->handle(['id' => 92479, 'number' => '92479', 'status' => 'cancelled', 'payment_method' => 'payulistbanks', 'total' => '5.00', 'currency' => 'PLN', 'billing' => []]);
+    check($events === ['order.imported:92478'] && $repo->automationsDone(92479) && $repo->find(92479)['pase_status'] === 'cancelled',
+        'Bank transfer on hold runs rules at once; unpaid order cancelled in the shop gets its status without "order imported" rules');
+    $pdo->exec('DELETE FROM woo_orders WHERE woo_order_id IN (92477, 92478, 92479)');
     $cust = new \Pase\Services\Customers($pdo);
     $import->handle(['id' => 779, 'number' => 'TEST-779', 'status' => 'processing', 'total' => '10.00', 'currency' => 'PLN',
         'date_created_gmt' => '2026-02-01T12:00:00', 'billing' => ['first_name' => 'Test', 'last_name' => 'Buyer', 'email' => 'OVERRIDE@example.invalid']]);

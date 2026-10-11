@@ -279,6 +279,7 @@ return [
     'orders.indicator.invoice_required' => 'Invoice to issue — customer requests an invoice',
     'orders.indicator.invoice_not_requested' => 'Customer did not request an invoice',
     'orders.indicator.invoice_nip' => 'Invoice to issue — customer provided a tax ID',
+    'orders.indicator.invoice_inactive' => 'Order cancelled — no invoice needed',
     'orders.indicator.invoice_unknown' => 'Invoice: requirement unknown',
     'orders.indicator.receipt_issued' => 'Receipt issued',
     'orders.indicator.receipt_missing' => 'No receipt — customer does not want an invoice, a receipt must be issued',

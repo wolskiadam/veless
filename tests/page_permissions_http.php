@@ -190,6 +190,30 @@ try {
     ok($saved['orders'] === 'edit' && $saved['products'] === 'hidden' && !isset($saved['bogus_page']), 'Create saves only known pages and levels');
     ok(request(login('nowy'), 'index.php')['body'] === 'ORDERS EDIT', 'New account gets its permissions');
 
+    // --- Zmiana loginu (Użytkownicy → Edytuj → Login) ---
+    $loginStatus = static function (string $username): int {
+        $h = client();
+        $page = request($h, 'login.php');
+        return request($h, 'login.php', ['csrf' => csrf($page['body']), 'username' => $username, 'password' => 'Only-Test-Password-42'])['status'];
+    };
+    $page = request($boss, 'users.php?edit=2');
+    ok(str_contains($page['body'], 'name="username" value="ed"'), 'Edit form shows the login field');
+    request($boss, 'users.php?edit=2', ['action' => 'update', 'id' => 2, 'username' => 'BOSS', 'role' => 'editor', 'is_active' => '1', 'csrf' => csrf($page['body'])]);
+    ok($pdo->query('SELECT username FROM admin_users WHERE id = 2')->fetchColumn() === 'ed', 'Login taken by another account (any case) is rejected');
+    request($boss, 'users.php?edit=2', ['action' => 'update', 'id' => 2, 'username' => 'e d', 'role' => 'editor', 'is_active' => '1', 'csrf' => csrf($page['body'])]);
+    ok($pdo->query('SELECT username FROM admin_users WHERE id = 2')->fetchColumn() === 'ed', 'Login with a space is rejected');
+    request($boss, 'users.php', ['action' => 'update', 'id' => 2, 'username' => 'redaktor.1', 'role' => 'editor', 'is_active' => '1', 'csrf' => csrf($page['body'])]);
+    ok($pdo->query('SELECT username FROM admin_users WHERE id = 2')->fetchColumn() === 'redaktor.1', 'Admin renames another account');
+    ok($loginStatus('ed') === 200 && $loginStatus('redaktor.1') === 302, 'Old login stops working, new one works');
+
+    $page = request($boss, 'users.php?edit=1');
+    ok(str_contains($page['body'], 'name="username" value="boss"'), 'Own account shows the login field');
+    $r = request($boss, 'users.php', ['action' => 'update', 'id' => 1, 'username' => 'szef-sklepu', 'role' => 'admin', 'is_active' => '1', 'csrf' => csrf($page['body'])]);
+    ok($pdo->query('SELECT username FROM admin_users WHERE id = 1')->fetchColumn() === 'szef-sklepu', 'Admin renames own account');
+    $list = request($boss, 'users.php');
+    ok($list['status'] === 200 && str_contains($list['body'], 'szef-sklepu') && str_contains($list['body'], 'Nowy login'), 'Admin stays logged in after renaming himself');
+    ok($loginStatus('boss') === 200 && $loginStatus('szef-sklepu') === 302, 'Own new login works, old does not');
+
     echo "PASS: {$checks} page permission checks\n";
 } finally {
     if (is_resource($process)) { proc_terminate($process); proc_close($process); }

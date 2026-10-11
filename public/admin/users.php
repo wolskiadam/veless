@@ -56,8 +56,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $active  = isset($_POST['is_active']) ? 1 : 0;
         $newPass = (string) ($_POST['password'] ?? '');
         $totpRequired = ($_POST['totp_required'] ?? '') === '1' ? 1 : 0;
+        // Login: puste pole albo brak pola w żądaniu = bez zmian.
+        $newName = trim((string) ($_POST['username'] ?? ''));
+        $curStmt = $pdo->prepare('SELECT username FROM admin_users WHERE id = ?');
+        $curStmt->execute([$id]);
+        $oldName = $curStmt->fetchColumn();
+        $renamed = is_string($oldName) && $newName !== '' && $newName !== $oldName;
+        $nameErr = null;
+        if ($renamed) {
+            if (!preg_match('/^[\p{L}\p{N}._@-]{3,50}$/u', $newName)) {
+                $nameErr = 'Login musi mieć 3-50 znaków: litery, cyfry, kropka, myślnik, podkreślnik lub @ (bez spacji).';
+            } else {
+                // Porównanie bez wielkości liter - „Admin” i „admin” to dla logowania ten sam login.
+                $taken = $pdo->prepare('SELECT COUNT(*) FROM admin_users WHERE LOWER(username) = LOWER(?) AND id <> ?');
+                $taken->execute([$newName, $id]);
+                if ((int) $taken->fetchColumn() > 0) {
+                    $nameErr = 'Taki login ma już inne konto.';
+                }
+            }
+        }
 
-        if ($id === currentUserId() && ($role !== 'admin' || $active === 0)) {
+        if ($oldName === false) {
+            $flashErr = 'Nie znaleziono użytkownika.';
+        } elseif ($nameErr !== null) {
+            $flashErr = $nameErr;
+        } elseif ($id === currentUserId() && ($role !== 'admin' || $active === 0)) {
             // Zabezpieczenie przed zablokowaniem samego siebie z panelu.
             $flashErr = 'Nie możesz odebrać samemu sobie roli administratora ani się dezaktywować.';
         } elseif ($newPass !== '' && strlen($newPass) < 8) {
@@ -67,6 +90,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare('UPDATE admin_users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?')
                     ->execute([password_hash($newPass, PASSWORD_DEFAULT), $id]);
             }
+            if ($renamed) {
+                $pdo->prepare('UPDATE admin_users SET username = ? WHERE id = ?')->execute([$newName, $id]);
+                error_log(sprintf('Veless: zmiana loginu konta #%d z „%s” na „%s” (zmienił: #%d %s)',
+                    $id, $oldName, $newName, (int) currentUserId(), (string) ($_SESSION['pase_username'] ?? '')));
+            }
             $pdo->prepare('UPDATE admin_users SET email = ?, display_name = ?, role = ?, is_active = ?, totp_required = ?, session_version = session_version + 1 WHERE id = ?')
                 ->execute([$email !== '' ? $email : null, $display !== '' ? $display : null, $role, $active, $totpRequired, $id]);
             // Uprawnienia do stron: admin ma pełny dostęp (czyścimy), pozostali - zapis z formularza.
@@ -75,7 +103,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif (is_array($_POST['perms'] ?? null)) {
                 PagePermissions::save($pdo, $id, $_POST['perms']);
             }
-            $flashOk = 'Zapisano zmiany.';
+            $flashOk = $renamed
+                ? 'Zapisano zmiany. Nowy login: „' . $newName . '” - od teraz loguj się nim (stary „' . $oldName . '” już nie działa).'
+                : 'Zapisano zmiany.';
+            // Własne konto: zapis unieważnia sesje (session_version), więc tę przeglądarkę logujemy
+            // od razu na nowo (jak po zmianie 2FA) - zachowując potwierdzenie 2FA tej sesji.
+            if ($id === currentUserId()) {
+                $fresh = $pdo->prepare('SELECT * FROM admin_users WHERE id = ?');
+                $fresh->execute([$id]);
+                $freshUser = $fresh->fetch(PDO::FETCH_ASSOC);
+                if ($freshUser) {
+                    \Pase\Support\AdminSession::login($pdo, $freshUser, ($_SESSION['pase_mfa_verified'] ?? false) === true);
+                }
+            }
         }
     } elseif ($act === 'delete') {
         $id = (int) ($_POST['id'] ?? 0);
@@ -177,6 +217,13 @@ require __DIR__ . '/header.php';
         <input type="hidden" name="action" value="update">
         <input type="hidden" name="id" value="<?= (int) $editUser['id'] ?>">
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
+            <div>
+                <label style="font-size:12px;color:var(--ink-2);display:block">Login</label>
+                <input name="username" value="<?= htmlspecialchars($editUser['username']) ?>" required maxlength="50" autocomplete="off" style="width:100%">
+                <?php if (in_array(strtolower((string) $editUser['username']), ['admin', 'administrator', 'root', 'user', 'test'], true)): ?>
+                    <small style="display:block;margin-top:4px;color:var(--warn-ink)">To popularny login, często zgadywany przy atakach - warto go zmienić.</small>
+                <?php endif; ?>
+            </div>
             <div>
                 <label style="font-size:12px;color:var(--ink-2);display:block">Nazwa wyświetlana</label>
                 <input name="display_name" value="<?= htmlspecialchars($editUser['display_name'] ?? '') ?>" style="width:100%">

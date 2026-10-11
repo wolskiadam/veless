@@ -168,5 +168,8 @@ check((new M($pdo))->pendingCount() === 0, 'saving the same VAT status does not 
 \Pase\Services\CompanySettings::setVatPayer($pdo, true);
 $pv = new M($pdo);
 check($pv->syncPending() === 5 && near((float) $line(9000000001, 0)['revenue_net'], 50.0) && near($pv->report('2026-09-01', '2026-09-30')['total']['fees'], 15.0), 'back to VAT payer: net amounts again');
+check(!\Pase\Services\CompanySettings::showBaselinkerLinks($pdo), 'BaseLinker links off by default');
+\Pase\Services\CompanySettings::setShowBaselinkerLinks($pdo, true);
+check(\Pase\Services\CompanySettings::showBaselinkerLinks($pdo), 'BaseLinker links can be switched on');
 
 echo "PASS: $checks order margin checks\n";

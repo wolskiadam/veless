@@ -17,6 +17,7 @@ use Pase\Repository\SettingsRepository;
 final class CompanySettings
 {
     public const VAT_PAYER_KEY = 'COMPANY_VAT_PAYER';
+    public const BASELINKER_LINKS_KEY = 'COMPANY_BASELINKER_WFIRMA_LINKS';
 
     public static function isVatPayer(PDO $pdo): bool
     {
@@ -43,5 +44,23 @@ final class CompanySettings
     public static function netSuffix(PDO $pdo): string
     {
         return self::isVatPayer($pdo) ? ' netto' : '';
+    }
+
+    /**
+     * Linki „wystawione w BaseLinker? Powiąż z wFirma” na stronie zamówienia (domyślnie wyłączone).
+     * Strona Synchronizacja z wFirma działa niezależnie od tego ustawienia.
+     */
+    public static function showBaselinkerLinks(PDO $pdo): bool
+    {
+        try {
+            return (string) ((new SettingsRepository($pdo))->get(self::BASELINKER_LINKS_KEY, '0') ?? '0') === '1';
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    public static function setShowBaselinkerLinks(PDO $pdo, bool $show): void
+    {
+        (new SettingsRepository($pdo))->setMany([self::BASELINKER_LINKS_KEY => $show ? '1' : '0']);
     }
 }

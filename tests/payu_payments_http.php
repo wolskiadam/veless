@@ -156,7 +156,12 @@ try {
         && str_contains($page['body'], '600100200') && str_contains($page['body'], 'Polna 1') && str_contains($page['body'], '30-001') && str_contains($page['body'], '000 - OK')
         && str_contains($page['body'], 'Dane płacącego') && str_contains($page['body'], 'Przebieg operacji'),
         'Payment details like the PayU panel: transaction id, POS, title, buyer, card status');
+    // Sklep jeszcze „wstrzymane” bez date_paid, ale PayU potwierdza wpłatę: status i „Zapłacono” z PayU.
+    ok(preg_match('~Status płatności</th><td>\s*<span class="pill ok">Opłacone</span>~u', $page['body']) === 1 && str_contains($page['body'], 'według PayU')
+        && str_contains($page['body'], 'paid-amount paid-ok">120.00 PLN'), 'Shop still on-hold but PayU paid: order shows paid with the PayU amount');
     $page502 = request($boss, 'admin/order_view.php?id=502');
+    ok(preg_match('~Status płatności</th><td>\s*<span class="pill warn">Nieopłacone</span>~u', $page502['body']) === 1 && !str_contains($page502['body'], 'według PayU'),
+        'Order without a paid PayU payment stays unpaid');
     ok($page502['status'] === 200 && str_contains($page502['body'], 'Płatność PayU'), 'Another PayU order without a known payment still shows the section');
 
     $pid = (int) $pdo->query('SELECT id FROM payu_order_payments WHERE woo_order_id = 501')->fetchColumn();

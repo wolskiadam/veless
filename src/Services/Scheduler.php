@@ -59,6 +59,10 @@ final class Scheduler
     private const TOKENS_AT_KEY       = 'TOKENS_REFRESH_AT';
     // Co ile odświeżać: TaskTimings 'TOKENS_EVERY' (domyślnie 5 min, zakres 1-10 min).
 
+    /** Odświeżanie zamówień zmienionych w sklepie po imporcie (status, opłacenie) - patrz pullShopChanges(). */
+    public const SHOP_CHANGES_AT_KEY = 'SHOP_CHANGES_AT';
+    public const SHOP_CHANGES_EVERY_MIN = 5;
+
     /** @param array<string,mixed> $appConfig pełny config z config/config.php (potrzebna sekcja 'allegro') */
     public function __construct(
         private readonly PDO $pdo,
@@ -156,6 +160,22 @@ final class Scheduler
                 }
             } catch (\Throwable $e) {
                 Logger::warn('Scheduler[allegro_feedback] błąd: ' . $e->getMessage());
+            }
+        }
+
+        // Zmiany w sklepie po imporcie (np. „wstrzymane” -> „w trakcie realizacji” po opłaceniu BLIK/PayU).
+        // Bez webhooka „Zamówienie zaktualizowane” CRM by ich nie zobaczył - co 5 min odświeżamy zamówienia
+        // już pobrane do CRM, niezależnie od cyklicznego pobierania nowych (SYNC_ORDERS_EVERY bywa wyłączone).
+        if (!AppMode::isLocal() && !$control->isPaused('orders')
+            && $now - (int) ($this->settings->get(self::SHOP_CHANGES_AT_KEY, '0') ?? '0') >= self::SHOP_CHANGES_EVERY_MIN * 60) {
+            $this->settings->setMany([self::SHOP_CHANGES_AT_KEY => (string) $now]);
+            try {
+                $n = $this->pullShopChanges();
+                if ($n > 0) {
+                    Logger::info("Scheduler[shop_changes]: zakolejkowano {$n} zmienionych zamówień.");
+                }
+            } catch (\Throwable $e) {
+                Logger::warn('Scheduler[shop_changes] błąd: ' . $e->getMessage());
             }
         }
 
@@ -296,6 +316,24 @@ final class Scheduler
     }
 
     /**
+     * Tryb serwerowy: zamówienia zmienione w sklepie od ostatniego sprawdzenia, ale tylko te, które CRM już ma
+     * (nowe przychodzą webhookiem / cyklicznym pobieraniem jak dotąd). Własny kursor per konto.
+     * @return int liczba zakolejkowanych zadań
+     */
+    public function pullShopChanges(): int
+    {
+        $queued = 0;
+        foreach ($this->orderSourceAccounts() as $acc) {
+            $plugin = PluginRegistry::forAccount($acc['type'], $acc['config'] ?? []);
+            if (!$plugin instanceof OrderSource || !method_exists($plugin, 'fetchOrdersModifiedSince')) {
+                continue;
+            }
+            $queued += $this->pullModifiedOrders($plugin, $acc, 'SHOP_CHANGES_CURSOR_' . (int) $acc['id'], true);
+        }
+        return $queued;
+    }
+
+    /**
      * Tryb lokalny (AppMode): bez webhooków nikt nie powie CRM-owi, że zamówienie w sklepie
      * zmieniło status (np. opłacone), więc zamiast „nowsze niż ostatnie" bierzemy wszystko,
      * co zmieniło się od kursora (data modyfikacji GMT, per konto). Kursor cofamy o sekundę,
@@ -304,9 +342,10 @@ final class Scheduler
      *
      * @param array<string,mixed> $acc
      */
-    private function pullModifiedOrders(object $plugin, array $acc): int
+    private function pullModifiedOrders(object $plugin, array $acc, ?string $cursorKey = null, bool $knownOnly = false): int
     {
-        $key = 'LOCAL_ORDERS_CURSOR_' . (int) $acc['id'];
+        $key = $cursorKey ?? 'LOCAL_ORDERS_CURSOR_' . (int) $acc['id'];
+        $known = $knownOnly ? $this->pdo->prepare('SELECT 1 FROM woo_orders WHERE woo_order_id = ? LIMIT 1') : null;
         // Pierwszy przebieg: ostatnia doba. Starszą historię ściąga Zamówienia → Importuj.
         $since = (string) ($this->settings->get($key, '') ?? '');
         if ($since === '') {
@@ -327,6 +366,12 @@ final class Scheduler
                 $modified = (string) ($order['date_modified_gmt'] ?? '');
                 if ($modified !== '' && ($newest === null || $modified > $newest)) {
                     $newest = $modified;
+                }
+                if ($known !== null) {
+                    $known->execute([$id]);
+                    if ($known->fetchColumn() === false) {
+                        continue;
+                    }
                 }
                 $status = $order['status'] ?? 'unknown';
                 $order['__integration_id'] = (int) $acc['id'];

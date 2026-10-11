@@ -801,6 +801,27 @@ if ($payuOn) {
         || ($payuShops !== [] && $paymentClass !== 'ok' && ($o['status'] ?? '') !== 'refunded' && empty($row['merged_into']));
 }
 
+// Sklep nie zgłosił jeszcze opłacenia (np. CRM pobrał zamówienie sekundy po złożeniu, gdy było „wstrzymane”),
+// a przypisana płatność PayU jest opłacona: pokazujemy stan z PayU i prosimy sklep o aktualne zamówienie
+// (import w tle, jak webhook „Zamówienie zaktualizowane”). Nic nie zmieniamy w sklepie.
+$payuPaidShown = null;
+if ($manualPaid === null && !in_array($paymentClass, ['ok', 'bad'], true) && ($o['status'] ?? '') !== 'refunded' && $payuPayments !== []) {
+    $payuPaidSum = 0;
+    foreach ($payuPayments as $pp) {
+        if ((string) ($pp['status'] ?? '') === \Pase\Services\PayuPayments::PAID) {
+            $payuPaidSum += (int) ($pp['amount'] ?? 0);
+        }
+    }
+    if ($payuPaidSum > 0) {
+        $payuPaidShown = round($payuPaidSum / 100, 2);
+        $payuFull = \Pase\Services\OrderPayment::coversTotal($payuPaidShown, (float) $groupTotal);
+        $paymentLabel = $payuFull ? 'Opłacone' : 'Opłacone częściowo';
+        $paymentClass = $payuFull ? 'ok' : 'warn';
+        $paymentDate = null;
+        \Pase\Services\ShopOrderRefresh::request($pdo, $row, $o);
+    }
+}
+
 // Zapisany układ sekcji tego użytkownika (drag & drop).
 $savedLayout = null;
 try {
@@ -1296,7 +1317,7 @@ foreach ($absorbedOrders as $ab) {
         }));</script>
     <?php endif; ?>
     <?php if (canEdit() && $payuShops !== [] && $mergedTarget === null):
-        $linkDue = max(0.0, $groupTotal - ($manualPaid !== null ? $manualPaid['amount'] : ($paymentClass === 'ok' ? $groupTotal : 0.0)));
+        $linkDue = max(0.0, $groupTotal - ($manualPaid !== null ? $manualPaid['amount'] : ($payuPaidShown ?? ($paymentClass === 'ok' ? $groupTotal : 0.0))));
         $linkOpen = $payuPayments === [] && $payuLinks === [] && $paymentClass !== 'ok'; ?>
         <details style="margin-top:10px"<?= $linkOpen ? ' open' : '' ?>><summary style="cursor:pointer;font-size:13px">Utwórz link do płatności PayU</summary>
             <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
@@ -1969,13 +1990,16 @@ foreach ($absorbedOrders as $ab) {
             <tr><th>Metoda płatności</th><td><?= $g($o, 'payment_method_title', '—') ?></td></tr>
             <tr><th>Status płatności</th><td>
                 <span class="pill <?= htmlspecialchars($paymentClass) ?>"><?= htmlspecialchars($paymentLabel) ?></span>
+                <?php if ($manualPaid === null && $payuPaidShown !== null): ?>
+                    <span style="font-size:12px;color:var(--ink-2)" title="Status w sklepie zaktualizuje się po pobraniu zamówienia ze sklepu (zwykle w ciągu minuty).">według PayU — sklep jeszcze nie potwierdził</span>
+                <?php endif; ?>
                 <?php if ($manualPaid !== null): ?>
                     <span style="font-size:12px;color:var(--ink-2)" title="<?= htmlspecialchars('Wpisał(a): ' . ($row['paid_amount_by'] ?? '—') . ' · ' . ($row['paid_amount_at'] ?? '') . ' UTC') ?>">potwierdzone ręcznie w CRM</span>
                 <?php endif; ?>
             </td></tr>
             <tr><th>Zapłacono</th><td>
                 <?php
-                    $paidShown = $manualPaid !== null ? $manualPaid['amount'] : ($paymentClass === 'ok' ? $groupTotal : 0.0);
+                    $paidShown = $manualPaid !== null ? $manualPaid['amount'] : ($payuPaidShown ?? ($paymentClass === 'ok' ? $groupTotal : 0.0));
                     $paidTone = \Pase\Services\OrderPayment::coversTotal((float) $paidShown, (float) $groupTotal) ? 'ok' : ($paidShown > 0 ? 'warn' : 'bad');
                     $canEditPaid = canEdit() && $mergedTarget === null;
                 ?>

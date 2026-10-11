@@ -96,6 +96,19 @@ try {
     }
     check($pull($shop, $acc) === 250, 'One run takes at most 5 pages of 50');
     check($pull($shop, $acc) === 10, 'Next run continues where the previous one stopped');
+
+    // Tryb serwerowy (pullShopChanges): ten sam odczyt zmian, ale tylko zamówień, które CRM już ma - np. pobrane
+    // jako „wstrzymane” sekundy po złożeniu, potem opłacone. Własny kursor, nowe zamówienia zostają dla webhooka.
+    $pdo->exec("DELETE FROM job_queue");
+    $pdo->prepare("INSERT INTO woo_orders (woo_order_id, order_number, status, pase_status, payload) VALUES (92468, '92468', 'on-hold', 'new', '{}')")->execute();
+    $shop->orders = [
+        ['id' => 92468, 'status' => 'processing', 'date_modified_gmt' => gmdate('Y-m-d\TH:i:s', time() - 120)],
+        ['id' => 92469, 'status' => 'pending', 'date_modified_gmt' => gmdate('Y-m-d\TH:i:s', time() - 60)],
+    ];
+    check($pull($shop, $acc, 'SHOP_CHANGES_CURSOR_7', true) === 1 && $jobs() === ['woo.order.import:7:92468:processing'],
+        'Server mode: paid order already in CRM is re-imported, unknown order is left alone');
+    check($settings->get('SHOP_CHANGES_CURSOR_7') === gmdate('Y-m-d\TH:i:s', time() - 61) && $settings->get('LOCAL_ORDERS_CURSOR_7') !== $settings->get('SHOP_CHANGES_CURSOR_7'),
+        'Server mode keeps its own cursor (past the skipped order too)');
 } finally {
     @unlink($envFile);
     $pdo->exec("DROP DATABASE `$database`");

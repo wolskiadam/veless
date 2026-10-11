@@ -56,8 +56,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $active  = isset($_POST['is_active']) ? 1 : 0;
         $newPass = (string) ($_POST['password'] ?? '');
         $totpRequired = ($_POST['totp_required'] ?? '') === '1' ? 1 : 0;
-        // Login: puste pole albo brak pola w żądaniu = bez zmian.
-        $newName = trim((string) ($_POST['username'] ?? ''));
+        // Login: puste pole albo brak pola w żądaniu = bez zmian. Pole nie nazywa się „username”,
+        // bo Safari/iCloud brały je wtedy za login do zapisanego hasła i podpowiadały konta.
+        $newName = trim((string) ($_POST['account_login'] ?? ''));
         $curStmt = $pdo->prepare('SELECT username FROM admin_users WHERE id = ?');
         $curStmt->execute([$id]);
         $oldName = $curStmt->fetchColumn();
@@ -219,7 +220,7 @@ require __DIR__ . '/header.php';
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
             <div>
                 <label style="font-size:12px;color:var(--ink-2);display:block">Login</label>
-                <input name="username" value="<?= htmlspecialchars($editUser['username']) ?>" required maxlength="50" autocomplete="off" style="width:100%">
+                <input type="search" name="account_login" class="login-field" value="<?= htmlspecialchars($editUser['username']) ?>" required maxlength="50" aria-label="Login" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-1p-ignore data-lpignore="true" data-form-type="other" style="width:100%">
                 <?php if (in_array(strtolower((string) $editUser['username']), ['admin', 'administrator', 'root', 'user', 'test'], true)): ?>
                     <small style="display:block;margin-top:4px;color:var(--warn-ink)">To popularny login, często zgadywany przy atakach - warto go zmienić.</small>
                 <?php endif; ?>
@@ -242,7 +243,7 @@ require __DIR__ . '/header.php';
             </div>
             <div>
                 <label style="font-size:12px;color:var(--ink-2);display:block">Nowe hasło (zostaw puste, aby nie zmieniać)</label>
-                <input name="password" type="password" placeholder="min. 8 znaków" style="width:100%">
+                <input name="password" type="password" placeholder="min. 8 znaków" autocomplete="new-password" style="width:100%">
             </div>
         </div>
         <label style="display:flex;gap:8px;align-items:center;font-size:14px;color:var(--ink);cursor:pointer;margin-top:14px">
@@ -355,6 +356,7 @@ require __DIR__ . '/header.php';
 </div>
 
 <style>
+    .login-field::-webkit-search-cancel-button { display:none; }
     .perms-grid { margin-top:16px; border:1px solid var(--line); border-radius:var(--radius-sm); overflow:hidden; }
     .perms-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 14px; background:var(--surface-2); border-bottom:1px solid var(--line); }
     .perms-group-head { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 14px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-2); background:var(--surface-2); border-top:1px solid var(--line); }

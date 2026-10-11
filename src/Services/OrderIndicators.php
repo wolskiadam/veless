@@ -37,6 +37,10 @@ final class OrderIndicators
         $invoice = $requested === true ? self::indicator('warn', 'invoice_required')
             : ($requested === false ? self::indicator('muted', 'invoice_not_requested')
             : ($nip !== '' ? self::indicator('warn', 'invoice_nip') : self::indicator('muted', 'invoice_unknown')));
+        if ($invoice['state'] === 'warn' && self::inactive($order, $payload)) {
+            // Anulowane / zwrócone zamówienie - nie ma czego fakturować (wystawioną fakturę i tak pokazuje lista i karta).
+            $invoice = self::indicator('muted', 'invoice_inactive');
+        }
 
         $shipping = self::indicator('muted', 'shipping_unknown');
         $internalStatus = $order['pase_status'] ?? '';
@@ -145,12 +149,18 @@ final class OrderIndicators
         if ($invoiceIssued || $invoice['state'] === 'warn') {
             return self::indicator('muted', 'receipt_not_needed');
         }
-        $inactive = ['cancelled', 'canceled', 'refunded', 'failed', 'trash', 'checkout-draft'];
-        $status = (string) ($payload['status'] ?? $order['status'] ?? '');
-        if (in_array($status, $inactive, true) || in_array((string) ($order['pase_status'] ?? ''), $inactive, true)) {
+        if (self::inactive($order, $payload)) {
             return self::indicator('muted', 'receipt_inactive');
         }
         return self::indicator('warn', 'receipt_missing');
+    }
+
+    /** Zamówienie anulowane, zwrócone albo nieukończone (status w sklepie lub w CRM) - bez dokumentu sprzedaży. */
+    private static function inactive(array $order, array $payload): bool
+    {
+        $inactive = ['cancelled', 'canceled', 'refunded', 'failed', 'trash', 'checkout-draft'];
+        $status = (string) ($payload['status'] ?? $order['status'] ?? '');
+        return in_array($status, $inactive, true) || in_array((string) ($order['pase_status'] ?? ''), $inactive, true);
     }
 
     /**

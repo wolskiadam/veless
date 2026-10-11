@@ -279,6 +279,7 @@ return [
     'orders.indicator.invoice_required' => 'Faktura do wystawienia — klient prosi o fakturę',
     'orders.indicator.invoice_not_requested' => 'Klient nie zaznaczył faktury',
     'orders.indicator.invoice_nip' => 'Faktura do wystawienia — klient podał NIP',
+    'orders.indicator.invoice_inactive' => 'Zamówienie anulowane — faktura niepotrzebna',
     'orders.indicator.invoice_unknown' => 'Faktura: brak informacji o wymaganiu',
     'orders.indicator.receipt_issued' => 'Paragon wystawiony',
     'orders.indicator.receipt_missing' => 'Paragon do wystawienia — klient nie chce faktury',

@@ -69,6 +69,10 @@ check($rec($woo, $off) === 'orders.indicator.receipt_missing' && $rec(['status' 
 check($rec($woo, $off, false, true) === 'orders.indicator.receipt_issued' && $rec($woo, null) === 'orders.indicator.receipt_not_needed'
     && $rec($allegro, null) === 'orders.indicator.receipt_not_needed' && $rec($woo, $off, true) === 'orders.indicator.receipt_not_needed', 'Receipt issued / invoice wanted or issued');
 check($rec(['status' => 'cancelled'], null) === 'orders.indicator.receipt_inactive' && $rec([], null, false, false, ['pase_status' => 'refunded']) === 'orders.indicator.receipt_inactive', 'Cancelled or refunded: receipt not needed');
+$cancelled = static fn(array $payload, array $order) => OrderIndicators::forOrder($order + ['local_invoice' => null], $payload, [])['invoice'];
+check($cancelled($allegro, ['pase_status' => 'cancelled']) === ['state' => 'muted', 'label' => 'orders.indicator.invoice_inactive']
+    && $cancelled(['status' => 'cancelled'] + $woo, [])['label'] === 'orders.indicator.invoice_inactive'
+    && $cancelled($woo, ['pase_status' => 'new'])['state'] === 'warn', 'Cancelled order: invoice not needed (no orange icon or banner)');
 
 // --- GUS BIR 1.1 i Biała lista na atrapie sieci ---
 $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);

@@ -1520,7 +1520,7 @@ foreach ($absorbedOrders as $ab) {
         <div style="margin:8px 0 12px;font-size:12px;color:#555;background:#f6f8fb;border:1px solid #e7ebf0;border-radius:8px;padding:8px 10px">
             Link dla klienta:
             <div style="display:flex;gap:6px;margin-top:4px">
-                <input id="clientLinkInput" value="<?= htmlspecialchars($clientLink) ?>" readonly onclick="this.select()" style="flex:1;font-size:12px">
+                <input id="clientLinkInput" value="<?= htmlspecialchars($clientLink) ?>" readonly onclick="this.select()" style="flex:1;min-width:0;font-size:12px">
                 <button type="button" class="btn secondary" id="copyClientLink" style="padding:6px 12px;font-size:12px;white-space:nowrap">📋 Kopiuj</button>
             </div>
         </div>
@@ -1605,7 +1605,7 @@ foreach ($absorbedOrders as $ab) {
         <p id="tplPickInvoice" class="tpl-pick-invoice" hidden>📎 Do e-maila zostanie dołączona faktura z wFirma (PDF).</p>
         <textarea name="message_body" id="msgBody" rows="3" style="width:100%" placeholder="Napisz odpowiedź do klienta..."></textarea>
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
-            <input type="file" name="attachment">
+            <input type="file" name="attachment" style="min-width:0;max-width:100%">
             <button class="btn" type="submit" style="margin-left:auto">Wyślij do klienta</button>
         </div>
         <?php if (\Pase\Services\AllegroOrderMessage::isAllegro($row)): ?>
@@ -1940,7 +1940,7 @@ foreach ($absorbedOrders as $ab) {
     <form method="post" id="contactForm">
         <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
         <input type="hidden" name="action" value="save_contact">
-        <table style="margin-top:10px">
+        <table class="info-table" style="margin-top:10px">
             <?php if ($orderCustomer !== null):
                 $ocCount = (int) $orderCustomer['orders_count'];
                 $ocChannels = implode(', ', array_map(static fn($c) => $c['label'] . ' × ' . (int) $c['count'], $orderCustomer['channels'])); ?>
@@ -2272,14 +2272,23 @@ foreach ($absorbedOrders as $ab) {
     .msg-more { background:none; border:0; padding:2px 0 0; color:#1a73e8; font-size:12px; cursor:pointer; }
     .staff-msg-del { background:none; border:0; color:#c5221f; font-size:11px; cursor:pointer; padding:0 0 0 4px; text-decoration:underline; }
     .staff-msg-del:hover { color:#a01a16; }
-    .layout-cols { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
-    .layout-col { display:flex; flex-direction:column; gap:18px; min-height:60px; }
+    /* minmax(0,1fr) i min-width:0: długi numer zamówienia, e-mail czy link nie rozpychają kolumny poza ekran (telefon). */
+    .layout-cols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:18px; align-items:start; }
+    .layout-col { display:flex; flex-direction:column; gap:18px; min-height:60px; min-width:0; }
+    .layout-col > .card { min-width:0; overflow-wrap:break-word; }
+    .info-table td, .msg-bubble { overflow-wrap:anywhere; }
+    /* Telefon: w „Informacjach o zamówieniu” etykieta nad wartością, żeby wartość (e-mail, numer) miała całą szerokość. */
+    @media (max-width:600px) {
+        .info-table, .info-table tbody, .info-table tr, .info-table th, .info-table td { display:block; }
+        .info-table th { border-bottom:0; padding-bottom:0; }
+        .info-table td { padding-top:3px; }
+    }
     .sortable-section { position:relative; }
     .drag-handle { position:absolute; top:10px; right:12px; color:#cbd3e1; cursor:grab; font-size:18px; line-height:1; user-select:none; }
     .drag-handle:active { cursor:grabbing; }
     .sortable-ghost { opacity:.4; }
     .sortable-drag { box-shadow:0 12px 32px rgba(0,0,0,.2); }
-    @media (max-width:900px) { .layout-cols { grid-template-columns:1fr; } }
+    @media (max-width:900px) { .layout-cols { grid-template-columns:minmax(0,1fr); } }
     .soon-menu { position:relative; display:inline-block; }
     .soon-dropdown { display:none; position:absolute; top:100%; right:0; margin-top:4px; background:#fff; border-radius:8px; box-shadow:0 8px 28px rgba(0,0,0,.16); padding:6px; min-width:330px; z-index:50; }
     .soon-menu.open .soon-dropdown { display:block; }

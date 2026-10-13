@@ -80,6 +80,14 @@ final class RuleEngine
         try {
             // Rozszerzenia dostają każde zdarzenie zamówienia, także bez reguł (hak automation.event).
             \Pase\Plugin\Hooks::doAction('automation.event', $event, $wooOrderId, $payload);
+            if ($event === 'order.imported') {
+                // Powiadomienie push na telefon/komputer (Services\WebPush); błąd nie wstrzymuje reguł ani importu.
+                try {
+                    (new \Pase\Services\WebPush($this->pdo))->notifyNewOrder($wooOrderId, $payload);
+                } catch (\Throwable $e) {
+                    Logger::warn("Push: powiadomienie o zamówieniu {$wooOrderId} nie wysłane", ['error' => $e->getMessage()]);
+                }
+            }
             $applied = 0;
             foreach ($this->rules->activeForEvent($event) as $rule) {
                 if (!$this->matches($rule, $event, $payload, $wooOrderId)) {

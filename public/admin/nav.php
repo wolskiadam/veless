@@ -125,6 +125,8 @@ if (isset($pdo) && $pdo instanceof PDO) {
                     </span>
                 </div>
                 <div class="nav-bell-prefs" hidden></div>
+                <?php // Powiadomienia push tego urządzenia (Services\WebPush) - pod ustawieniami dzwoneczka. ?>
+                <div class="nav-bell-push" id="navPush"><div class="nav-push-txt">Sprawdzanie powiadomień push…</div></div>
                 <div class="nav-bell-list"><div class="nav-bell-empty">Ładowanie…</div></div>
             </div>
         </div>
@@ -203,6 +205,14 @@ if (isset($pdo) && $pdo instanceof PDO) {
     .nav-bell-prefs { border-top:1px solid var(--line, #eef0f3); padding:8px 14px 10px; font-size:.82em; }
     .nav-bell-prefs label { display:flex; align-items:center; gap:8px; padding:4px 0; color:var(--ink-2); cursor:pointer; font-weight:500; }
     .nav-bell-prefs .hint { color:#999; font-size:.9em; margin:0 0 4px; }
+    .nav-bell-push { border-top:1px solid var(--line, #eef0f3); padding:8px 14px 10px; font-size:.82em; color:var(--ink-2); }
+    .nav-bell-prefs[hidden] + .nav-bell-push { display:none; }
+    .nav-push-txt b { color:var(--ink); }
+    .nav-push-btns { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+    .nav-push-btns button { font:inherit; font-weight:600; border:1px solid var(--line); background:var(--surface); color:var(--ink); border-radius:7px; padding:4px 10px; cursor:pointer; }
+    .nav-push-btns button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .nav-push-btns button:disabled { opacity:.5; cursor:default; }
+    .nav-push-msg { margin-top:6px; color:var(--ink); }
     .nav-bell-read { font-size:.85em; font-weight:500; padding:0 2px; }
     .nav-bell-gh .r { display:flex; align-items:center; gap:8px; }
     .nav-bell-row { display:flex; align-items:center; }
@@ -451,6 +461,98 @@ document.addEventListener('click', function(e) {
     document.addEventListener('click', function () { if (!pop.hidden) { close(); } });
     load();
     setInterval(function () { if (!document.hidden) { load(); } }, 60000);
+})();
+</script>
+
+<script>
+// Powiadomienia push na tym urządzeniu (push.php + push-sw.js). Na iPhonie tylko w panelu otwartym z ikony na ekranie początkowym.
+(function () {
+    var box = document.getElementById('navPush');
+    if (!box) { return; }
+    var csrf = <?= json_encode(csrfToken()) ?>;
+    var supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+    function post(fields) {
+        var fd = new FormData(); fd.append('csrf', csrf);
+        Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
+        return fetch('push.php', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function (r) { return r.json(); });
+    }
+    function key(b64) {
+        var s = b64.replace(/-/g, '+').replace(/_/g, '/');
+        while (s.length % 4) { s += '='; }
+        var raw = atob(s), out = new Uint8Array(raw.length);
+        for (var i = 0; i < raw.length; i++) { out[i] = raw.charCodeAt(i); }
+        return out;
+    }
+    function save(sub) {
+        var j = sub.toJSON();
+        return post({ action: 'subscribe', endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }).then(function (d) {
+            if (!d.ok) { throw new Error(d.error || 'zapis nie powiódł się'); }
+            return d;
+        });
+    }
+    function render(state, msg) {
+        var t = {
+            on: '🔔 Powiadomienia o nowych zamówieniach na tym urządzeniu: <b>włączone</b>.',
+            off: 'Powiadomienia o nowych zamówieniach na tym urządzeniu (push): <b>wyłączone</b>.',
+            denied: 'Powiadomienia są zablokowane dla tej strony. Odblokuj je w ustawieniach '
+                + (ios ? 'iPhone’a (Ustawienia → Powiadomienia → Veless)' : 'przeglądarki') + ' i odśwież stronę.',
+            ios: 'Powiadomienia push na iPhonie: w Safari stuknij <b>Udostępnij → Do ekranu początkowego</b>, otwórz panel z nowej ikony, '
+                + 'zaloguj się i włącz je tutaj (iOS 16.4 lub nowszy).',
+            unsupported: 'Ta przeglądarka nie obsługuje powiadomień push.'
+        }[state];
+        var btns = state === 'on' ? '<button type="button" data-push="test">Wyślij test</button><button type="button" data-push="off">Wyłącz</button>'
+            : state === 'off' ? '<button type="button" class="on" data-push="on">Włącz powiadomienia</button>' : '';
+        box.innerHTML = '<div class="nav-push-txt">' + t + '</div>' + (btns ? '<div class="nav-push-btns">' + btns + '</div>' : '')
+            + (msg ? '<div class="nav-push-msg">' + esc(msg) + '</div>' : '');
+    }
+    if (!supported) { render(ios && !standalone ? 'ios' : 'unsupported'); return; }
+    navigator.serviceWorker.register('push-sw.js').then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+        if (sub && Notification.permission === 'granted') {
+            render('on');
+            // Raz na sesję odświeżamy zapis na serwerze (np. po zmianie konta na tym urządzeniu).
+            try {
+                if (!sessionStorage.getItem('velessPushSynced')) {
+                    save(sub).then(function () { try { sessionStorage.setItem('velessPushSynced', '1'); } catch (e) {} }).catch(function () {});
+                }
+            } catch (e) {}
+        } else {
+            render(Notification.permission === 'denied' ? 'denied' : 'off');
+        }
+    }).catch(function () { render('unsupported'); });
+
+    box.addEventListener('click', function (ev) {
+        var b = ev.target.closest('[data-push]');
+        if (!b) { return; }
+        ev.stopPropagation();
+        var what = b.getAttribute('data-push');
+        box.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+        if (what === 'on') {
+            // Zgoda pytana od razu po stuknięciu - iPhone nie pokaże pytania później.
+            Notification.requestPermission().then(function (perm) {
+                if (perm !== 'granted') { render(perm === 'denied' ? 'denied' : 'off'); return; }
+                return fetch('push.php', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+                    if (!d.ok) { throw new Error(d.error || 'brak klucza'); }
+                    return navigator.serviceWorker.ready.then(function (reg) {
+                        return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key(d.publicKey) });
+                    });
+                }).then(save).then(function () { render('on', 'Gotowe. Stuknij „Wyślij test”, żeby sprawdzić.'); });
+            }).catch(function (e) { render('off', 'Nie udało się włączyć: ' + e.message); });
+        } else if (what === 'off') {
+            navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
+                if (!sub) { return; }
+                var endpoint = sub.endpoint;
+                return sub.unsubscribe().then(function () { return post({ action: 'unsubscribe', endpoint: endpoint }); });
+            }).then(function () { render('off', 'Wyłączono na tym urządzeniu.'); })
+              .catch(function (e) { render('on', 'Nie udało się wyłączyć: ' + e.message); });
+        } else if (what === 'test') {
+            post({ action: 'test' }).then(function (d) {
+                render('on', d.ok ? 'Wysłano - powiadomienie powinno pojawić się za chwilę.' : (d.error || 'Nie udało się wysłać.'));
+            }).catch(function (e) { render('on', 'Nie udało się wysłać: ' + e.message); });
+        }
+    });
 })();
 </script>
 

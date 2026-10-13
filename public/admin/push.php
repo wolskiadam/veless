@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 /**
  * Powiadomienia push tego urządzenia (JSON, z dzwoneczka w nav.php - Services\WebPush).
- * GET - klucz publiczny VAPID; POST action=subscribe (endpoint, p256dh, auth) | unsubscribe (endpoint) | test.
+ * GET - klucz publiczny VAPID; POST action=subscribe (endpoint, p256dh, auth) | unsubscribe (endpoint) | test
+ *   | sources (endpoint) | save_sources (endpoint, all=1 albo sources[]=id konta, 0 = ręczne).
  */
 
 use Pase\Services\WebPush;
@@ -51,6 +52,15 @@ try {
     } elseif ($action === 'unsubscribe') {
         $push->unsubscribe((string) ($_POST['endpoint'] ?? ''), $uid);
         echo json_encode(['ok' => true]);
+    } elseif ($action === 'sources') {
+        // Sklepy/źródła tego urządzenia (zaznaczone) i wszystkie do wyboru.
+        echo json_encode(['ok' => true, 'options' => $push->sourceOptions(),
+            'selected' => $push->sources((string) ($_POST['endpoint'] ?? ''), $uid)], JSON_UNESCAPED_UNICODE);
+    } elseif ($action === 'save_sources') {
+        $ids = !empty($_POST['all']) ? null : array_map('intval', (array) ($_POST['sources'] ?? []));
+        $saved = $push->saveSources((string) ($_POST['endpoint'] ?? ''), $uid, $ids);
+        echo json_encode(['ok' => $saved, 'error' => $saved ? null : 'Nie znaleziono tego urządzenia - włącz powiadomienia ponownie.'],
+            JSON_UNESCAPED_UNICODE);
     } elseif ($action === 'test') {
         $sent = $push->send(['title' => 'Powiadomienia działają', 'body' => 'Tak będą wyglądać powiadomienia o nowych zamówieniach.',
             'url' => 'orders.php', 'tag' => 'test'], $uid);

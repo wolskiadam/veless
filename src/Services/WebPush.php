@@ -53,6 +53,7 @@ final class WebPush
                 user_agent VARCHAR(255) NOT NULL DEFAULT '',
                 created_at INT NOT NULL,
                 last_ok_at INT NULL,
+                sources TEXT NULL,
                 UNIQUE KEY uq_endpoint (endpoint_hash),
                 KEY idx_user (user_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
@@ -61,7 +62,17 @@ final class WebPush
         $pdo->exec("CREATE TABLE IF NOT EXISTS push_subscriptions (
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT NOT NULL, endpoint_hash CHAR(64) NOT NULL UNIQUE,
             endpoint TEXT NOT NULL, p256dh VARCHAR(120) NOT NULL, auth VARCHAR(40) NOT NULL,
-            user_agent VARCHAR(255) NOT NULL DEFAULT '', created_at INT NOT NULL, last_ok_at INT NULL)");
+            user_agent VARCHAR(255) NOT NULL DEFAULT '', created_at INT NOT NULL, last_ok_at INT NULL, sources TEXT NULL)");
+    }
+
+    /** Kolumna sources (wybór sklepów/źródeł) w tabeli sprzed tej zmiany. */
+    private static function ensureSourcesColumn(PDO $pdo): void
+    {
+        try {
+            $pdo->query('SELECT sources FROM push_subscriptions LIMIT 1');
+        } catch (\PDOException) {
+            $pdo->exec('ALTER TABLE push_subscriptions ADD COLUMN sources TEXT NULL');
+        }
     }
 
     /** Testy: zamiast HTTP woła $sender(url, body, headers) i bierze jego status. */
@@ -120,12 +131,89 @@ final class WebPush
             throw new \InvalidArgumentException('Niepoprawne klucze subskrypcji push.');
         }
         self::migrate($this->pdo);
+        self::ensureSourcesColumn($this->pdo);
         $hash = hash('sha256', $endpoint);
+        // Wybór sklepów zostaje przy ponownym zapisie tego samego urządzenia (to samo konto).
+        $st = $this->pdo->prepare('SELECT user_id, sources FROM push_subscriptions WHERE endpoint_hash = ?');
+        $st->execute([$hash]);
+        $old = $st->fetch(PDO::FETCH_ASSOC) ?: null;
+        $sources = $old !== null && (int) $old['user_id'] === $userId ? $old['sources'] : null;
         // DELETE + INSERT - działa też na SQLite; to samo urządzenie po zalogowaniu na inne konto przechodzi na nie.
         $this->pdo->prepare('DELETE FROM push_subscriptions WHERE endpoint_hash = ?')->execute([$hash]);
-        $this->pdo->prepare('INSERT INTO push_subscriptions (user_id, endpoint_hash, endpoint, p256dh, auth, user_agent, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)')
-            ->execute([$userId, $hash, $endpoint, $p256dh, $auth, mb_substr($userAgent, 0, 255), time()]);
+        $this->pdo->prepare('INSERT INTO push_subscriptions (user_id, endpoint_hash, endpoint, p256dh, auth, user_agent, created_at, sources)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$userId, $hash, $endpoint, $p256dh, $auth, mb_substr($userAgent, 0, 255), time(), $sources]);
+    }
+
+    /**
+     * Sklepy/źródła, z których to urządzenie chce powiadomienia: lista id kont integracji (0 = zamówienia ręczne
+     * i bez źródła); null = wszystkie, także sklepy dodane później.
+     * @return list<int>|null
+     */
+    public function sources(string $endpoint, int $userId): ?array
+    {
+        try {
+            $st = $this->pdo->prepare('SELECT sources FROM push_subscriptions WHERE endpoint_hash = ? AND user_id = ?');
+            $st->execute([hash('sha256', $endpoint), $userId]);
+            return self::decodeSources($st->fetchColumn());
+        } catch (\PDOException) {
+            return null;
+        }
+    }
+
+    /** @param list<int>|null $sources null = wszystkie @return bool false, gdy tego urządzenia nie ma na tym koncie */
+    public function saveSources(string $endpoint, int $userId, ?array $sources): bool
+    {
+        self::ensureSourcesColumn($this->pdo);
+        $json = $sources === null ? null : json_encode(array_values(array_unique(array_map('intval', $sources))));
+        $st = $this->pdo->prepare('UPDATE push_subscriptions SET sources = ? WHERE endpoint_hash = ? AND user_id = ?');
+        $st->execute([$json, hash('sha256', $endpoint), $userId]);
+        return $st->rowCount() > 0;
+    }
+
+    /** @return list<int>|null */
+    private static function decodeSources(mixed $raw): ?array
+    {
+        if (!is_string($raw) || $raw === '') {
+            return null;
+        }
+        $list = json_decode($raw, true);
+        return is_array($list) ? array_values(array_map('intval', $list)) : null;
+    }
+
+    /**
+     * Do wyboru przy powiadomieniach: konta integracji, z których przychodzą zamówienia (sklepy, Allegro, TikTok…),
+     * plus „Zamówienia ręczne” (id 0).
+     * @return list<array{id:int,label:string}>
+     */
+    public function sourceOptions(): array
+    {
+        $labels = ['woocommerce' => 'WooCommerce', 'allegro' => 'Allegro', 'tiktokshop' => 'TikTok Shop'];
+        $types = [];
+        try {
+            $types = array_keys(\Pase\Plugin\PluginRegistry::withCapability(\Pase\Plugin\Capability::ORDER_SOURCE));
+        } catch (\Throwable) {
+            $types = [];
+        }
+        if ($types === []) {
+            $types = array_keys($labels);
+        }
+        $out = [];
+        try {
+            $ph = implode(',', array_fill(0, count($types), '?'));
+            $st = $this->pdo->prepare("SELECT id, type, name FROM integration_accounts WHERE type IN ($ph) ORDER BY is_active DESC, type, name");
+            $st->execute($types);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $type = (string) $r['type'];
+                $typeLabel = $labels[$type] ?? (\Pase\Services\OrderChannelIcons::sourceName($type) ?? $type);
+                $name = trim((string) $r['name']);
+                $out[] = ['id' => (int) $r['id'], 'label' => $name !== '' && $name !== $typeLabel ? $typeLabel . ': ' . $name : $typeLabel];
+            }
+        } catch (\PDOException) {
+            // baza bez kont integracji
+        }
+        $out[] = ['id' => 0, 'label' => 'Zamówienia ręczne'];
+        return $out;
     }
 
     public function unsubscribe(string $endpoint, ?int $userId = null): void
@@ -161,9 +249,16 @@ final class WebPush
      * zatrzymuje reszty. @param array{title:string,body?:string,url?:string,tag?:string} $message
      * @return int liczba urządzeń, które przyjęły powiadomienie
      */
-    public function send(array $message, ?int $onlyUser = null, ?int $exceptUser = null): int
+    public function send(array $message, ?int $onlyUser = null, ?int $exceptUser = null, ?int $sourceId = null): int
     {
         $subs = $this->subscriptions($onlyUser, $exceptUser);
+        if ($sourceId !== null) {
+            // Urządzenie z wybranymi sklepami dostaje tylko zamówienia z nich (null = wszystkie).
+            $subs = array_values(array_filter($subs, static function (array $s) use ($sourceId): bool {
+                $list = self::decodeSources($s['sources'] ?? null);
+                return $list === null || in_array($sourceId, $list, true);
+            }));
+        }
         if ($subs === []) {
             return 0;
         }
@@ -239,10 +334,13 @@ final class WebPush
             return 0;
         }
         // Import starych zamówień (np. pierwsze pobranie historii) nie zasypuje telefonu powiadomieniami.
+        $sourceId = 0;
         try {
-            $st = $this->pdo->prepare('SELECT date_created FROM woo_orders WHERE woo_order_id = ?');
+            $st = $this->pdo->prepare('SELECT date_created, integration_id FROM woo_orders WHERE woo_order_id = ?');
             $st->execute([$wooOrderId]);
-            $created = (string) ($st->fetchColumn() ?: '');
+            $row = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+            $created = (string) ($row['date_created'] ?? '');
+            $sourceId = (int) ($row['integration_id'] ?? 0);
         } catch (\PDOException) {
             $created = '';
         }
@@ -262,7 +360,7 @@ final class WebPush
             }
         }
         $exceptUser = PHP_SAPI !== 'cli' && isset($_SESSION['pase_user_id']) ? (int) $_SESSION['pase_user_id'] : null;
-        return $this->send(self::newOrderMessage($this->pdo, $wooOrderId, $payload), null, $exceptUser);
+        return $this->send(self::newOrderMessage($this->pdo, $wooOrderId, $payload), null, $exceptUser, $sourceId);
     }
 
     /** @return array{title:string,body:string,url:string,tag:string} */
@@ -271,7 +369,7 @@ final class WebPush
         $row = [];
         try {
             $st = $pdo->prepare('SELECT wo.order_number, wo.total, wo.currency, wo.customer_name, ia.type AS src_type, ia.name AS src_name
-                FROM woo_orders wo LEFT JOIN integration_accounts ia ON ia.id = wo.source_integration_id WHERE wo.woo_order_id = ?');
+                FROM woo_orders wo LEFT JOIN integration_accounts ia ON ia.id = wo.integration_id WHERE wo.woo_order_id = ?');
             $st->execute([$wooOrderId]);
             $row = $st->fetch(PDO::FETCH_ASSOC) ?: [];
         } catch (\PDOException) {

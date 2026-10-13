@@ -514,7 +514,7 @@ document.addEventListener('click', function(e) {
             + (state === 'on' && endpoint ? '<div class="nav-push-src"></div>' : '');
         if (state === 'on' && endpoint) { loadSources(); }
     }
-    // Z których sklepów/źródeł to urządzenie dostaje powiadomienia (wszystkie zaznaczone = także sklepy dodane później).
+    // Z których sklepów/źródeł przychodzą powiadomienia na tym urządzeniu (wszystkie zaznaczone = także sklepy dodane później).
     function loadSources() {
         post({ action: 'sources', endpoint: endpoint }).then(function (d) {
             var el = box.querySelector('.nav-push-src');

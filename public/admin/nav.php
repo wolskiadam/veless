@@ -213,6 +213,8 @@ if (isset($pdo) && $pdo instanceof PDO) {
     .nav-push-btns button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
     .nav-push-btns button:disabled { opacity:.5; cursor:default; }
     .nav-push-msg { margin-top:6px; color:var(--ink); }
+    .nav-push-src { margin-top:8px; }
+    .nav-push-src label { display:flex; align-items:center; gap:8px; padding:3px 0; cursor:pointer; font-weight:500; }
     .nav-bell-read { font-size:.85em; font-weight:500; padding:0 2px; }
     .nav-bell-gh .r { display:flex; align-items:center; gap:8px; }
     .nav-bell-row { display:flex; align-items:center; }
@@ -473,10 +475,11 @@ document.addEventListener('click', function(e) {
     var supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
     var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     var standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    var endpoint = null;
     function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
     function post(fields) {
         var fd = new FormData(); fd.append('csrf', csrf);
-        Object.keys(fields).forEach(function (k) { fd.append(k, fields[k]); });
+        Object.keys(fields).forEach(function (k) { [].concat(fields[k]).forEach(function (v) { fd.append(k, v); }); });
         return fetch('push.php', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function (r) { return r.json(); });
     }
     function key(b64) {
@@ -488,6 +491,7 @@ document.addEventListener('click', function(e) {
     }
     function save(sub) {
         var j = sub.toJSON();
+        endpoint = j.endpoint;
         return post({ action: 'subscribe', endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }).then(function (d) {
             if (!d.ok) { throw new Error(d.error || 'zapis nie powiódł się'); }
             return d;
@@ -506,11 +510,37 @@ document.addEventListener('click', function(e) {
         var btns = state === 'on' ? '<button type="button" data-push="test">Wyślij test</button><button type="button" data-push="off">Wyłącz</button>'
             : state === 'off' ? '<button type="button" class="on" data-push="on">Włącz powiadomienia</button>' : '';
         box.innerHTML = '<div class="nav-push-txt">' + t + '</div>' + (btns ? '<div class="nav-push-btns">' + btns + '</div>' : '')
-            + (msg ? '<div class="nav-push-msg">' + esc(msg) + '</div>' : '');
+            + (msg ? '<div class="nav-push-msg">' + esc(msg) + '</div>' : '')
+            + (state === 'on' && endpoint ? '<div class="nav-push-src"></div>' : '');
+        if (state === 'on' && endpoint) { loadSources(); }
     }
+    // Z których sklepów/źródeł to urządzenie dostaje powiadomienia (wszystkie zaznaczone = także sklepy dodane później).
+    function loadSources() {
+        post({ action: 'sources', endpoint: endpoint }).then(function (d) {
+            var el = box.querySelector('.nav-push-src');
+            if (!el || !d.ok || !d.options || d.options.length < 2) { return; }
+            el.innerHTML = '<div>Powiadamiaj o zamówieniach z:</div>' + d.options.map(function (o) {
+                var on = d.selected === null || d.selected.indexOf(o.id) !== -1;
+                return '<label><input type="checkbox" data-src="' + o.id + '"' + (on ? ' checked' : '') + '> ' + esc(o.label) + '</label>';
+            }).join('');
+        }).catch(function () {});
+    }
+    box.addEventListener('change', function (ev) {
+        if (!ev.target.matches('[data-src]')) { return; }
+        var all = box.querySelectorAll('[data-src]'), ids = [];
+        all.forEach(function (c) { if (c.checked) { ids.push(c.getAttribute('data-src')); } });
+        var f = { action: 'save_sources', endpoint: endpoint };
+        if (ids.length === all.length) { f.all = '1'; } else { f['sources[]'] = ids.length ? ids : ['-1']; }
+        post(f).then(function (d) {
+            var m = box.querySelector('.nav-push-msg') || box.appendChild(document.createElement('div'));
+            m.className = 'nav-push-msg';
+            m.textContent = d.ok ? (ids.length ? 'Zapisano wybór sklepów.' : 'Nie wybrano żadnego źródła - powiadomienia o zamówieniach nie będą przychodzić.') : (d.error || 'Nie zapisano.');
+        }).catch(function () {});
+    });
     if (!supported) { render(ios && !standalone ? 'ios' : 'unsupported'); return; }
     navigator.serviceWorker.register('push-sw.js').then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
         if (sub && Notification.permission === 'granted') {
+            endpoint = sub.endpoint;
             render('on');
             // Raz na sesję odświeżamy zapis na serwerze (np. po zmianie konta na tym urządzeniu).
             try {
@@ -543,9 +573,9 @@ document.addEventListener('click', function(e) {
         } else if (what === 'off') {
             navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
                 if (!sub) { return; }
-                var endpoint = sub.endpoint;
-                return sub.unsubscribe().then(function () { return post({ action: 'unsubscribe', endpoint: endpoint }); });
-            }).then(function () { render('off', 'Wyłączono na tym urządzeniu.'); })
+                var ep = sub.endpoint;
+                return sub.unsubscribe().then(function () { return post({ action: 'unsubscribe', endpoint: ep }); });
+            }).then(function () { endpoint = null; render('off', 'Wyłączono na tym urządzeniu.'); })
               .catch(function (e) { render('on', 'Nie udało się wyłączyć: ' + e.message); });
         } else if (what === 'test') {
             post({ action: 'test' }).then(function (d) {

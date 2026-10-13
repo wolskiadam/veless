@@ -16,8 +16,8 @@ SecretStore::useKeyFile(sys_get_temp_dir() . '/web-push-test-no-key-' . bin2hex(
 $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
 $pdo->exec('CREATE TABLE settings (setting_key VARCHAR(64) PRIMARY KEY, setting_value TEXT NULL)');
 $pdo->exec('CREATE TABLE woo_orders (woo_order_id INTEGER PRIMARY KEY, order_number TEXT, total REAL, currency TEXT, customer_name TEXT,
-    date_created TEXT NULL, source_integration_id INT NULL)');
-$pdo->exec('CREATE TABLE integration_accounts (id INTEGER PRIMARY KEY, type TEXT, name TEXT)');
+    date_created TEXT NULL, integration_id INT NULL)');
+$pdo->exec('CREATE TABLE integration_accounts (id INTEGER PRIMARY KEY, type TEXT, name TEXT, is_active INT DEFAULT 1)');
 \Pase\Automation\OrderEvents::migrate($pdo);
 
 /** Urządzenie testowe: para kluczy P-256 + sekret auth, jak w przeglądarce. */
@@ -111,6 +111,30 @@ $sent = [];
 check($push->notifyNewOrder(500, $payload) === 0 && $sent === [], 'the same order never notifies twice');
 check($push->notifyNewOrder(501, []) === 0 && $sent === [], 'old orders (history import) do not notify');
 
+// --- wybór sklepów/źródeł na urządzeniu ---
+$pdo->exec("INSERT INTO integration_accounts (id, type, name) VALUES (4, 'woocommerce', 'awien.eu'), (9, 'wfirma', 'Księgowość')");
+$opts = $push->sourceOptions();
+check(in_array(['id' => 3, 'label' => 'Allegro: Allegro Klub'], $opts, true) && in_array(['id' => 4, 'label' => 'WooCommerce: awien.eu'], $opts, true)
+    && end($opts) === ['id' => 0, 'label' => 'Zamówienia ręczne'] && !in_array(9, array_column($opts, 'id'), true),
+    'choices: order-source accounts + manual orders, no accounting/courier accounts');
+check($push->sources('https://web.push.apple.com/adam', 1) === null, 'new device: all sources');
+check($push->saveSources('https://web.push.apple.com/adam', 1, [4]) && $push->sources('https://web.push.apple.com/adam', 1) === [4],
+    'device keeps its own source list');
+check(!$push->saveSources('https://web.push.apple.com/adam', 2, [3]), 'another account cannot change this device');
+$pdo->exec("INSERT INTO woo_orders VALUES (503, '1236', 50, 'PLN', 'Ola', '" . gmdate('Y-m-d H:i:s') . "', 3)");
+$pdo->exec("INSERT INTO woo_orders VALUES (504, '1237', 60, 'PLN', 'Ela', '" . gmdate('Y-m-d H:i:s') . "', 4)");
+$sent = [];
+$push->notifyNewOrder(503, []);
+check(array_column($sent, 'url') === ['https://web.push.apple.com/ewa'], 'Allegro order skips the device that chose only the shop');
+$sent = [];
+$push->notifyNewOrder(504, []);
+check(count($sent) === 2, 'shop order reaches both devices');
+$push->subscribe(1, 'https://web.push.apple.com/adam', $adam['p256dh'], $adam['auth'], 'iPhone');
+check($push->sources('https://web.push.apple.com/adam', 1) === [4], 'choice survives the device re-saving its subscription');
+$sent = [];
+check($push->send(['title' => 'Test'], 1) === 1, 'test notification ignores the source choice');
+$push->saveSources('https://web.push.apple.com/adam', 1, null);
+
 // --- zdarzenie „Pobrano zamówienie” w silniku reguł wysyła push ---
 $pdo->exec("INSERT INTO woo_orders VALUES (502, 'R7', 0, 'PLN', 'Anna', '" . gmdate('Y-m-d H:i:s') . "', NULL)");
 $pdo->exec('CREATE TABLE automation_rules (id INTEGER PRIMARY KEY, name TEXT, event TEXT, is_active INT, priority INT, conditions TEXT, actions TEXT, condition_match TEXT)');
@@ -121,5 +145,15 @@ $pdo->exec("UPDATE push_subscriptions SET endpoint = 'https://blocked.invalid/x'
 $engine->dispatch('order.imported', 502, ['created_via' => 'manual']);
 check((int) $pdo->query("SELECT COUNT(*) FROM automation_once WHERE order_id = 502 AND event_key = 'push.new_order'")->fetchColumn() === 1,
     'rule engine "order.imported" triggers the push notification');
+
+// --- tabela sprzed wyboru sklepów (produkcja z PR #45) dostaje kolumnę sources sama ---
+$old = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+$old->exec("CREATE TABLE push_subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT NOT NULL, endpoint_hash CHAR(64) NOT NULL UNIQUE,
+    endpoint TEXT NOT NULL, p256dh VARCHAR(120) NOT NULL, auth VARCHAR(40) NOT NULL, user_agent VARCHAR(255) NOT NULL DEFAULT '', created_at INT NOT NULL, last_ok_at INT NULL)");
+$oldPush = new WebPush($old);
+check($oldPush->sources('https://web.push.apple.com/adam', 1) === null, 'old table without the column reads as all sources');
+$oldPush->subscribe(1, 'https://web.push.apple.com/adam', $adam['p256dh'], $adam['auth']);
+check($oldPush->saveSources('https://web.push.apple.com/adam', 1, [0]) && $oldPush->sources('https://web.push.apple.com/adam', 1) === [0],
+    'old table gets the sources column on first use');
 
 echo "web_push: {$checks} checks passed\n";

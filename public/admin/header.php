@@ -47,6 +47,8 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
             --ui-zoom:<?= rtrim(rtrim(number_format($uiScale / 100, 2, '.', ''), '0'), '.') ?>;
         }
         html { zoom:var(--ui-zoom); }
+        /* Telefon/tablet: strona nie przesuwa się w bok; szerokie tabele przewijają się we własnych ramkach. */
+        @media (max-width:900px) { html, body { overflow-x:hidden; } @supports (overflow-x:clip) { html, body { overflow-x:clip; } } }
         * { box-sizing:border-box; }
         body { margin:0; font-family:var(--font-ui); background:var(--bg); color:var(--ink); }
         input,select,button,textarea { font-family:inherit; }

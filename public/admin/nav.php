@@ -193,7 +193,6 @@ if (isset($pdo) && $pdo instanceof PDO) {
     @keyframes bellRing { 0%,100%{transform:rotate(0)} 20%{transform:rotate(14deg)} 40%{transform:rotate(-12deg)} 60%{transform:rotate(8deg)} 80%{transform:rotate(-4deg)} }
     .nav-bell-pop { position:absolute; top:calc(100% + 8px); right:0; left:auto; width:340px; max-width:calc(100vw - 32px); max-height:70vh; overflow:auto; background:var(--surface);
         border-radius:var(--radius); box-shadow:0 10px 34px -10px rgba(20,18,12,.28), 0 2px 8px rgba(20,18,12,.08); z-index:1000; padding:6px 0; }
-    @media (max-width:700px) { .nav-bell-pop { left:0; right:auto; } }
     .nav-bell-head { display:flex; justify-content:space-between; align-items:center; gap:8px; font-weight:700; font-size:.85em; padding:8px 10px 6px 14px; color:var(--ink); }
     .nav-bell-tools { display:flex; align-items:center; gap:4px; }
     .nav-bell-all, .nav-bell-gear, .nav-bell-x, .nav-bell-read { background:none; border:0; cursor:pointer; font-family:inherit; color:var(--ink-3, #999); border-radius:6px; }
@@ -271,7 +270,6 @@ if (isset($pdo) && $pdo instanceof PDO) {
     .nav-scale-pop { position:absolute; top:calc(100% + 8px); right:0; width:260px; background:var(--surface); border-radius:var(--radius);
         box-shadow:0 10px 34px -10px rgba(20,18,12,.28), 0 2px 8px rgba(20,18,12,.08); z-index:1000; padding:12px 14px; }
     .nav-scale-pop[hidden] { display:none; }
-    @media (max-width:700px) { .nav-scale-pop { right:auto; left:0; } }
     .nav-scale-head { font-weight:700; font-size:.85em; margin-bottom:10px; }
     .nav-scale-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .nav-scale-row .nav-scale-cur { font-size:1.05em; }
@@ -328,6 +326,11 @@ if (isset($pdo) && $pdo instanceof PDO) {
         .nav-account-name { color:var(--ink); font-size:.85em; font-weight:700; flex:1 1 100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .nav-account-mobile .nav-lang { margin-right:auto; }
         .nav-account-mobile .nav-lang a { font-size:.8em; padding:5px 8px; }
+    }
+    /* Wąski ekran: okienka dzwonka i skali na całą szerokość paska (liczone od .nav-bar), żeby nie wychodziły poza ekran. */
+    @media (max-width:700px) {
+        .nav-user-area, .nav-bell, .nav-scale { position:static; }
+        .nav-bell-pop, .nav-scale-pop { left:0; right:0; width:auto; max-width:none; top:calc(100% + 6px); }
     }
 </style>
 
@@ -438,8 +441,10 @@ document.addEventListener('click', function(e) {
     function close() { pop.hidden = true; bell.classList.remove('open'); prefsBox.hidden = true; gear.classList.remove('on'); }
     btn.addEventListener('click', function (ev) {
         ev.stopPropagation();
-        if (pop.hidden) { pop.hidden = false; bell.classList.add('open'); load(); } else { close(); }
+        if (pop.hidden) { document.dispatchEvent(new CustomEvent('navpop', { detail: 'bell' })); pop.hidden = false; bell.classList.add('open'); load(); } else { close(); }
     });
+    // Otwarcie innego okienka w pasku (skala) zamyka to.
+    document.addEventListener('navpop', function (ev) { if (ev.detail !== 'bell' && !pop.hidden) { close(); } });
     gear.addEventListener('click', function (ev) {
         ev.stopPropagation();
         prefsBox.hidden = !prefsBox.hidden;
@@ -609,7 +614,12 @@ document.addEventListener('click', function(e) {
         }
     }
     function toggle(open) { pop.hidden = !open; box.classList.toggle('open', open); }
-    btn.addEventListener('click', function (ev) { ev.stopPropagation(); toggle(pop.hidden); });
+    btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        if (pop.hidden) { document.dispatchEvent(new CustomEvent('navpop', { detail: 'scale' })); }
+        toggle(pop.hidden);
+    });
+    document.addEventListener('navpop', function (ev) { if (ev.detail !== 'scale' && !pop.hidden) { toggle(false); } });
     pop.addEventListener('click', function (ev) {
         ev.stopPropagation();
         var s = ev.target.closest('.nav-scale-step');

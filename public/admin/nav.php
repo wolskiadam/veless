@@ -95,6 +95,18 @@ if (isset($pdo) && $pdo instanceof PDO) {
                 </div>
             </div>
         <?php endforeach; ?>
+        <?php // Na telefonie dane konta (nazwa, język, 2FA, Wyloguj) są w rozwijanym menu, żeby pasek się mieścił. ?>
+        <div class="nav-account-mobile">
+            <span class="nav-account-name"><?= htmlspecialchars(currentUserName()) ?></span>
+            <span class="nav-lang">
+                <?php foreach (\Pase\Support\I18n::available() as $code => $name):
+                    $cur = $code === \Pase\Support\I18n::locale(); ?>
+                    <a href="?setlang=<?= htmlspecialchars($code) ?>" class="<?= $cur ? 'on' : '' ?>" title="<?= htmlspecialchars($name) ?>"><?= htmlspecialchars(strtoupper($code)) ?></a>
+                <?php endforeach; ?>
+            </span>
+            <a href="security.php" class="logout-btn">2FA</a>
+            <a href="?logout=1" class="logout-btn"><?= htmlspecialchars(t('common.logout')) ?></a>
+        </div>
     </div>
     <div class="nav-user-area">
         <div class="nav-bell" id="navBell">
@@ -146,10 +158,10 @@ if (isset($pdo) && $pdo instanceof PDO) {
             <?php endforeach; ?>
         </span>
         <span class="nav-user-info" title="Zalogowany: <?= htmlspecialchars(currentUserName()) ?> (rola: <?= htmlspecialchars(currentUserRole()) ?>)"><?= htmlspecialchars(currentUserName()) ?></span>
-        <a href="security.php" class="logout-btn" title="Bezpieczeństwo konta — logowanie dwuetapowe i szybkie logowanie innym urządzeniem">2FA</a>
-        <a href="?logout=1" class="logout-btn">
+        <a href="security.php" class="logout-btn nav-2fa" title="Bezpieczeństwo konta — logowanie dwuetapowe i szybkie logowanie innym urządzeniem">2FA</a>
+        <a href="?logout=1" class="logout-btn nav-logout" title="<?= htmlspecialchars(t('common.logout')) ?>" aria-label="<?= htmlspecialchars(t('common.logout')) ?>">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="9.5" rx="1.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-            <?= htmlspecialchars(t('common.logout')) ?>
+            <span class="nav-logout-label"><?= htmlspecialchars(t('common.logout')) ?></span>
         </a>
     </div>
 </nav>
@@ -273,8 +285,9 @@ if (isset($pdo) && $pdo instanceof PDO) {
     .logout-btn:hover { color:var(--ink); background:var(--surface-2); border-color:var(--ink-3); }
     .nav-toggle { display:none; background:var(--surface-2); border:1px solid var(--line); color:var(--ink); font-size:1.4em; padding:6px 10px; border-radius:6px; cursor:pointer; line-height:1; }
     .nav-toggle:hover { background:var(--accent-soft); }
+    .nav-account-mobile { display:none; }
     @media (max-width:900px) {
-        .nav-bar { flex-wrap:wrap; padding:10px 14px; gap:6px; }
+        .nav-bar { flex-wrap:wrap; justify-content:flex-start; padding:10px 14px; gap:6px; }
         .nav-toggle { display:block; order:0; }
         .nav-user-area { order:1; margin-left:auto; }
         .nav-links { order:2; width:100%; flex-direction:column; gap:2px; display:none; padding-top:8px; border-top:1px solid var(--line); }
@@ -292,6 +305,17 @@ if (isset($pdo) && $pdo instanceof PDO) {
         .nav-sub.open > .nav-flyout { display:block; }
         .nav-sub.active > .nav-sub-btn { background:var(--accent-soft); }
         .nav-sub.open > .nav-sub-btn .nav-sub-arrow { transform:rotate(90deg); }
+    }
+    /* Telefon: w pasku zostają ☰, start, dzwonek, skala i ikona wylogowania; reszta konta w rozwijanym menu. */
+    @media (max-width:600px) {
+        .nav-bar { padding:8px 10px; gap:4px; }
+        .nav-user-area { gap:2px; }
+        .nav-user-area > .nav-lang, .nav-user-area > .nav-user-info, .nav-user-area > .nav-2fa, .nav-logout-label { display:none; }
+        .nav-logout { padding:8px 10px; margin-left:4px; }
+        .nav-account-mobile { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:6px; padding:10px 12px 4px; border-top:1px solid var(--line); }
+        .nav-account-name { color:var(--ink); font-size:.85em; font-weight:700; flex:1 1 100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .nav-account-mobile .nav-lang { margin-right:auto; }
+        .nav-account-mobile .nav-lang a { font-size:.8em; padding:5px 8px; }
     }
 </style>
 

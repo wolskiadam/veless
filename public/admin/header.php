@@ -19,6 +19,13 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <?php // Panel jako aplikacja na telefonie (Do ekranu początkowego) - potrzebne do powiadomień push na iPhonie. ?>
+    <link rel="manifest" href="manifest.php">
+    <link rel="apple-touch-icon" href="assets/app-icon-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Veless">
+    <meta name="theme-color" content="#9c6b2e">
     <title><?= htmlspecialchars($pageTitle) ?> — Veless</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
     <style>

@@ -49,7 +49,7 @@ function login(string $username): CurlHandle {
 
 // --- Rejestr: każda strona panelu z logowaniem musi być w rejestrze albo na liście wyjątków ---
 // ext.php (strony rozszerzeń) sprawdza rolę z definicji każdej strony - jak users.php, poza rejestrem.
-$exempt = ['auth.php', 'login.php', 'users.php', 'security.php', 'quick_approve.php', 'notifications.php', 'layout_save.php', 'ui_scale_save.php', 'header.php', 'nav.php', 'footer.php', 'bootstrap_admin.php', 'ext.php'];
+$exempt = ['auth.php', 'login.php', 'users.php', 'security.php', 'quick_approve.php', 'notifications.php', 'push.php', 'layout_save.php', 'ui_scale_save.php', 'header.php', 'nav.php', 'footer.php', 'bootstrap_admin.php', 'ext.php'];
 $missing = [];
 foreach (glob($root . '/public/admin/*.php') as $file) {
     $name = basename($file);

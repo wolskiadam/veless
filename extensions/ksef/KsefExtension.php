@@ -25,12 +25,14 @@ use PDO;
  */
 final class KsefExtension extends AbstractExtension
 {
+    private const PER_PAGE = 50;
+
     public function manifest(): ExtensionManifest
     {
         return new ExtensionManifest(
             type: 'ksef',
             name: 'KSeF - e-faktury',
-            version: '1.1.0',
+            version: '1.2.0',
             author: 'Veless',
             description: 'Połączenie z Krajowym Systemem e-Faktur (API 2.0): wystawianie faktur FA(3) z zamówień (numer KSeF, UPO i link weryfikacyjny w karcie zamówienia) oraz podgląd faktur zakupowych otrzymanych przez firmę. W ustawieniach wybierz, co ma robić, i wpisz token KSeF.',
             icon: '🏛️',
@@ -466,7 +468,12 @@ final class KsefExtension extends AbstractExtension
         $env = $s->env();
         $repo = $s->purchaseInvoices();
         $q = trim((string) ($_GET['q'] ?? ''));
+        $months = $repo->months($env);
         $month = (string) ($_GET['m'] ?? '');
+        if ($month !== 'all' && !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) {
+            // Bez wybranego miesiąca: przy wyszukiwaniu wszystkie, inaczej najnowszy miesiąc z fakturami.
+            $month = $q !== '' ? 'all' : (array_key_first($months) ?? date('Y-m'));
+        }
         $missing = $s->missingConnection();
         $point = $repo->syncPoint($env);
         $html = '<div class="card">' . self::envNote($env)
@@ -486,19 +493,42 @@ final class KsefExtension extends AbstractExtension
                 . '<p style="color:var(--ink-3);font-size:12px;margin:-4px 0 10px">„Pobierz nowe” bierze faktury, które trafiły do KSeF od ostatniego pobrania. '
                 . '„Pobierz z okresu” - faktury z datą wystawienia w wybranym okresie (np. starsze miesiące).</p>';
         }
+        $filter = $month === 'all' ? '' : $month;
+        $link = static fn(array $over): string => Hooks::pageUrl('ksef.zakupy', array_filter(array_merge(['m' => $month, 'q' => $q], $over), static fn($v): bool => $v !== '' && $v !== 1));
+        $opts = '<option value="all"' . ($month === 'all' ? ' selected' : '') . '>Wszystkie miesiące</option>';
+        $list = $months;
+        if ($month !== 'all' && !isset($list[$month])) {
+            $list[$month] = 0;
+            krsort($list);
+        }
+        foreach ($list as $m => $n) {
+            $opts .= '<option value="' . self::h($m) . '"' . ($m === $month ? ' selected' : '') . '>' . self::h(self::monthName($m)) . ' (' . $n . ')</option>';
+        }
+        $nav = '';
+        if ($month !== 'all') {
+            $prev = (new \DateTimeImmutable($month . '-01'))->modify('-1 month')->format('Y-m');
+            $next = (new \DateTimeImmutable($month . '-01'))->modify('+1 month')->format('Y-m');
+            $oldest = array_key_last($months);
+            $nav = ($oldest !== null && $prev >= $oldest ? '<a class="btn secondary" href="' . self::h($link(['m' => $prev, 'p' => 1])) . '">← ' . self::h(self::monthName($prev)) . '</a>' : '')
+                . ($next <= date('Y-m') ? ' <a class="btn secondary" href="' . self::h($link(['m' => $next, 'p' => 1])) . '">' . self::h(self::monthName($next)) . ' →</a>' : '');
+        }
         $html .= '<form method="get" action="ext.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:0">'
             . '<input type="hidden" name="page" value="ksef.zakupy">'
+            . '<label>Miesiąc wystawienia<br><select name="m">' . $opts . '</select></label>'
             . '<label>Szukaj<br><input type="search" name="q" value="' . self::h($q) . '" placeholder="numer, sprzedawca, NIP"></label>'
-            . '<label>Miesiąc wystawienia<br><input type="month" name="m" value="' . self::h(preg_match('/^\d{4}-\d{2}$/', $month) ? $month : '') . '"></label>'
             . '<button class="btn secondary" type="submit">Pokaż</button>'
-            . ($q !== '' || $month !== '' ? ' <a href="' . self::h(Hooks::pageUrl('ksef.zakupy')) . '">wyczyść</a>' : '') . '</form></div>';
+            . ($q !== '' ? ' <a href="' . self::h($link(['q' => '', 'p' => 1])) . '">wyczyść szukanie</a>' : '') . '</form>'
+            . ($nav !== '' ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">' . $nav . '</div>' : '') . '</div>';
 
-        $rows = $repo->latest($env, $q, $month);
-        $sums = [];
-        $html .= '<div class="card"><div style="overflow-x:auto"><table><tr><th>Data</th><th>Numer faktury</th><th>Sprzedawca</th><th>Netto</th><th>VAT</th><th>Brutto</th><th>Rodzaj</th><th>Numer KSeF</th></tr>';
+        $totals = $repo->totals($env, $q, $filter);
+        $pages = max(1, (int) ceil($totals['count'] / self::PER_PAGE));
+        $page = max(1, min($pages, (int) ($_GET['p'] ?? 1)));
+        $rows = $repo->latest($env, $q, $filter, self::PER_PAGE, ($page - 1) * self::PER_PAGE);
+        $title = $month === 'all' ? 'Wszystkie miesiące' : ucfirst(self::monthName($month));
+        $html .= '<div class="card"><h3 style="margin:0 0 8px">' . self::h($title) . ($q !== '' ? ' · „' . self::h($q) . '”' : '') . '</h3>'
+            . '<div style="overflow-x:auto"><table><tr><th>Data</th><th>Numer faktury</th><th>Sprzedawca</th><th>Netto</th><th>VAT</th><th>Brutto</th><th>Rodzaj</th><th>Numer KSeF</th></tr>';
         foreach ($rows as $r) {
             $cur = (string) ($r['currency'] ?: 'PLN');
-            $sums[$cur] = ($sums[$cur] ?? 0.0) + (float) $r['gross'];
             $url = Hooks::pageUrl('ksef.zakup', ['k' => $r['ksef_number']]);
             $html .= '<tr><td>' . self::h($r['issue_date']) . '</td><td><a href="' . self::h($url) . '">' . self::h($r['invoice_number']) . '</a></td>'
                 . '<td>' . self::h($r['seller_name']) . '<br><small>NIP ' . self::h($r['seller_nip']) . '</small></td>'
@@ -506,13 +536,51 @@ final class KsefExtension extends AbstractExtension
                 . '<td>' . self::h(Purchases::TYPES[$r['invoice_type']] ?? $r['invoice_type']) . '</td><td><small><code>' . self::h($r['ksef_number']) . '</code></small></td></tr>';
         }
         if ($rows === []) {
-            $html .= '<tr><td colspan="8" style="color:var(--ink-2)">' . ($q !== '' || $month !== '' ? 'Brak faktur dla tego wyszukiwania.'
-                : 'Brak faktur zakupowych w tym środowisku. Kliknij „Pobierz nowe z KSeF”.') . '</td></tr>';
+            $html .= '<tr><td colspan="8" style="color:var(--ink-2)">' . ($q !== '' ? 'Brak faktur dla tego wyszukiwania.'
+                : ($months === [] ? 'Brak faktur zakupowych w tym środowisku. Kliknij „Pobierz nowe z KSeF”.' : 'Brak faktur wystawionych w tym miesiącu.')) . '</td></tr>';
         } else {
-            $total = implode(' + ', array_map(static fn(string $c, float $v): string => number_format($v, 2, ',', ' ') . ' ' . $c, array_keys($sums), $sums));
-            $html .= '<tr><td colspan="5"><b>Razem (' . count($rows) . ')</b></td><td colspan="3"><b>' . self::h($total) . '</b></td></tr>';
+            foreach ($totals['sums'] as $cur => $t) {
+                $html .= '<tr><td colspan="3"><b>Razem' . (count($totals['sums']) > 1 ? ' ' . self::h($cur) : '') . ' (' . $totals['count'] . ($pages > 1 ? ', wszystkie strony' : '') . ')</b></td>'
+                    . '<td><b>' . self::money($t['net']) . '</b></td><td><b>' . self::money($t['vat']) . '</b></td><td colspan="3"><b>' . self::money($t['gross']) . '</b> ' . self::h($cur) . '</td></tr>';
+            }
         }
-        return $html . '</table></div></div>';
+        return $html . '</table></div>' . self::pager($page, $pages, static fn(int $p): string => $link(['p' => $p])) . '</div>';
+    }
+
+    /** Paginacja jak w liście zamówień: ← Poprzednia · 1 … 4 [5] 6 … 20 · Następna →. */
+    private static function pager(int $page, int $pages, callable $link): string
+    {
+        if ($pages <= 1) {
+            return '';
+        }
+        $nums = array_unique(array_merge([1, $pages], range(max(1, $page - 2), min($pages, $page + 2))));
+        sort($nums);
+        $a = 'min-width:34px;height:34px;padding:0 8px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;text-decoration:none;border:1px solid var(--line,#e5e2da);box-sizing:border-box';
+        $html = '<nav aria-label="Paginacja" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:center;margin-top:16px">';
+        if ($page > 1) {
+            $html .= '<a class="btn secondary" href="' . self::h($link($page - 1)) . '">← Poprzednia</a>';
+        }
+        $prev = 0;
+        foreach ($nums as $n) {
+            if ($n - $prev > 1) {
+                $html .= '<span style="color:var(--ink-3)">…</span>';
+            }
+            $html .= $n === $page
+                ? '<span aria-current="page" style="' . $a . ';background:#8a6a3b;border-color:#8a6a3b;color:#fff;font-weight:700">' . $n . '</span>'
+                : '<a href="' . self::h($link($n)) . '" style="' . $a . '">' . $n . '</a>';
+            $prev = $n;
+        }
+        if ($page < $pages) {
+            $html .= '<a class="btn secondary" href="' . self::h($link($page + 1)) . '">Następna →</a>';
+        }
+        return $html . '<span style="color:var(--ink-3);font-size:13px">strona ' . $page . ' z ' . $pages . '</span></nav>';
+    }
+
+    private static function monthName(string $ym): string
+    {
+        static $names = ['styczeń', 'luty', 'marzec', 'kwiecień', 'maj', 'czerwiec', 'lipiec', 'sierpień', 'wrzesień', 'październik', 'listopad', 'grudzień'];
+        [$y, $m] = array_map('intval', explode('-', $ym));
+        return ($names[$m - 1] ?? $ym) . ' ' . $y;
     }
 
     private static function purchasePage(KsefService $s, string $ksefNumber): string

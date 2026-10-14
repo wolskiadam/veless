@@ -20,8 +20,10 @@ W **Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia** wybierasz, co wtyczka
 
 - **Zamówienia → Faktury zakupowe KSeF**: faktury, w których firma jest nabywcą. Przycisk „Pobierz nowe z KSeF” dociąga
   faktury od ostatniego pobrania (za pierwszym razem z okresu z ustawień: 30 dni do roku), a „Pobierz z okresu” - faktury
-  z datą wystawienia między dwiema wybranymi datami (np. starsze miesiące). Wyszukiwanie po numerze, sprzedawcy i NIP,
-  filtr miesiąca, suma brutto.
+  z datą wystawienia między dwiema wybranymi datami (np. starsze miesiące). Lista pokazuje faktury
+  miesiącami (domyślnie najnowszy miesiąc z fakturami, przyciski poprzedni/następny, wybór miesiąca albo „Wszystkie
+  miesiące”), po 50 na stronę z paginacją. Sumy netto, VAT i brutto liczone są dla całego miesiąca, nie tylko strony.
+  Wyszukiwanie po numerze, sprzedawcy i NIP (bez wybranego miesiąca szuka we wszystkich).
 - **Podgląd faktury**: sprzedawca, nabywca, pozycje, stawki VAT, kwota do zapłaty, termin i rachunek do przelewu,
   pobranie XML i link do faktury w KSeF.
 

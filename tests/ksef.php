@@ -399,6 +399,14 @@ try {
     check($r['new'] === 1 && $purchases->get('test', '7740001454-20260801-AAAAAAAAAAAA-01') !== null && max($spans) <= 90 * 86400
         && $ksef->metaQueries[1]['from'] === $ksef->metaQueries[0]['to'], 'Long gap is fetched in back-to-back windows of at most 90 days');
     check(count($purchases->latest('test', 'hurtownia', '2026-10')) === 5 && count($purchases->latest('test', 'FV 8/')) === 1, 'Purchase list filters by text and month');
+    $months = $purchases->months('test');
+    $all = $purchases->totals('test');
+    $oct = $purchases->totals('test', '', '2026-10');
+    $page2 = $purchases->latest('test', '', '', 2, 2);
+    check(array_key_first($months) === '2026-10' && array_sum($months) === $all['count'] && $oct['count'] === $months['2026-10']
+        && count($page2) === 2 && $page2[0]['ksef_number'] === $purchases->latest('test', '', '', 3)[2]['ksef_number']
+        && abs($all['sums']['PLN']['gross'] - array_sum(array_map(static fn(array $r): float => (float) $r['gross'], $purchases->latest('test')))) < 0.001,
+        'Purchase list counts months, sums all pages and pages with offset');
     check(throwsLike(static fn() => (new KsefService($pdo, $buyerSettings, '', $factory))->syncPurchases(), 'token KSeF'), 'Fetch without token explains what is missing');
 
     // Pobieranie z wybranego okresu (data wystawienia), bez ruszania punktu „Pobierz nowe”
@@ -485,6 +493,23 @@ try {
     $page = (Hooks::page('ksef.zakup')['render'])($pdo, ['canEdit' => true]);
     check(str_contains($page, 'Hurtownia Pszczelarska') && str_contains($page, 'Wosk &lt;pszczeli&gt;') && str_contains($page, 'qr-test.ksef.mf.gov.pl/invoice/7740001454/14-10-2026/'),
         'Purchase invoice page shows the invoice and the KSeF link');
+    $_GET = [];
+    $render = static fn(array $get): string => ($_GET = $get) !== null ? (Hooks::page('ksef.zakupy')['render'])($pdo, ['canEdit' => false, 'isAdmin' => false, 'csrf' => '', 'url' => '', 'post' => false]) : '';
+    $newest = (string) array_key_first($purchases->months('test'));
+    $page = $render([]);
+    check(str_contains($page, '<option value="' . $newest . '" selected') && str_contains($page, 'Wszystkie miesiące') && !str_contains($page, 'aria-label="Paginacja"'),
+        'Purchase list opens on the newest month with invoices');
+    $ins = $pdo->prepare("INSERT INTO ext_ksef_purchases (env, ksef_number, invoice_number, issue_date, gross, currency, created_at) VALUES ('test', ?, ?, ?, 10, 'PLN', '2026-10-14 13:00:00')");
+    for ($i = 1; $i <= 60; $i++) {
+        $ins->execute([sprintf('9999999999-20260115-PAGE%08d-00', $i), sprintf('STY %02d/2026', $i), sprintf('2026-01-%02d', 1 + $i % 28)]);
+    }
+    $p1 = $render(['m' => '2026-01']);
+    $p2 = $render(['m' => '2026-01', 'p' => '2']);
+    check(substr_count($p1, 'page=ksef.zakup&amp;k=') === 50 && substr_count($p2, 'page=ksef.zakup&amp;k=') === 10 && str_contains($p1, 'strona 1 z 2')
+        && str_contains($p1, 'm=2026-01&amp;p=2') && str_contains($p2, 'Razem (60, wszystkie strony)') && str_contains($p2, '600,00') && str_contains($p1, 'Styczeń 2026')
+        && str_contains($p1, '2026-02') && !str_contains($p1, '2025-12'), 'Month view pages 50 invoices at a time with totals for the whole month');
+    $p9 = $render(['m' => '2026-01', 'p' => '9']);
+    check(str_contains($p9, 'strona 2 z 2') && str_contains($render(['m' => '2025-05']), 'Brak faktur wystawionych w tym miesiącu'), 'Out of range page and empty month are handled');
     $_GET = [];
 
     echo "\n{$checks} checks passed\n";

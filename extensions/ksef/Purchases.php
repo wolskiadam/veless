@@ -92,10 +92,56 @@ final class Purchases
      * $month w formacie RRRR-MM zawęża do miesiąca wystawienia.
      * @return list<array<string,mixed>>
      */
-    public function latest(string $env, string $q = '', string $month = '', int $limit = 500): array
+    public function latest(string $env, string $q = '', string $month = '', int $limit = 500, int $offset = 0): array
     {
-        $sql = 'SELECT env, ksef_number, invoice_number, invoice_type, seller_nip, seller_name, issue_date, storage_date, net, vat, gross, currency, invoice_hash,
-                CASE WHEN xml IS NULL THEN 0 ELSE 1 END AS has_xml FROM ext_ksef_purchases WHERE env = ?';
+        [$where, $args] = $this->filter($env, $q, $month);
+        $st = $this->pdo->prepare('SELECT env, ksef_number, invoice_number, invoice_type, seller_nip, seller_name, issue_date, storage_date, net, vat, gross, currency, invoice_hash,
+                CASE WHEN xml IS NULL THEN 0 ELSE 1 END AS has_xml FROM ext_ksef_purchases WHERE ' . $where
+            . ' ORDER BY issue_date DESC, storage_date DESC, ksef_number DESC LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset));
+        $st->execute($args);
+        return $st->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Liczba faktur i sumy kwot dla tych samych filtrów co latest(), osobno dla waluty.
+     * @return array{count:int,sums:array<string,array{net:float,vat:float,gross:float}>}
+     */
+    public function totals(string $env, string $q = '', string $month = ''): array
+    {
+        [$where, $args] = $this->filter($env, $q, $month);
+        $st = $this->pdo->prepare('SELECT currency, COUNT(*) AS n, SUM(net) AS net, SUM(vat) AS vat, SUM(gross) AS gross FROM ext_ksef_purchases WHERE '
+            . $where . ' GROUP BY currency ORDER BY currency');
+        $st->execute($args);
+        $count = 0;
+        $sums = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $count += (int) $r['n'];
+            $sums[(string) ($r['currency'] ?: 'PLN')] = ['net' => (float) $r['net'], 'vat' => (float) $r['vat'], 'gross' => (float) $r['gross']];
+        }
+        return ['count' => $count, 'sums' => $sums];
+    }
+
+    /**
+     * Miesiące wystawienia, w których są faktury, od najnowszego.
+     * @return array<string,int> RRRR-MM => liczba faktur
+     */
+    public function months(string $env): array
+    {
+        $st = $this->pdo->prepare('SELECT SUBSTR(issue_date, 1, 7) AS m, COUNT(*) AS n FROM ext_ksef_purchases WHERE env = ? GROUP BY SUBSTR(issue_date, 1, 7) ORDER BY m DESC');
+        $st->execute([$env]);
+        $out = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            if (preg_match('/^\d{4}-\d{2}$/', (string) $r['m'])) {
+                $out[(string) $r['m']] = (int) $r['n'];
+            }
+        }
+        return $out;
+    }
+
+    /** @return array{0:string,1:list<string>} */
+    private function filter(string $env, string $q, string $month): array
+    {
+        $sql = 'env = ?';
         $args = [$env];
         $q = trim($q);
         if ($q !== '') {
@@ -107,9 +153,7 @@ final class Purchases
             $sql .= ' AND issue_date LIKE ?';
             $args[] = $month . '-%';
         }
-        $st = $this->pdo->prepare($sql . ' ORDER BY issue_date DESC, storage_date DESC LIMIT ' . max(1, $limit));
-        $st->execute($args);
-        return $st->fetchAll(PDO::FETCH_ASSOC);
+        return [$sql, $args];
     }
 
     public function syncPoint(string $env): ?string

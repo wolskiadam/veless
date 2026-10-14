@@ -242,7 +242,24 @@ $PAGE_HEAD = <<<'CSS'
     .side-icon { width:15px; height:15px; flex-shrink:0; opacity:.8; }
     .side-sep { height:1px; background:var(--line); margin:6px 4px; }
     .side-manage { color:var(--accent); font-size:13px; justify-content:flex-start; }
-    @media (max-width:820px) { .orders-layout { grid-template-columns:1fr; } .orders-side-col { position:static; } }
+    .side-nav-toggle { display:none; }
+    /* Telefon: lista zamówień zaraz pod wyszukiwarką, statusy zwinięte, statystyki na samym końcu. */
+    @media (max-width:820px) {
+        .orders-layout { display:flex; flex-direction:column; align-items:stretch; gap:14px; }
+        .orders-side-col { display:contents; }
+        .orders-side { order:0; }
+        .orders-main { order:1; }
+        .orders-stats { order:2; }
+        .side-nav-toggle { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%;
+            margin-top:8px; padding:9px 11px; border:1px solid var(--line); border-radius:8px; background:var(--surface);
+            color:var(--ink); font:inherit; font-size:14px; font-weight:600; cursor:pointer; text-align:left; }
+        .side-nav-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+        .side-nav-toggle-prefix { color:var(--ink-2); font-weight:400; }
+        .side-nav-toggle-end { display:inline-flex; align-items:center; gap:8px; flex-shrink:0; }
+        .side-nav-toggle .side-count.has { background:var(--accent); }
+        .side-nav-toggle[aria-expanded="true"] .filters-toggle-chevron { transform:rotate(180deg); }
+        .orders-side:not(.nav-open) .side-nav { display:none; }
+    }
     .actionbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; padding:8px 12px; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm); flex-wrap:wrap; }
     .actionbar .btn { padding:7px 12px; font-size:13px; }
     .row-act { padding:6px 9px !important; font-size:13px; margin-left:2px; display:inline-flex; align-items:center; }
@@ -334,6 +351,20 @@ $statusLink = static function (?string $key) use ($qsBase): string {
 $viewLink = static function (string $v): string {
     return 'index.php' . ($v === 'active' ? '' : ('?view=' . $v));
 };
+// Telefon: statusy są zwinięte pod przyciskiem z aktualnie wybraną pozycją.
+$currentSide = ['label' => t('orders.side.all'), 'color' => null, 'count' => $view === 'active' ? (int) $ordersTotal : 0];
+if ($view === 'archived') {
+    $currentSide = ['label' => t('orders.side.archive'), 'color' => null, 'count' => (int) $lifeCounts['archived']];
+} elseif ($view === 'trashed') {
+    $currentSide = ['label' => t('orders.side.trash'), 'color' => null, 'count' => (int) $lifeCounts['trashed']];
+} elseif ($fStatus !== '') {
+    foreach ($statusList as $s) {
+        if ($s['status_key'] === $fStatus) {
+            $currentSide = ['label' => $s['label'], 'color' => $s['color'] ?? '#888', 'count' => (int) ($statusCounts[$fStatus] ?? 0)];
+            break;
+        }
+    }
+}
 // Ukryte pola dla mini-wyszukiwarki w panelu bocznym - zachowują pozostałe filtry.
 $searchHidden = $_GET;
 unset($searchHidden['q'], $searchHidden['p']);
@@ -355,6 +386,20 @@ unset($searchHidden['q'], $searchHidden['p']);
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
     </form>
+    <button type="button" class="side-nav-toggle" id="ordersSideNavToggle" aria-expanded="false" aria-controls="ordersSideNav">
+        <span class="side-label">
+            <?php if ($currentSide['color'] !== null): ?>
+                <span class="side-dot" style="background:<?= htmlspecialchars($currentSide['color']) ?>"></span>
+            <?php endif; ?>
+            <span class="side-nav-toggle-prefix"><?= htmlspecialchars(t('orders.side.status')) ?>:</span>
+            <?= htmlspecialchars($currentSide['label']) ?>
+        </span>
+        <span class="side-nav-toggle-end">
+            <?php if ($currentSide['count'] > 0): ?><span class="side-count has"><?= $currentSide['count'] ?></span><?php endif; ?>
+            <svg class="filters-toggle-chevron" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+        </span>
+    </button>
+    <div class="side-nav" id="ordersSideNav">
     <div class="side-sep"></div>
     <a href="<?= htmlspecialchars($statusLink(null)) ?>" class="side-item <?= ($view === 'active' && $fStatus === '') ? 'active' : '' ?>">
         <span class="side-label">
@@ -401,6 +446,7 @@ unset($searchHidden['q'], $searchHidden['p']);
         </span>
         <span class="side-count<?= $lifeCounts['trashed'] > 0 ? ' has' : '' ?>"><?= $lifeCounts['trashed'] > 0 ? (int) $lifeCounts['trashed'] : '–' ?></span>
     </a>
+    </div><!-- /side-nav -->
 </aside>
 
 <!-- ===== Widget statystyk ===== -->
@@ -757,6 +803,15 @@ unset($searchHidden['q'], $searchHidden['p']);
 
 <script>
 (function () {
+    var sideNavToggle = document.getElementById('ordersSideNavToggle');
+    if (sideNavToggle) {
+        sideNavToggle.addEventListener('click', function () {
+            var side = sideNavToggle.closest('.orders-side');
+            var open = side.classList.toggle('nav-open');
+            sideNavToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+    }
+
     var filterToggle = document.getElementById('ordersFilterToggle');
     var filterBar = document.getElementById('ordersFilterBar');
     if (filterToggle && filterBar) {

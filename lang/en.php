@@ -207,6 +207,7 @@ return [
     'orders.side.archive' => 'Archive',
     'orders.side.trash'   => 'Trash',
     'orders.side.back'    => 'Back to active',
+    'orders.side.status'  => 'Status',
     'orders.side.manage'  => 'Manage statuses',
     'orders.stats.today'  => 'Today',
     'orders.stats.last30' => 'Last 30 days',

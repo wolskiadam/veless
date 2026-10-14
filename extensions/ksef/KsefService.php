@@ -296,6 +296,65 @@ final class KsefService
         return ['new' => $new, 'seen' => $seen, 'more' => false];
     }
 
+    /**
+     * Pobiera z KSeF faktury zakupowe wystawione w podanym okresie (daty wystawienia, czas polski, oba dni włącznie).
+     * Nie zmienia miejsca, od którego zaczyna się „Pobierz nowe”. Długi okres idzie oknami po 90 dni.
+     * @return array{new:int,seen:int,more:bool,until:?string} more = limit zapytań, until = dzień, do którego pobrano
+     */
+    public function fetchPurchases(string $fromDate, string $toDate, ?\DateTimeImmutable $now = null): array
+    {
+        $missing = $this->missingConnection();
+        if ($missing !== []) {
+            throw new \RuntimeException('Uzupełnij ustawienia KSeF: ' . implode(', ', $missing) . '.');
+        }
+        $pl = new \DateTimeZone('Europe/Warsaw');
+        $from = \DateTimeImmutable::createFromFormat('!Y-m-d', $fromDate, $pl);
+        $to = \DateTimeImmutable::createFromFormat('!Y-m-d', $toDate, $pl);
+        if ($from === false || $to === false || $from->format('Y-m-d') !== $fromDate || $to->format('Y-m-d') !== $toDate) {
+            throw new \RuntimeException('Podaj okres jako dwie daty (od i do).');
+        }
+        if ($from > $to) {
+            throw new \RuntimeException('Data „od” jest późniejsza niż „do”.');
+        }
+        $end = min($to->modify('+1 day'), ($now ?? new \DateTimeImmutable('now'))->setTimezone($pl));
+        $iso = static fn(\DateTimeImmutable $d): string => $d->format('Y-m-d\\TH:i:s.vP');
+        $env = $this->env();
+        $repo = $this->purchaseInvoices();
+        $api = $this->api();
+        $new = $seen = $requests = 0;
+        $start = $from;
+        while ($start < $end) {
+            $windowEnd = min($start->modify('+' . self::WINDOW_DAYS . ' days'), $end);
+            $filters = ['subjectType' => 'Subject2', 'dateRange' => ['dateType' => 'Issue', 'from' => $iso($start), 'to' => $iso($windowEnd)]];
+            $last = null;
+            $page = 0;
+            do {
+                if ($requests >= self::MAX_REQUESTS) {
+                    return ['new' => $new, 'seen' => $seen, 'more' => true, 'until' => $start->modify('-1 day')->format('Y-m-d')];
+                }
+                $r = $api->queryInvoices($this->access(), $filters, $page++);
+                $requests++;
+                foreach ($r['invoices'] as $m) {
+                    $seen++;
+                    $new += $repo->save($env, $m) ? 1 : 0;
+                    $day = substr((string) ($m['issueDate'] ?? ''), 0, 10);
+                    $last = $day > (string) $last ? $day : $last;
+                }
+            } while ($r['hasMore']);
+            if ($r['isTruncated'] && $last !== null) {
+                // Wynik obcięty limitem KSeF: następne zapytanie od dnia ostatniej pobranej faktury.
+                $next = \DateTimeImmutable::createFromFormat('!Y-m-d', $last, $pl);
+                if ($next !== false && $next > $start) {
+                    $start = $next;
+                    continue;
+                }
+                return ['new' => $new, 'seen' => $seen, 'more' => true, 'until' => $start->format('Y-m-d')];
+            }
+            $start = $windowEnd;
+        }
+        return ['new' => $new, 'seen' => $seen, 'more' => false, 'until' => null];
+    }
+
     /** XML faktury zakupowej: z bazy, a za pierwszym razem pobrany z KSeF i zapisany. */
     public function purchaseXml(string $ksefNumber): string
     {

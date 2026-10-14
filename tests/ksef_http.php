@@ -140,19 +140,24 @@ try {
         'seller_address2' => '00-001 Warszawa', 'number_format' => 'KSEF/{nr}/{mm}/{rrrr}', 'default_vat' => '23', 'vat_mode' => 'vat', 'do_sales' => '1', 'do_purchases' => '1', 'purchases_days' => '30']]);
     ok($r['status'] === 200 && str_contains($r['body'], 'Zapisano ustawienia'), 'Settings are saved');
 
-    // ---- Strona Faktury KSeF i token
+    // ---- Strona Faktury KSeF; token w ustawieniach wtyczki
     $page = request($boss, 'admin/ext.php?page=ksef.faktury');
     ok($page['status'] === 200 && str_contains($page['body'], 'Faktury KSeF') && str_contains($page['body'], 'Testowe (TE)') && str_contains($page['body'], 'token KSeF')
-        && str_contains($page['body'], 'name="token"'), 'Admin sees the list page with the token form');
+        && !str_contains($page['body'], 'name="token"') && str_contains($page['body'], 'Sprawdź połączenie'), 'Admin sees the connection state and test button, no token form');
     $vp = request($vi, 'admin/ext.php?page=ksef.faktury');
-    ok($vp['status'] === 200 && !str_contains($vp['body'], 'name="token"'), 'Viewer sees the list without the token form');
-    ok(request($ola, 'admin/ext.php?page=ksef.polaczenie', ['csrf' => csrfOf(request($ola, 'admin/index.php')['body']), 'do' => 'save', 'token' => 'x'])['status'] === 403,
-        'Editor cannot change the token');
-    $r = request($boss, 'admin/ext.php?page=ksef.polaczenie', ['csrf' => csrfOf($page['body']), 'do' => 'save', 'token' => 'token-z-panelu']);
-    $stored = (string) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'EXT_KSEF_TEST_TOKEN'")->fetchColumn();
-    ok($r['status'] === 302 && str_starts_with($stored, 'enc:v1:') && !str_contains($stored, 'token-z-panelu'), 'Token is saved encrypted');
+    ok($vp['status'] === 200 && !str_contains($vp['body'], 'Sprawdź połączenie'), 'Viewer sees the list without the connection test');
+    ok(str_contains($pl['body'], 'name="cfg[token_test]"') && str_contains($pl['body'], 'name="cfg[token_prod]"'), 'Plugin settings have a token field per environment');
+    ok(request($ola, 'admin/plugins.php')['status'] === 403, 'Editor cannot open plugin settings');
+    $pl = request($boss, 'admin/plugins.php');
+    $r = request($boss, 'admin/plugins.php', ['csrf' => csrfOf($pl['body']), 'action' => 'ext_settings', 'slug' => 'ksef', 'cfg' => [
+        'environment' => 'test', 'nip' => '526-025-02-74', 'seller_name' => 'Klub Testowy sp. z o.o.', 'seller_address1' => 'ul. Prosta 1',
+        'seller_address2' => '00-001 Warszawa', 'number_format' => 'KSEF/{nr}/{mm}/{rrrr}', 'default_vat' => '23', 'vat_mode' => 'vat', 'do_sales' => '1', 'do_purchases' => '1',
+        'purchases_days' => '30', 'token_test' => 'token-z-panelu']]);
+    $stored = (string) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'EXT_KSEF'")->fetchColumn();
+    ok($r['status'] === 200 && str_contains($stored, '"token_test":"enc:v1:') && !str_contains($stored, 'token-z-panelu') && !str_contains($r['body'], 'token-z-panelu')
+        && str_contains($r['body'], 'zapisany (zostaw puste') && str_contains($r['body'], 'name="cfg_clear[token_test]"'), 'Token is saved encrypted and never shown back');
     $page = request($boss, 'admin/ext.php?page=ksef.faktury');
-    ok(str_contains($page['body'], 'Zapisano token KSeF') && str_contains($page['body'], 'zapisany') && !str_contains($page['body'], 'token-z-panelu'), 'Page confirms the token and never shows it');
+    ok(str_contains($page['body'], 'zapisany') && !str_contains($page['body'], 'token-z-panelu'), 'Connection page confirms the token');
 
     // ---- Karta zamówienia i podgląd
     $card = request($boss, 'admin/order_view.php?id=501');
@@ -195,7 +200,7 @@ try {
         VALUES ('test', '7740001454-20261014-AAAAAAAAAAAA-06', 'FV 7/10/2026', 'Vat', '7740001454', 'Hurtownia Pszczelarska', '2026-10-14', '2026-10-14T11:00:00+00:00', 150.38, 35.61, 185.99, 'PLN', ?, ?, '2026-10-14 13:00:00')")
         ->execute([base64_encode(hash('sha256', $fa, true)), $fa]);
     $zk = request($ola, 'admin/ext.php?page=ksef.zakupy&q=Hurtownia&m=2026-10');
-    ok(str_contains($zk['body'], 'FV 7/10/2026') && str_contains($zk['body'], '185,99') && str_contains($zk['body'], 'page=ksef.pobierz'), 'Editor sees the purchase list with search and the fetch button');
+    ok(str_contains($zk['body'], 'FV 7/10/2026') && str_contains($zk['body'], '185,99') && str_contains($zk['body'], 'page=ksef.pobierz') && str_contains($zk['body'], 'name="od"') && str_contains($zk['body'], 'Pobierz z okresu'), 'Editor sees the purchase list with search and the fetch button');
     $one = request($vi, 'admin/ext.php?page=ksef.zakup&k=7740001454-20261014-AAAAAAAAAAAA-06');
     ok($one['status'] === 200 && str_contains($one['body'], 'Hurtownia Pszczelarska') && str_contains($one['body'], 'Do zapłaty') && str_contains($one['body'], 'qr-test.ksef.mf.gov.pl/invoice/7740001454/'),
         'Purchase invoice preview');

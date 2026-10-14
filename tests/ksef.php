@@ -279,14 +279,15 @@ try {
                     if (!empty($r['restrictToPermanentStorageHwmDate']) && $this->hwm !== null) {
                         $to = min($to, new DateTimeImmutable($this->hwm));
                     }
-                    if ($in['subjectType'] !== 'Subject2' || $r['dateType'] !== 'PermanentStorage' || $to->getTimestamp() - $from->getTimestamp() > 100 * 86400) {
+                    $field = $r['dateType'] === 'Issue' ? 'issueDate' : 'permanentStorageDate';
+                    if ($in['subjectType'] !== 'Subject2' || !in_array($r['dateType'], ['PermanentStorage', 'Issue'], true) || $to->getTimestamp() - $from->getTimestamp() > 100 * 86400) {
                         return $json(400, ['exception' => ['exceptionDetailList' => [['exceptionCode' => 21405, 'exceptionDescription' => 'Zły filtr']]]]);
                     }
-                    $hits = array_values(array_filter(array_map(static fn(array $f): array => $f['meta'], $this->received), static function (array $mt) use ($from, $to): bool {
-                        $d = new DateTimeImmutable($mt['permanentStorageDate']);
+                    $hits = array_values(array_filter(array_map(static fn(array $f): array => $f['meta'], $this->received), static function (array $mt) use ($from, $to, $field): bool {
+                        $d = new DateTimeImmutable($mt[$field] . ($field === 'issueDate' ? 'T12:00:00+00:00' : ''));
                         return $d >= $from && $d <= $to;
                     }));
-                    usort($hits, static fn(array $a, array $b): int => strcmp($a['permanentStorageDate'], $b['permanentStorageDate']));
+                    usort($hits, static fn(array $a, array $b): int => strcmp($a[$field], $b[$field]));
                     $capped = array_slice($hits, 0, $this->metaCap);
                     $pageRows = array_slice($capped, (int) $qs['pageOffset'] * $this->metaPage, $this->metaPage);
                     return $json(200, ['hasMore' => count($capped) > ((int) $qs['pageOffset'] + 1) * $this->metaPage, 'isTruncated' => count($hits) > $this->metaCap,
@@ -400,6 +401,25 @@ try {
     check(count($purchases->latest('test', 'hurtownia', '2026-10')) === 5 && count($purchases->latest('test', 'FV 8/')) === 1, 'Purchase list filters by text and month');
     check(throwsLike(static fn() => (new KsefService($pdo, $buyerSettings, '', $factory))->syncPurchases(), 'token KSeF'), 'Fetch without token explains what is missing');
 
+    // Pobieranie z wybranego okresu (data wystawienia), bez ruszania punktu „Pobierz nowe”
+    $pdo->exec('DELETE FROM ext_ksef_purchases');
+    $pointBefore = $purchases->syncPoint('test');
+    $ksef->metaQueries = [];
+    $r = $buyer->fetchPurchases('2026-09-01', '2026-10-05', $clock);
+    $q = $ksef->metaQueries[0];
+    check($r === ['new' => 3, 'seen' => 3, 'more' => false, 'until' => null] && $q['dateType'] === 'Issue' && $q['from'] === '2026-09-01T00:00:00.000+02:00'
+        && $ksef->metaQueries[array_key_last($ksef->metaQueries)]['to'] === '2026-10-06T00:00:00.000+02:00' && !isset($q['restrictToPermanentStorageHwmDate'])
+        && $purchases->get('test', '7740001454-20261002-AAAAAAAAAAAA-04') !== null && $purchases->get('test', '7740001454-20261010-AAAAAAAAAAAA-05') === null,
+        'Period fetch takes invoices issued between the two dates (whole days, Polish time)');
+    check($purchases->syncPoint('test') === $pointBefore, 'Period fetch does not move the "new invoices" point');
+    $ksef->metaQueries = [];
+    $r = $buyer->fetchPurchases('2025-01-01', '2026-10-14', $clock);
+    $spans = array_map(static fn(array $q): int => (new DateTimeImmutable($q['to']))->getTimestamp() - (new DateTimeImmutable($q['from']))->getTimestamp(), $ksef->metaQueries);
+    check($r['new'] === 4 && $r['seen'] === 7 && !$r['more'] && max($spans) <= 90 * 86400 + 3600 && $ksef->metaQueries[0]['from'] === '2025-01-01T00:00:00.000+01:00'
+        && $ksef->metaQueries[array_key_last($ksef->metaQueries)]['to'] === '2026-10-14T14:00:00.000+02:00', 'Long period is fetched in 90-day windows (Polish days, so +1 h across DST), up to now');
+    check(throwsLike(static fn() => $buyer->fetchPurchases('2026-10-05', '2026-10-01'), 'późniejsza') && throwsLike(static fn() => $buyer->fetchPurchases('wczoraj', ''), 'dwie daty'),
+        'Period must be two dates in order');
+
     $ksef->log = [];
     $got = $buyer->purchaseXml('7740001454-20261014-AAAAAAAAAAAA-06');
     $again = (new KsefService($pdo, $buyerSettings, 'token-testowy', $factory, $noSleep))->purchaseXml('7740001454-20261014-AAAAAAAAAAAA-06');
@@ -427,6 +447,16 @@ try {
     $stored = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'EXT_KSEF_TEST_TOKEN'")->fetchColumn();
     check(SecretStore::isSealed($stored) && !str_contains((string) $stored, 'token-testowy'), 'KSeF token is stored encrypted');
     check(KsefExtension::tokenKey('prod') === 'EXT_KSEF_PROD_TOKEN', 'Separate token per environment');
+    ExtensionSettings::save($pdo, $ext->manifest(), $settings + ['do_sales' => '1', 'token_test' => 'token-z-ustawien']);
+    $raw = (string) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'EXT_KSEF'")->fetchColumn();
+    ExtensionSettings::reset();
+    check(!str_contains($raw, 'token-z-ustawien') && str_contains($raw, '"token_test":"enc:v1:') && ExtensionSettings::get('ksef', $pdo)['token_test'] === 'token-z-ustawien'
+        && ExtensionSettings::get('ksef', $pdo)['nip'] === '526-025-02-74', 'Token typed in the plugin settings is stored encrypted and read back in plain');
+    ExtensionSettings::save($pdo, $ext->manifest(), $settings + ['do_sales' => '1', 'token_test' => '']);
+    check(ExtensionSettings::get('ksef', $pdo)['token_test'] === 'token-z-ustawien', 'Empty token field keeps the saved token');
+    ExtensionSettings::save($pdo, $ext->manifest(), $settings + ['do_sales' => '1'], ['token_test' => '1']);
+    check(ExtensionSettings::get('ksef', $pdo)['token_test'] === '', '"Remove saved" clears the token');
+    ExtensionSettings::save($pdo, $ext->manifest(), $settings + ['do_sales' => '1', 'token_test' => 'token-testowy']);
     ExtensionRegistry::reset();
     check(Hooks::page('ksef.faktury') !== null && Hooks::page('ksef.wystaw')['role'] === 'editor' && Hooks::page('ksef.polaczenie')['role'] === 'admin'
         && !empty(Hooks::page('ksef.plik')['raw']), 'Pages: list, send, admin-only connection, raw file download');

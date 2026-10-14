@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Wtyczki (Konfiguracja → Wtyczki). Tylko administrator.
  * Dwa rodzaje: integracje (integrations/ - połączenia ze sklepami, kurierami, księgowością)
  * i rozszerzenia (extensions/ - nowe funkcje w samym CRM, przez haki Pase\Plugin\Hooks).
- * Lista zainstalowanych + wgrywanie ZIP + włącz/wyłącz/usuń + ustawienia rozszerzeń.
+ * Jedna lista zainstalowanych (kolumna „Rodzaj”) + wgrywanie ZIP + włącz/wyłącz/usuń + ustawienia rozszerzeń.
  * Zakładki dokumentacji pokazują integrations/README.md i extensions/README.md.
  *
  * UWAGA: instalacja wtyczki wykonuje obcy kod PHP z pełnymi prawami aplikacji.
@@ -166,35 +166,51 @@ require __DIR__ . '/header.php';
 </div>
 <?php endif; ?>
 
+<?php
+// Integracje i rozszerzenia w jednej tabeli, alfabetycznie; rodzaj w osobnej kolumnie.
+$all = [];
+foreach ($installed as $p) { $all[] = $p + ['kind' => 'integration']; }
+foreach ($extensions as $p) { $all[] = $p + ['kind' => 'extension']; }
+usort($all, static fn(array $a, array $b): int => strcasecmp((string) ($a['manifest']?->name ?? $a['slug']), (string) ($b['manifest']?->name ?? $b['slug'])));
+$kindLabel = ['integration' => 'Integracja', 'extension' => 'Rozszerzenie'];
+?>
 <div class="card">
-    <strong>Integracje (<?= count($installed) ?>)</strong>
-    <p style="color:#888;font-size:12px;margin:4px 0 0">Połączenia z innymi systemami: sklepy, marketplace, kurierzy, księgowość, SMS.</p>
+    <strong>Wtyczki (<?= count($all) ?>)</strong>
+    <p style="color:#888;font-size:12px;margin:4px 0 0">
+        <b>Integracja</b> łączy CRM z innym systemem (sklep, marketplace, kurier, księgowość, SMS) przez konta w Integracjach.
+        <b>Rozszerzenie</b> dodaje funkcje w samym CRM (kolumny listy, sekcje karty zamówienia, pakowanie, automatyzacje, własne strony) i ma ustawienia tutaj.
+    </p>
     <table style="margin-top:10px">
-        <tr><th>Wtyczka</th><th>Typ</th><th>Wersja</th><th>Zdolności</th><th>Status</th><th></th></tr>
-        <?php if ($installed === []): ?>
-            <tr><td colspan="6" style="color:#888">Brak wtyczek. Wgraj ZIP powyżej lub dodaj katalog do <code>integrations/</code> przez FTP.</td></tr>
+        <tr><th>Wtyczka</th><th>Rodzaj</th><th>Wersja</th><th>Opis</th><th>Status</th><th></th></tr>
+        <?php if ($all === []): ?>
+            <tr><td colspan="6" style="color:#888">Brak wtyczek. Wgraj ZIP powyżej lub dodaj katalog do <code>integrations/</code> albo <code>extensions/</code> przez FTP.</td></tr>
         <?php endif; ?>
-        <?php foreach ($installed as $p): $m = $p['manifest']; ?>
-            <tr<?= $p['error'] ? ' style="background:#fdf3f3"' : '' ?>>
+        <?php foreach ($all as $p): $m = $p['manifest']; $kind = $p['kind']; $isExt = $kind === 'extension'; ?>
+            <tr<?= $p['error'] ? ' style="background:#fdf3f3"' : '' ?> data-kind="<?= $kind ?>">
                 <td>
-                    <strong><?= htmlspecialchars($m?->name ?? $p['slug']) ?></strong>
+                    <strong><?= $m ? ($m instanceof \Pase\Plugin\PluginManifest ? $m->iconHtml('1em') : htmlspecialchars($m->icon)) . ' ' . htmlspecialchars($m->name) : htmlspecialchars($p['slug']) ?></strong>
                     <div style="font-size:12px;color:#888"><code><?= htmlspecialchars($p['slug']) ?></code><?php if ($m && $m->author !== ''): ?> · <?= htmlspecialchars($m->author) ?><?php endif; ?></div>
                     <?php if ($p['error']): ?><div style="font-size:12px;color:#c0392b">Błąd: <?= htmlspecialchars($p['error']) ?></div><?php endif; ?>
                 </td>
-                <td><?= $m ? '<code>' . htmlspecialchars($m->type) . '</code>' : '—' ?></td>
+                <td><span class="pill <?= $isExt ? 'muted' : 'info' ?>"><?= $kindLabel[$kind] ?></span></td>
                 <td><?= htmlspecialchars($m?->version ?? '—') ?></td>
-                <td style="font-size:12px;color:#555">
-                    <?php foreach (($m?->capabilities ?? []) as $cap): ?>
-                        <span class="pill muted" style="margin:1px"><?= htmlspecialchars(Capability::label($cap)) ?></span>
-                    <?php endforeach; ?>
-                    <?= ($m && $m->capabilities === []) ? '—' : '' ?>
+                <td style="font-size:13px;color:#555">
+                    <?php if (!$isExt): ?>
+                        <?php foreach (($m?->capabilities ?? []) as $cap): ?>
+                            <span class="pill muted" style="margin:1px"><?= htmlspecialchars(Capability::label($cap)) ?></span>
+                        <?php endforeach; ?>
+                        <?php if ($m && $m->description !== ''): ?><div style="margin-top:2px"><?= htmlspecialchars($m->description) ?></div><?php endif; ?>
+                        <?= ($m === null || ($m->capabilities === [] && $m->description === '')) ? '—' : '' ?>
+                    <?php else: ?>
+                        <?= htmlspecialchars($m?->description ?: '—') ?>
+                    <?php endif; ?>
                 </td>
                 <td><?= $p['enabled'] ? '<span class="pill ok">włączona</span>' : '<span class="pill muted">wyłączona</span>' ?></td>
                 <td style="text-align:right;white-space:nowrap">
                     <form method="post" style="display:inline">
                         <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
                         <input type="hidden" name="action" value="toggle">
-                        <input type="hidden" name="kind" value="integration">
+                        <input type="hidden" name="kind" value="<?= $kind ?>">
                         <input type="hidden" name="slug" value="<?= htmlspecialchars($p['slug']) ?>">
                         <input type="hidden" name="to" value="<?= $p['enabled'] ? '0' : '1' ?>">
                         <button class="btn secondary" type="submit"><?= $p['enabled'] ? 'Wyłącz' : 'Włącz' ?></button>
@@ -202,57 +218,15 @@ require __DIR__ . '/header.php';
                     <form method="post" style="display:inline" onsubmit="return confirm('Usunąć wtyczkę „<?= htmlspecialchars($p['slug']) ?>”? Kopia zapasowa zostanie zachowana.')">
                         <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
                         <input type="hidden" name="action" value="uninstall">
-                        <input type="hidden" name="kind" value="integration">
+                        <input type="hidden" name="kind" value="<?= $kind ?>">
                         <input type="hidden" name="slug" value="<?= htmlspecialchars($p['slug']) ?>">
                         <button class="btn danger" type="submit">Usuń</button>
                     </form>
                 </td>
             </tr>
-        <?php endforeach; ?>
-    </table>
-    <p style="color:#888;font-size:12px;margin-top:10px">
-        Wyłączenie wtyczki nie usuwa jej kont integracji — tylko przestaje być aktywna. Usunięcie zostawia kopię w <code>storage/plugin_backups/</code>.
-    </p>
-</div>
-
-<div class="card">
-    <strong>Rozszerzenia (<?= count($extensions) ?>)</strong>
-    <p style="color:#888;font-size:12px;margin:4px 0 0">Nowe funkcje w samym CRM: kolumny listy zamówień, sekcje karty zamówienia, pakowanie, automatyzacje, statystyki, własne strony.</p>
-    <table style="margin-top:10px">
-        <tr><th>Rozszerzenie</th><th>Wersja</th><th>Opis</th><th>Status</th><th></th></tr>
-        <?php if ($extensions === []): ?>
-            <tr><td colspan="5" style="color:#888">Brak rozszerzeń. Wgraj ZIP powyżej lub dodaj katalog do <code>extensions/</code> przez FTP.</td></tr>
-        <?php endif; ?>
-        <?php foreach ($extensions as $p): $m = $p['manifest']; ?>
-            <tr<?= $p['error'] ? ' style="background:#fdf3f3"' : '' ?>>
-                <td>
-                    <strong><?= htmlspecialchars(($m ? $m->icon . ' ' . $m->name : $p['slug'])) ?></strong>
-                    <div style="font-size:12px;color:#888"><code><?= htmlspecialchars($p['slug']) ?></code><?php if ($m && $m->author !== ''): ?> · <?= htmlspecialchars($m->author) ?><?php endif; ?></div>
-                    <?php if ($p['error']): ?><div style="font-size:12px;color:#c0392b">Błąd: <?= htmlspecialchars($p['error']) ?></div><?php endif; ?>
-                </td>
-                <td><?= htmlspecialchars($m?->version ?? '—') ?></td>
-                <td style="font-size:13px;color:#555"><?= htmlspecialchars($m?->description ?: '—') ?></td>
-                <td><?= $p['enabled'] ? '<span class="pill ok">włączone</span>' : '<span class="pill muted">wyłączone</span>' ?></td>
-                <td style="text-align:right;white-space:nowrap">
-                    <form method="post" style="display:inline">
-                        <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
-                        <input type="hidden" name="action" value="toggle">
-                        <input type="hidden" name="kind" value="extension">
-                        <input type="hidden" name="slug" value="<?= htmlspecialchars($p['slug']) ?>">
-                        <input type="hidden" name="to" value="<?= $p['enabled'] ? '0' : '1' ?>">
-                        <button class="btn secondary" type="submit"><?= $p['enabled'] ? 'Wyłącz' : 'Włącz' ?></button>
-                    </form>
-                    <form method="post" style="display:inline" onsubmit="return confirm('Usunąć rozszerzenie „<?= htmlspecialchars($p['slug']) ?>”? Kopia zapasowa zostanie zachowana.')">
-                        <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
-                        <input type="hidden" name="action" value="uninstall">
-                        <input type="hidden" name="kind" value="extension">
-                        <input type="hidden" name="slug" value="<?= htmlspecialchars($p['slug']) ?>">
-                        <button class="btn danger" type="submit">Usuń</button>
-                    </form>
-                </td>
-            </tr>
+            <?php if (!$isExt) { continue; } ?>
             <?php if ($m && $m->fields !== []): $vals = ExtensionSettings::get($m->type, $pdo); ?>
-            <tr><td colspan="5" style="background:var(--surface-2)">
+            <tr><td colspan="6" style="background:var(--surface-2)">
                 <details>
                     <summary style="cursor:pointer;font-weight:600;font-size:13px">⚙ Ustawienia</summary>
                     <form method="post" class="ext-cfg">
@@ -290,6 +264,9 @@ require __DIR__ . '/header.php';
             <?php endif; ?>
         <?php endforeach; ?>
     </table>
+    <p style="color:#888;font-size:12px;margin-top:10px">
+        Wyłączenie integracji nie usuwa jej kont — tylko przestaje być aktywna. Usunięcie wtyczki zostawia kopię w <code>storage/plugin_backups/</code>.
+    </p>
     <style>
         .ext-cfg { display:grid; gap:10px; max-width:560px; margin:10px 0 4px; }
         .ext-cfg label { display:grid; gap:4px; font-size:13px; }

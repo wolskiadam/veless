@@ -202,10 +202,14 @@ try {
     $zk = request($ola, 'admin/ext.php?page=ksef.zakupy&q=Hurtownia&m=2026-10');
     ok(str_contains($zk['body'], 'FV 7/10/2026') && str_contains($zk['body'], '185,99') && str_contains($zk['body'], 'page=ksef.pobierz') && str_contains($zk['body'], 'name="od"') && str_contains($zk['body'], 'Pobierz z okresu'), 'Editor sees the purchase list with search and the fetch button');
     $one = request($vi, 'admin/ext.php?page=ksef.zakup&k=7740001454-20261014-AAAAAAAAAAAA-06');
-    ok($one['status'] === 200 && str_contains($one['body'], 'Hurtownia Pszczelarska') && str_contains($one['body'], 'Do zapłaty') && str_contains($one['body'], 'qr-test.ksef.mf.gov.pl/invoice/7740001454/'),
+    ok($one['status'] === 200 && str_contains($one['body'], 'Hurtownia Pszczelarska') && str_contains($one['body'], 'Kwota należności ogółem') && str_contains($one['body'], 'qr-test.ksef.mf.gov.pl/invoice/7740001454/'),
         'Purchase invoice preview');
     $f = request($vi, 'admin/ext.php?page=ksef.zakupxml&k=7740001454-20261014-AAAAAAAAAAAA-06');
     ok($f['status'] === 200 && $f['body'] === $fa, 'Purchase invoice XML downloads');
+    $pdfRes = request($vi, 'admin/ext.php?page=ksef.zakuppdf&k=7740001454-20261014-AAAAAAAAAAAA-06');
+    ok($pdfRes['status'] === 200 && str_starts_with($pdfRes['body'], '%PDF-1.4') && str_ends_with($pdfRes['body'], "%%EOF\n") && str_contains($one['body'], 'Pobierz PDF')
+        && str_contains($one['body'], '<svg'), 'Purchase invoice PDF downloads and the preview has the PDF button and QR code');
+    ok(request($vi, 'admin/ext.php?page=ksef.zakuppdf&k=nie-ma')['status'] === 404, 'Missing purchase invoice PDF is 404');
     ok(str_contains(request($boss, 'admin/index.php')['body'], 'href="ext.php?page=ksef.zakupy"'), 'Menu has the purchase invoices entry');
 
     $warnings = preg_grep('/PHP (Warning|Fatal|Parse|Deprecated|Notice)|Rozszerzenie .* błąd/', file("$temp/server.log") ?: []);

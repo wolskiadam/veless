@@ -20,6 +20,7 @@ use Pase\Repository\SettingsRepository;
 use Pase\Support\SecretStore;
 use PaseExt\Ksef\Fa3Xml;
 use PaseExt\Ksef\Invoices;
+use PaseExt\Ksef\InvoicePdf;
 use PaseExt\Ksef\InvoiceView;
 use PaseExt\Ksef\KsefApi;
 use PaseExt\Ksef\KsefApiException;
@@ -27,6 +28,8 @@ use PaseExt\Ksef\KsefCrypto;
 use PaseExt\Ksef\KsefExtension;
 use PaseExt\Ksef\KsefService;
 use PaseExt\Ksef\OrderInvoice;
+use PaseExt\Ksef\Pdf;
+use PaseExt\Ksef\QrCode;
 
 // Funkcje panelu, których używa sekcja karty zamówienia.
 function roleCanEdit(): bool { return true; }
@@ -439,6 +442,37 @@ try {
     $viewHtml = InvoiceView::html($purchaseXml);
     check(str_contains($viewHtml, 'Wosk &lt;pszczeli&gt; &amp; co') && str_contains($viewHtml, '185,99 PLN') && str_contains($viewHtml, 'NIP 7740001454') && !str_contains($viewHtml, '<pszczeli>'),
         'Invoice view HTML is escaped');
+    $qrUrl = 'https://qr-test.ksef.mf.gov.pl/invoice/7740001454/14-10-2026/UtQp9uXsmT0dGQe1MWBu8nbSSv2K9XBdEDVtq4ZcVyI';
+    $qr = QrCode::encode($qrUrl);
+    $bits = '';
+    for ($y = 0; $y < $qr->size; $y++) {
+        for ($x = 0; $x < $qr->size; $x++) {
+            $bits .= $qr->module($x, $y) ? '1' : '0';
+        }
+    }
+    check($bits === trim((string) file_get_contents(__DIR__ . '/fixtures/ksef/qr.txt')) && str_starts_with($qr->svg(), '<svg'), 'QR code matches the reference encoder (qrcodegen.js)');
+    $viewHtml = InvoiceView::html($purchaseXml, ['ksef' => '7740001454-20261014-AAAAAAAAAAAA-06', 'qr' => $qrUrl]);
+    check(str_contains($viewHtml, 'Faktura podstawowa') && str_contains($viewHtml, 'Kwota należności ogółem') && str_contains($viewHtml, 'Podsumowanie stawek podatku')
+        && str_contains($viewHtml, '7740001454-20261014-AAAAAAAAAAAA-06') && str_contains($viewHtml, '<svg') && str_contains($viewHtml, 'href="' . $qrUrl . '"'),
+        'Invoice view follows the KSeF layout with number, sections and QR code');
+    $pdfBody = InvoicePdf::render($purchaseXml, ['ksef' => '7740001454-20261014-AAAAAAAAAAAA-06', 'qr' => $qrUrl]);
+    $xrefOk = preg_match('/startxref\n(\d+)\n%%EOF\n$/', $pdfBody, $mx) === 1 && substr($pdfBody, (int) $mx[1], 4) === 'xref';
+    if ($xrefOk && preg_match_all('/^(\d{10}) 00000 n $/m', substr($pdfBody, (int) $mx[1]), $offs)) {
+        foreach ($offs[1] as $i => $off) {
+            $xrefOk = $xrefOk && str_starts_with(substr($pdfBody, (int) $off), ($i + 1) . ' 0 obj');
+        }
+    }
+    check(str_starts_with($pdfBody, '%PDF-1.4') && $xrefOk && str_contains($pdfBody, '/Count 1') && str_contains($pdfBody, '/BaseFont /Helvetica-Bold')
+        && str_contains($pdfBody, "(Pr\x8Abka)") && str_contains($pdfBody, '/URI (' . $qrUrl . ')') && str_contains($pdfBody, '(185,99 PLN)'),
+        'Invoice PDF is a valid PDF with Polish letters, totals and the KSeF link');
+    $longXml = preg_replace_callback('/<FaWiersz>.*?<\/FaWiersz>/s', static fn(array $mm): string => str_repeat($mm[0], 25), $purchaseXml, 1);
+    $longPdf = InvoicePdf::render((string) $longXml);
+    check(str_contains($longPdf, '/Count 2') && str_contains($longPdf, '(Strona 2 z 2)') && substr_count($longPdf, "(Nazwa towaru lub us\x86ugi)") === 2,
+        'Long invoice continues on the next page with the table header repeated');
+    $pdfText = new Pdf();
+    check(count($pdfText->wrap(str_repeat('x', 200), 50)) > 1 && $pdfText->wrap('Zażółć gęślą jaźń', 200) === ['Zażółć gęślą jaźń']
+        && $pdfText->width('ł', 10) < $pdfText->width('ą', 10) && $pdfText->width('ą', 10, true) > 0,
+        'PDF text wrapping and widths handle Polish letters and long words');
     check(throwsLike(static fn() => InvoiceView::parse('<a>'), 'Nie udało się') && throwsLike(static fn() => InvoiceView::parse('<Faktura/>'), 'brak elementu Fa'), 'Broken XML is reported, not shown');
     check(KsefService::verificationUrlForHash('test', '7740001454', '2026-10-14', KsefCrypto::sha256($purchaseXml))
         === KsefService::verificationUrl('test', '7740001454', '2026-10-14', $purchaseXml), 'Verification link from the hash on the KSeF list');

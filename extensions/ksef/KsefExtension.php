@@ -32,7 +32,7 @@ final class KsefExtension extends AbstractExtension
         return new ExtensionManifest(
             type: 'ksef',
             name: 'KSeF - e-faktury',
-            version: '1.2.0',
+            version: '1.3.0',
             author: 'Veless',
             description: 'Połączenie z Krajowym Systemem e-Faktur (API 2.0): wystawianie faktur FA(3) z zamówień (numer KSeF, UPO i link weryfikacyjny w karcie zamówienia) oraz podgląd faktur zakupowych otrzymanych przez firmę. W ustawieniach wybierz, co ma robić, i wpisz token KSeF.',
             icon: '🏛️',
@@ -254,6 +254,24 @@ final class KsefExtension extends AbstractExtension
                 header('Content-Type: application/xml; charset=utf-8');
                 header('Content-Disposition: attachment; filename="' . (preg_replace('/[^A-Za-z0-9_-]+/', '_', $k) ?: 'faktura') . '.xml"');
                 return $xml;
+            }]);
+
+        Hooks::addPage('zakuppdf', ['title' => 'PDF faktury zakupowej', 'menu' => false, 'role' => 'viewer', 'raw' => true,
+            'render' => static function (PDO $pdo) use ($service): string {
+                $k = (string) ($_GET['k'] ?? '');
+                $s = $service();
+                try {
+                    $pdf = InvoicePdf::render($s->purchaseXml($k), self::purchaseMeta($s, $k));
+                } catch (\Throwable $e) {
+                    http_response_code(404);
+                    header('Content-Type: text/plain; charset=utf-8');
+                    return $e->getMessage();
+                }
+                $row = $s->purchaseInvoices()->get($s->env(), $k) ?? [];
+                $name = preg_replace('/[^A-Za-z0-9_-]+/', '_', 'Faktura ' . ($row['invoice_number'] ?? $k)) ?: 'faktura';
+                header('Content-Type: application/pdf');
+                header('Content-Disposition: ' . (isset($_GET['pobierz']) ? 'attachment' : 'inline') . '; filename="' . $name . '.pdf"');
+                return $pdf;
             }]);
     }
 
@@ -591,21 +609,35 @@ final class KsefExtension extends AbstractExtension
         if ($row === null) {
             return $back . '<div class="flash err">Nie ma takiej faktury zakupowej.</div>';
         }
-        $links = ['<a href="' . self::h(Hooks::pageUrl('ksef.zakupxml', ['k' => $ksefNumber])) . '">Pobierz XML</a>'];
-        if (!empty($row['invoice_hash']) && !empty($row['seller_nip'])) {
-            $links[] = '<a href="' . self::h(KsefService::verificationUrlForHash($env, (string) $row['seller_nip'], (string) $row['issue_date'], (string) $row['invoice_hash']))
-                . '" target="_blank" rel="noopener noreferrer">Faktura w KSeF (weryfikacja)</a>';
-        }
+        $meta = self::purchaseMeta($s, $ksefNumber);
         $html = $back . '<div class="card">' . self::envNote($env)
-            . '<p style="margin:0 0 10px">Numer KSeF: <code>' . self::h($ksefNumber) . '</code> · ' . implode(' · ', $links) . '</p>';
+            . '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px">'
+            . '<a class="btn" href="' . self::h(Hooks::pageUrl('ksef.zakuppdf', ['k' => $ksefNumber, 'pobierz' => 1])) . '">Pobierz PDF</a>'
+            . '<a class="btn secondary" href="' . self::h(Hooks::pageUrl('ksef.zakuppdf', ['k' => $ksefNumber])) . '" target="_blank" rel="noopener">Otwórz PDF</a>'
+            . '<a class="btn secondary" href="' . self::h(Hooks::pageUrl('ksef.zakupxml', ['k' => $ksefNumber])) . '">Pobierz XML</a>'
+            . (isset($meta['qr']) ? '<a class="btn secondary" href="' . self::h($meta['qr']) . '" target="_blank" rel="noopener noreferrer">Faktura w KSeF</a>' : '') . '</div>';
         try {
-            $html .= InvoiceView::html($s->purchaseXml($ksefNumber));
+            $html .= InvoiceView::html($s->purchaseXml($ksefNumber), $meta);
         } catch (\Throwable $e) {
             $html .= '<p><b>' . self::h($row['seller_name']) . '</b> (NIP ' . self::h($row['seller_nip']) . '), faktura ' . self::h($row['invoice_number'])
                 . ' z ' . self::h($row['issue_date']) . ': ' . self::money($row['gross']) . ' ' . self::h($row['currency']) . ' brutto.</p>'
                 . '<div class="flash err">Nie udało się pokazać treści faktury: ' . self::h($e->getMessage()) . '</div>';
         }
         return $html . '</div>';
+    }
+
+    /**
+     * Numer KSeF i link weryfikacyjny (kod QR) faktury zakupowej.
+     * @return array{ksef:string,qr?:string}
+     */
+    private static function purchaseMeta(KsefService $s, string $ksefNumber): array
+    {
+        $row = $s->purchaseInvoices()->get($s->env(), $ksefNumber);
+        $meta = ['ksef' => $ksefNumber];
+        if ($row !== null && !empty($row['invoice_hash']) && !empty($row['seller_nip'])) {
+            $meta['qr'] = KsefService::verificationUrlForHash($s->env(), (string) $row['seller_nip'], (string) $row['issue_date'], (string) $row['invoice_hash']);
+        }
+        return $meta;
     }
 
     /** Data z KSeF (ISO, UTC) w czasie polskim. */

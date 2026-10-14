@@ -95,6 +95,9 @@ rób w callbackach, bo `boot()` działa przy każdym żądaniu.
 Gotowy, działający przykład używający każdego haka: **`examples/extensions/przyklad/`** (notatki wewnętrzne do zamówień).
 Skopiuj go do `extensions/przyklad/`, żeby zobaczyć efekt.
 
+Prawdziwe rozszerzenie z kontem zewnętrznej usługi: **`extensions/ksef/`** (e-faktury do KSeF - sekcja karty zamówienia,
+ikona na liście, strony, akcja automatyzacji, token trzymany zaszyfrowany w ustawieniach). Opis: `extensions/ksef/README.md`.
+
 ## Katalog haków
 
 Priorytet (trzeci argument `addFilter`/`addAction`, domyślnie 10): mniejszy działa wcześniej.

@@ -88,6 +88,9 @@ final class MojafunkcjaExtension extends AbstractExtension
 }
 ```
 
+Pole z `'secret' => true` (token, klucz API) rdzeń zapisuje zaszyfrowane, formularz go nie pokazuje (puste = bez zmian,
+obok jest „usuń zapisany”), a `$this->setting()` oddaje je odszyfrowane - rozszerzenie nie dotyka klucza szyfrowania.
+
 `AbstractExtension` daje: `$this->setting('kolor', 'red')` (ustawienia z panelu), `$this->path('assets/x.js')`
 (plik w katalogu rozszerzenia), `$this->pdo()` (baza). `boot()` tylko rejestruje haki; ciężką pracę (kwerendy)
 rób w callbackach, bo `boot()` działa przy każdym żądaniu.
@@ -96,7 +99,7 @@ Gotowy, działający przykład używający każdego haka: **`examples/extensions
 Skopiuj go do `extensions/przyklad/`, żeby zobaczyć efekt.
 
 Prawdziwe rozszerzenie z kontem zewnętrznej usługi: **`extensions/ksef/`** (e-faktury do KSeF - sekcja karty zamówienia,
-ikona na liście, strony, akcja automatyzacji, token trzymany zaszyfrowany w ustawieniach). Opis: `extensions/ksef/README.md`.
+ikona na liście, strony, akcja automatyzacji, token jako pole `secret` w ustawieniach). Opis: `extensions/ksef/README.md`.
 
 ## Katalog haków
 

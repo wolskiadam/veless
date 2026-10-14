@@ -18,10 +18,10 @@ use PDO;
  *  - automatyzacje: akcja „Wyślij e-fakturę do KSeF”.
  * Faktury zakupowe (domyślnie wyłączone):
  *  - Zamówienia → Faktury zakupowe KSeF: faktury otrzymane przez firmę, pobierane z KSeF, z podglądem i XML.
- * Zawsze: Zamówienia → Faktury KSeF (połączenie, token KSeF, test połączenia, lista wystawionych e-faktur).
+ * Zamówienia → Faktury KSeF: stan połączenia, test połączenia i lista wystawionych e-faktur.
  *
- * Domyślnie działa na środowisku testowym KSeF. Token KSeF trzymamy zaszyfrowany w ustawieniach
- * (osobno dla każdego środowiska), nigdy w kodzie. Opis: README.md w tym katalogu.
+ * Domyślnie działa na środowisku testowym KSeF. Token KSeF (osobny dla każdego środowiska) wpisuje się w ustawieniach
+ * wtyczki; to pole 'secret', więc rdzeń trzyma je zaszyfrowane. Nigdy w kodzie. Opis: README.md w tym katalogu.
  */
 final class KsefExtension extends AbstractExtension
 {
@@ -30,9 +30,9 @@ final class KsefExtension extends AbstractExtension
         return new ExtensionManifest(
             type: 'ksef',
             name: 'KSeF - e-faktury',
-            version: '1.0.0',
+            version: '1.1.0',
             author: 'Veless',
-            description: 'Połączenie z Krajowym Systemem e-Faktur (API 2.0): wystawianie faktur FA(3) z zamówień (numer KSeF, UPO i link weryfikacyjny w karcie zamówienia) oraz podgląd faktur zakupowych otrzymanych przez firmę. W ustawieniach wybierz, co ma robić; token KSeF wpisz na stronie Zamówienia → Faktury KSeF.',
+            description: 'Połączenie z Krajowym Systemem e-Faktur (API 2.0): wystawianie faktur FA(3) z zamówień (numer KSeF, UPO i link weryfikacyjny w karcie zamówienia) oraz podgląd faktur zakupowych otrzymanych przez firmę. W ustawieniach wybierz, co ma robić, i wpisz token KSeF.',
             icon: '🏛️',
             fields: [
                 ['key' => 'environment', 'label' => 'Środowisko KSeF', 'type' => 'select', 'default' => 'test',
@@ -44,6 +44,10 @@ final class KsefExtension extends AbstractExtension
                 ['key' => 'purchases_days', 'label' => 'Faktury zakupowe: przy pierwszym pobraniu sięgnij wstecz', 'type' => 'select', 'default' => '30',
                  'options' => ['30' => '30 dni', '90' => '90 dni', '180' => 'pół roku', '365' => 'rok']],
                 ['key' => 'nip', 'label' => 'NIP firmy', 'type' => 'text', 'required' => true],
+                ['key' => 'token_test', 'label' => 'Token KSeF: środowisko testowe', 'type' => 'password', 'secret' => true,
+                 'help' => 'Wygeneruj go w Aplikacji Podatnika KSeF danego środowiska, z uprawnieniem do wystawiania faktur (i do przeglądania - dla faktur zakupowych). Zapisywany zaszyfrowany.'],
+                ['key' => 'token_demo', 'label' => 'Token KSeF: środowisko przedprodukcyjne (DEMO)', 'type' => 'password', 'secret' => true],
+                ['key' => 'token_prod', 'label' => 'Token KSeF: środowisko produkcyjne', 'type' => 'password', 'secret' => true],
                 ['key' => 'seller_name', 'label' => 'Nazwa firmy (na wystawianych fakturach)', 'type' => 'text'],
                 ['key' => 'seller_address1', 'label' => 'Adres: ulica i numer', 'type' => 'text'],
                 ['key' => 'seller_address2', 'label' => 'Adres: kod pocztowy i miejscowość', 'type' => 'text'],
@@ -73,28 +77,16 @@ final class KsefExtension extends AbstractExtension
         $cfg = $this->settings();
 
         // ---- Zawsze: połączenie z KSeF i lista wystawionych e-faktur
-        Hooks::addPage('faktury', ['title' => '🏛️ Faktury KSeF', 'group' => 'orders', 'role' => 'viewer',
+        Hooks::addPage('faktury', ['title' => '🏛️ Faktury KSeF', 'group' => 'orders', 'role' => 'viewer', 'menu' => ($cfg['do_sales'] ?? '1') !== '0',
             'render' => fn(PDO $pdo, array $ctx): string => $this->listPage($service(), $ctx)]);
 
         Hooks::addPage('polaczenie', ['title' => 'Połączenie z KSeF', 'menu' => false, 'role' => 'admin',
-            'render' => function (PDO $pdo, array $ctx) use ($service): void {
+            'render' => static function (PDO $pdo, array $ctx) use ($service): void {
                 if ($ctx['post']) {
-                    $env = (string) ($this->settings()['environment'] ?? 'test');
-                    if (($_POST['do'] ?? '') === 'save') {
-                        $token = trim((string) ($_POST['token'] ?? ''));
-                        if ($token !== '') {
-                            (new SettingsRepository($pdo))->setMany([self::tokenKey($env) => $token]);
-                            flash('Zapisano token KSeF dla środowiska: ' . (KsefApi::ENVIRONMENTS[$env]['label'] ?? $env) . '.');
-                        }
-                    } elseif (($_POST['do'] ?? '') === 'forget') {
-                        (new SettingsRepository($pdo))->setMany([self::tokenKey($env) => '']);
-                        flash('Usunięto token KSeF dla środowiska: ' . (KsefApi::ENVIRONMENTS[$env]['label'] ?? $env) . '.');
-                    } else {
-                        try {
-                            flash($service()->testConnection());
-                        } catch (\Throwable $e) {
-                            flash($e->getMessage(), 'err');
-                        }
+                    try {
+                        flash($service()->testConnection());
+                    } catch (\Throwable $e) {
+                        flash($e->getMessage(), 'err');
                     }
                 }
                 header('Location: ' . Hooks::pageUrl('ksef.faktury'));
@@ -227,10 +219,15 @@ final class KsefExtension extends AbstractExtension
         Hooks::addPage('pobierz', ['title' => 'Pobierz faktury zakupowe', 'menu' => false, 'role' => 'editor',
             'render' => static function (PDO $pdo, array $ctx) use ($service): void {
                 if ($ctx['post']) {
+                    $od = trim((string) ($_POST['od'] ?? ''));
+                    $do = trim((string) ($_POST['do'] ?? ''));
                     try {
-                        $r = $service()->syncPurchases();
-                        flash('Pobrano z KSeF: ' . $r['new'] . ' nowych faktur zakupowych' . ($r['seen'] > $r['new'] ? ' (sprawdzono ' . $r['seen'] . ')' : '') . '.'
-                            . ($r['more'] ? ' To nie wszystko - kliknij „Pobierz nowe z KSeF” jeszcze raz za minutę.' : ''));
+                        $r = $od !== '' || $do !== '' ? $service()->fetchPurchases($od, $do) : $service()->syncPurchases();
+                        $what = $od !== '' || $do !== '' ? ' z okresu ' . $od . ' – ' . $do : '';
+                        flash('Pobrano z KSeF' . $what . ': ' . $r['new'] . ' nowych faktur zakupowych' . ($r['seen'] > $r['new'] ? ' (sprawdzono ' . $r['seen'] . ')' : '') . '.'
+                            . (!$r['more'] ? '' : (isset($r['until']) && $r['until'] !== null
+                                ? ' To nie wszystko (limit zapytań KSeF) - pobrano do ' . $r['until'] . '; za minutę pobierz resztę okresu.'
+                                : ' To nie wszystko - kliknij „Pobierz nowe z KSeF” jeszcze raz za minutę.')));
                     } catch (\Throwable $e) {
                         flash('Nie pobrano faktur zakupowych: ' . $e->getMessage(), 'err');
                     }
@@ -270,14 +267,19 @@ final class KsefExtension extends AbstractExtension
         return $out;
     }
 
-    /** Klucz w tabeli settings; końcówka _TOKEN sprawia, że rdzeń trzyma go zaszyfrowanego (SecretStore). */
+    /** Dawny klucz tokena w tabeli settings (wersja 1.0 wpisywała token na stronie Faktury KSeF); czytany, gdy pole w ustawieniach jest puste. */
     public static function tokenKey(string $env): string
     {
         return 'EXT_KSEF_' . strtoupper(preg_replace('/[^a-z]/', '', $env) ?: 'test') . '_TOKEN';
     }
 
+    /** Token KSeF środowiska: z ustawień wtyczki (pole token_<środowisko>), a gdy puste - z dawnego klucza. */
     private function token(string $env): string
     {
+        $token = trim((string) $this->setting('token_' . $env, ''));
+        if ($token !== '') {
+            return $token;
+        }
         try {
             return (string) (new SettingsRepository($this->pdo()))->get(self::tokenKey($env), '');
         } catch (\Throwable) {
@@ -428,14 +430,8 @@ final class KsefExtension extends AbstractExtension
             $s->purchasesEnabled() ? 'faktury zakupowe' : ''])) ?: 'nic') . ' <small style="color:var(--ink-3)">(zmienisz w Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia)</small>'
             . ($s->purchasesEnabled() ? ' · <a href="' . self::h(Hooks::pageUrl('ksef.zakupy')) . '">Faktury zakupowe</a>' : '') . '</p>';
         if ($ctx['isAdmin']) {
-            $html .= '<form method="post" action="' . self::h(Hooks::pageUrl('ksef.polaczenie')) . '" style="margin:8px 0">'
-                . '<input type="hidden" name="csrf" value="' . self::h($ctx['csrf']) . '"><input type="hidden" name="do" value="save">'
-                . '<label>Token KSeF dla środowiska: ' . self::h(KsefApi::ENVIRONMENTS[$env]['label']) . '<br><input type="password" name="token" autocomplete="off" style="width:min(520px,100%)" placeholder="wklej nowy token, puste = bez zmian"></label> '
-                . '<button class="btn secondary" type="submit">Zapisz token</button></form>'
-                . self::postButton('ksef.polaczenie', ['do' => 'test'], 'Sprawdź połączenie')
-                . (!in_array('token KSeF', $missing, true) ? self::postButton('ksef.polaczenie', ['do' => 'forget'], 'Usuń token', 'btn danger') : '')
-                . '<p style="color:var(--ink-3);font-size:12px">Token wygenerujesz w Aplikacji Podatnika KSeF (lub przez API) z uprawnieniem do wystawiania faktur, a do faktur zakupowych także do ich przeglądania. '
-                . 'Jest zapisywany zaszyfrowany, osobno dla każdego środowiska.</p>';
+            $html .= '<p style="margin:8px 0">' . self::postButton('ksef.polaczenie', [], 'Sprawdź połączenie')
+                . ' <a href="plugins.php">Token i dane firmy: Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia</a></p>';
         }
         $html .= '</div>';
         if (!$sales) {
@@ -479,7 +475,16 @@ final class KsefExtension extends AbstractExtension
         if ($missing !== []) {
             $html .= '<p class="flash err">Do połączenia z KSeF brakuje: ' . self::h(implode(', ', $missing)) . '. <a href="' . self::h(Hooks::pageUrl('ksef.faktury')) . '">Faktury KSeF</a></p>';
         } elseif ($ctx['canEdit']) {
-            $html .= '<p style="margin:0 0 8px">' . self::postButton('ksef.pobierz', [], 'Pobierz nowe z KSeF', 'btn') . '</p>';
+            $today = date('Y-m-d');
+            $html .= '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin:0 0 12px">'
+                . '<div>' . self::postButton('ksef.pobierz', [], 'Pobierz nowe z KSeF', 'btn') . '</div>'
+                . '<form method="post" action="' . self::h(Hooks::pageUrl('ksef.pobierz')) . '" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:0">'
+                . '<input type="hidden" name="csrf" value="' . self::h($ctx['csrf']) . '">'
+                . '<label>Wystawione od<br><input type="date" name="od" required value="' . self::h(date('Y-m-01')) . '" max="' . $today . '"></label>'
+                . '<label>do<br><input type="date" name="do" required value="' . $today . '" max="' . $today . '"></label>'
+                . '<button class="btn secondary" type="submit">Pobierz z okresu</button></form></div>'
+                . '<p style="color:var(--ink-3);font-size:12px;margin:-4px 0 10px">„Pobierz nowe” bierze faktury, które trafiły do KSeF od ostatniego pobrania. '
+                . '„Pobierz z okresu” - faktury z datą wystawienia w wybranym okresie (np. starsze miesiące).</p>';
         }
         $html .= '<form method="get" action="ext.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:0">'
             . '<input type="hidden" name="page" value="ksef.zakupy">'

@@ -19,20 +19,23 @@ W **Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia** wybierasz, co wtyczka
 **Faktury zakupowe** (domyślnie wyłączone):
 
 - **Zamówienia → Faktury zakupowe KSeF**: faktury, w których firma jest nabywcą. Przycisk „Pobierz nowe z KSeF” dociąga
-  faktury od ostatniego pobrania (za pierwszym razem z okresu z ustawień: 30 dni do roku). Wyszukiwanie po numerze,
-  sprzedawcy i NIP, filtr miesiąca, suma brutto.
+  faktury od ostatniego pobrania (za pierwszym razem z okresu z ustawień: 30 dni do roku), a „Pobierz z okresu” - faktury
+  z datą wystawienia między dwiema wybranymi datami (np. starsze miesiące). Wyszukiwanie po numerze, sprzedawcy i NIP,
+  filtr miesiąca, suma brutto.
 - **Podgląd faktury**: sprzedawca, nabywca, pozycje, stawki VAT, kwota do zapłaty, termin i rachunek do przelewu,
   pobranie XML i link do faktury w KSeF.
 
-Zawsze dostępne: **Zamówienia → Faktury KSeF** z połączeniem (token KSeF, test połączenia).
+Na stronie **Zamówienia → Faktury KSeF** jest też stan połączenia i przycisk „Sprawdź połączenie” (bez wystawiania
+e-faktur strona nie ma pozycji w menu; link do niej jest na stronie faktur zakupowych).
 
 ## Uruchomienie
 
-1. **Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia**: środowisko (zostaw **Testowe**), co wtyczka ma robić, NIP firmy.
+1. **Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia**: środowisko (zostaw **Testowe**), co wtyczka ma robić, NIP firmy, token KSeF.
    Do wystawiania także nazwa i adres firmy oraz wzór numeru (same faktury zakupowe potrzebują tylko NIP i tokenu).
 2. **Token KSeF**: wygeneruj go w Aplikacji Podatnika KSeF wybranego środowiska (albo przez API `POST /tokens`)
    z uprawnieniem do wystawiania faktur (`InvoiceWrite`) i - dla faktur zakupowych - do ich przeglądania (`InvoiceRead`).
-   Wklej go na stronie **Zamówienia → Faktury KSeF** (tylko administrator) i kliknij **Sprawdź połączenie**.
+   Wklej go w ustawieniach wtyczki w polu swojego środowiska, zapisz, a potem na stronie **Zamówienia → Faktury KSeF**
+   kliknij **Sprawdź połączenie**.
 3. Wyślij kilka faktur testowych z kart zamówień. Na środowisku testowym używaj danych testowych - MF zastrzega,
    że dane w TE nie są odizolowane od innych integratorów.
 4. Gdy wszystko się zgadza: zmień środowisko na **Produkcyjne** i wpisz token produkcyjny (każde środowisko ma swój token
@@ -75,8 +78,10 @@ po obciętym wyniku; XML faktury (`GET invoices/ksef/{numer KSeF}`) pobierany pr
 na fakturę, `Invoices` trzyma tabele `ext_ksef_invoices` i `ext_ksef_counters`, `Purchases` - `ext_ksef_purchases`
 i `ext_ksef_sync`, `InvoiceView` pokazuje fakturę z XML (FA(2) i FA(3)).
 
-**Bezpieczeństwo**: token KSeF jest zapisywany w ustawieniach pod kluczem `EXT_KSEF_<ŚRODOWISKO>_TOKEN`, który rdzeń
-szyfruje (SecretStore), nigdy w kodzie ani w ustawieniach z formularza wtyczki. Zmienia go tylko administrator; panel go nie pokazuje.
+**Bezpieczeństwo**: token KSeF to pole `secret` w ustawieniach wtyczki (`token_test`, `token_demo`, `token_prod`), więc rdzeń
+zapisuje je zaszyfrowane (SecretStore), nigdy w kodzie. Ustawienia zmienia tylko administrator; panel nie pokazuje zapisanego
+tokena. Token wpisany w wersji 1.0 na stronie Faktury KSeF (klucz `EXT_KSEF_<ŚRODOWISKO>_TOKEN`) nadal działa, dopóki pole
+w ustawieniach jest puste.
 
 ## Czego jeszcze nie ma
 

@@ -60,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($found === null) {
             $flashErr = 'Nie ma takiego rozszerzenia.';
         } else {
-            ExtensionSettings::save($pdo, $found, (array) ($_POST['cfg'] ?? []));
+            ExtensionSettings::save($pdo, $found, (array) ($_POST['cfg'] ?? []), (array) ($_POST['cfg_clear'] ?? []));
             $flashOk = 'Zapisano ustawienia: ' . $found->name . '.';
         }
     }
@@ -250,12 +250,15 @@ $kindLabel = ['integration' => 'Integracja', 'extension' => 'Rozszerzenie'];
                                     <?php elseif ($type === 'textarea'): ?>
                                         <textarea name="<?= $name ?>" rows="4"><?= htmlspecialchars($val) ?></textarea>
                                     <?php else: ?>
-                                        <input type="<?= in_array($type, ['password', 'url', 'number'], true) ? $type : 'text' ?>" name="<?= $name ?>"
-                                            value="<?= !empty($f['secret']) ? '' : htmlspecialchars($val) ?>"<?= !empty($f['secret']) && $val !== '' ? ' placeholder="•••••• (zostaw puste, by nie zmieniać)"' : '' ?>>
+                                        <input type="<?= in_array($type, ['password', 'url', 'number'], true) ? $type : 'text' ?>" name="<?= $name ?>"<?= !empty($f['secret']) ? ' autocomplete="off"' : '' ?>
+                                            value="<?= !empty($f['secret']) ? '' : htmlspecialchars($val) ?>"<?= !empty($f['secret']) && $val !== '' ? ' placeholder="•••••• zapisany (zostaw puste, by nie zmieniać)"' : '' ?>>
                                     <?php endif; ?>
                                 <?php endif; ?>
                                 <?php if (!empty($f['help'])): ?><small><?= htmlspecialchars((string) $f['help']) ?></small><?php endif; ?>
                             </label>
+                            <?php if (!empty($f['secret']) && $val !== ''): ?>
+                                <label class="ext-clear"><span><input type="checkbox" name="cfg_clear[<?= htmlspecialchars($k) ?>]" value="1"> usuń zapisany: <?= htmlspecialchars((string) ($f['label'] ?? $k)) ?></span></label>
+                            <?php endif; ?>
                         <?php endforeach; ?>
                         <button class="btn" type="submit">Zapisz ustawienia</button>
                     </form>
@@ -273,6 +276,8 @@ $kindLabel = ['integration' => 'Integracja', 'extension' => 'Rozszerzenie'];
         .ext-cfg label > span { font-weight:600; }
         .ext-cfg small { color:var(--ink-2); }
         .ext-cfg .btn { justify-self:start; }
+        .ext-cfg .ext-clear { margin-top:-6px; }
+        .ext-cfg .ext-clear > span { font-weight:400; color:var(--ink-2); font-size:12px; }
     </style>
 </div>
 

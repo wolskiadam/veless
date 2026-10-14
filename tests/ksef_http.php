@@ -132,10 +132,11 @@ try {
 
     // ---- Ustawienia z manifestu na stronie Wtyczki
     $pl = request($boss, 'admin/plugins.php');
-    ok(str_contains($pl['body'], 'KSeF - e-faktury') && str_contains($pl['body'], 'name="cfg[number_format]"') && str_contains($pl['body'], 'name="cfg[environment]"'), 'Plugins page lists the KSeF extension with its settings');
+    ok(str_contains($pl['body'], 'KSeF - e-faktury') && str_contains($pl['body'], 'name="cfg[number_format]"') && str_contains($pl['body'], 'name="cfg[environment]"')
+        && str_contains($pl['body'], 'name="cfg[do_sales]" value="1" checked') && str_contains($pl['body'], 'name="cfg[do_purchases]" value="1">'), 'Plugins page lists the KSeF extension with its settings');
     $r = request($boss, 'admin/plugins.php', ['csrf' => csrfOf($pl['body']), 'action' => 'ext_settings', 'slug' => 'ksef', 'cfg' => [
         'environment' => 'test', 'nip' => '526-025-02-74', 'seller_name' => 'Klub Testowy sp. z o.o.', 'seller_address1' => 'ul. Prosta 1',
-        'seller_address2' => '00-001 Warszawa', 'number_format' => 'KSEF/{nr}/{mm}/{rrrr}', 'default_vat' => '23', 'vat_mode' => 'vat']]);
+        'seller_address2' => '00-001 Warszawa', 'number_format' => 'KSEF/{nr}/{mm}/{rrrr}', 'default_vat' => '23', 'vat_mode' => 'vat', 'do_sales' => '1', 'do_purchases' => '1', 'purchases_days' => '30']]);
     ok($r['status'] === 200 && str_contains($r['body'], 'Zapisano ustawienia'), 'Settings are saved');
 
     // ---- Strona Faktury KSeF i token
@@ -182,6 +183,24 @@ try {
     ok($idx['status'] === 200 && str_contains($idx['body'], 'data-kind="x_ksef"') && str_contains($idx['body'], 'href="ext.php?page=ksef.faktury"'), 'Order list has the icon and the menu entry');
     $au = request($boss, 'admin/automations.php');
     ok($au['status'] === 200 && str_contains($au['body'], '"x_ksef_invoice":{"label":"Wyślij e-fakturę do KSeF"'), 'Automation editor offers the KSeF action');
+
+    // ---- Faktury zakupowe (wpis jak po pobraniu z KSeF)
+    $zk = request($vi, 'admin/ext.php?page=ksef.zakupy');
+    ok($zk['status'] === 200 && str_contains($zk['body'], 'Faktury zakupowe KSeF') && str_contains($zk['body'], 'Jeszcze nic nie pobrano') && !str_contains($zk['body'], 'page=ksef.pobierz'),
+        'Viewer sees the empty purchase list without the fetch button');
+    ok(request($vi, 'admin/ext.php?page=ksef.pobierz', ['csrf' => csrfOf(request($vi, 'admin/index.php')['body'])])['status'] === 403, 'Viewer cannot fetch from KSeF');
+    $fa = (string) file_get_contents(__DIR__ . '/fixtures/ksef/zakup.xml');
+    $pdo->prepare("INSERT INTO ext_ksef_purchases (env, ksef_number, invoice_number, invoice_type, seller_nip, seller_name, issue_date, storage_date, net, vat, gross, currency, invoice_hash, xml, created_at)
+        VALUES ('test', '7740001454-20261014-AAAAAAAAAAAA-06', 'FV 7/10/2026', 'Vat', '7740001454', 'Hurtownia Pszczelarska', '2026-10-14', '2026-10-14T11:00:00+00:00', 150.38, 35.61, 185.99, 'PLN', ?, ?, '2026-10-14 13:00:00')")
+        ->execute([base64_encode(hash('sha256', $fa, true)), $fa]);
+    $zk = request($ola, 'admin/ext.php?page=ksef.zakupy&q=Hurtownia&m=2026-10');
+    ok(str_contains($zk['body'], 'FV 7/10/2026') && str_contains($zk['body'], '185,99') && str_contains($zk['body'], 'page=ksef.pobierz'), 'Editor sees the purchase list with search and the fetch button');
+    $one = request($vi, 'admin/ext.php?page=ksef.zakup&k=7740001454-20261014-AAAAAAAAAAAA-06');
+    ok($one['status'] === 200 && str_contains($one['body'], 'Hurtownia Pszczelarska') && str_contains($one['body'], 'Do zapłaty') && str_contains($one['body'], 'qr-test.ksef.mf.gov.pl/invoice/7740001454/'),
+        'Purchase invoice preview');
+    $f = request($vi, 'admin/ext.php?page=ksef.zakupxml&k=7740001454-20261014-AAAAAAAAAAAA-06');
+    ok($f['status'] === 200 && $f['body'] === $fa, 'Purchase invoice XML downloads');
+    ok(str_contains(request($boss, 'admin/index.php')['body'], 'href="ext.php?page=ksef.zakupy"'), 'Menu has the purchase invoices entry');
 
     $warnings = preg_grep('/PHP (Warning|Fatal|Parse|Deprecated|Notice)|Rozszerzenie .* błąd/', file("$temp/server.log") ?: []);
     ok($warnings === [], 'No PHP warnings or extension errors' . ($warnings ? ': ' . implode(' | ', array_map('trim', $warnings)) : ''));

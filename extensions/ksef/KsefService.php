@@ -13,11 +13,16 @@ use PDO;
  * issue():   dane zamówienia -> XML FA(3) z kolejnym numerem -> zapis (status sending) -> logowanie tokenem
  *            -> sesja -> wysyłka -> zamknięcie sesji -> krótkie czekanie na wynik weryfikacji.
  * refresh(): dopytuje KSeF o fakturę w toku (numer KSeF albo powód odrzucenia) i pobiera UPO.
+ * syncPurchases(): pobiera z KSeF listę faktur, w których firma jest nabywcą (faktury zakupowe), od ostatniego pobrania.
  */
 final class KsefService
 {
     /** Ile razy pytamy o wynik zaraz po wysyłce (KSeF zwykle odpowiada w kilka sekund). */
     private const WAIT_TRIES = 6;
+    /** Najdłuższe okno dat w jednym zapytaniu o faktury (KSeF dopuszcza do 100 dni). */
+    private const WINDOW_DAYS = 90;
+    /** Ile zapytań o listę faktur w jednym pobieraniu (KSeF ogranicza liczbę zapytań na minutę). */
+    private const MAX_REQUESTS = 12;
 
     private ?string $accessToken = null;
     private ?KsefApi $api = null;
@@ -55,6 +60,18 @@ final class KsefService
         return \Pase\Services\InvoiceData::normalizeNip((string) ($this->settings['nip'] ?? ''));
     }
 
+    /** Czy wtyczka wystawia e-faktury z zamówień (ustawienie „Wystawianie e-faktur”, domyślnie tak). */
+    public function salesEnabled(): bool
+    {
+        return (string) ($this->settings['do_sales'] ?? '1') !== '0';
+    }
+
+    /** Czy wtyczka pobiera faktury zakupowe z KSeF (ustawienie „Faktury zakupowe”, domyślnie nie). */
+    public function purchasesEnabled(): bool
+    {
+        return (string) ($this->settings['do_purchases'] ?? '0') === '1';
+    }
+
     /** @return list<string> czego brakuje do wysyłki */
     public function missing(): array
     {
@@ -74,9 +91,20 @@ final class KsefService
         return $out;
     }
 
+    /** @return list<string> czego brakuje do połączenia z KSeF (wystarcza do pobierania faktur zakupowych) */
+    public function missingConnection(): array
+    {
+        return array_values(array_filter($this->missing(), static fn(string $m): bool => in_array($m, ['NIP firmy', 'token KSeF'], true)));
+    }
+
     public function invoices(): Invoices
     {
         return new Invoices($this->pdo);
+    }
+
+    public function purchaseInvoices(): Purchases
+    {
+        return new Purchases($this->pdo);
     }
 
     /**
@@ -198,10 +226,103 @@ final class KsefService
         return $n;
     }
 
+    /**
+     * Pobiera z KSeF faktury, w których firma jest nabywcą, od miejsca, w którym skończyło się poprzednie pobieranie
+     * (za pierwszym razem: z ostatnich N dni z ustawień). Zapisuje metadane; XML faktury pobiera dopiero podgląd.
+     * Okna dat po dacie trwałego zapisu w KSeF z mechanizmem HWM, więc żadna faktura nie zostanie pominięta.
+     * @return array{new:int,seen:int,more:bool} more = zostało więcej do pobrania (limit zapytań)
+     */
+    public function syncPurchases(?\DateTimeImmutable $now = null): array
+    {
+        $missing = $this->missingConnection();
+        if ($missing !== []) {
+            throw new \RuntimeException('Uzupełnij ustawienia KSeF: ' . implode(', ', $missing) . '.');
+        }
+        $utc = new \DateTimeZone('UTC');
+        $now = ($now ?? new \DateTimeImmutable('now'))->setTimezone($utc);
+        $env = $this->env();
+        $repo = $this->purchaseInvoices();
+        $point = $repo->syncPoint($env);
+        $days = max(1, min(730, (int) ($this->settings['purchases_days'] ?? 30)));
+        $from = ($point !== null ? new \DateTimeImmutable($point) : $now->modify('-' . $days . ' days'))->setTimezone($utc);
+        $iso = static fn(\DateTimeImmutable $d): string => $d->format('Y-m-d\\TH:i:s.vP');
+        $api = $this->api();
+        $new = $seen = $requests = 0;
+
+        while ($from < $now) {
+            $to = min($from->modify('+' . self::WINDOW_DAYS . ' days'), $now);
+            $filters = ['subjectType' => 'Subject2', 'dateRange' => ['dateType' => 'PermanentStorage', 'from' => $iso($from), 'to' => $iso($to),
+                'restrictToPermanentStorageHwmDate' => true]];
+            $last = null;
+            $page = 0;
+            do {
+                if ($requests >= self::MAX_REQUESTS) {
+                    return ['new' => $new, 'seen' => $seen, 'more' => true];
+                }
+                $r = $api->queryInvoices($this->access(), $filters, $page++);
+                $requests++;
+                foreach ($r['invoices'] as $m) {
+                    $seen++;
+                    $new += $repo->save($env, $m) ? 1 : 0;
+                    $stored = !empty($m['permanentStorageDate']) ? new \DateTimeImmutable((string) $m['permanentStorageDate']) : null;
+                    if ($stored !== null && ($last === null || $stored > $last)) {
+                        $last = $stored;
+                    }
+                }
+            } while ($r['hasMore']);
+
+            if ($r['isTruncated'] && $last !== null && $last > $from) {
+                // Wynik obcięty limitem KSeF: następne zapytanie od ostatniej pobranej faktury (duplikaty pomija klucz tabeli).
+                $from = $last->setTimezone($utc);
+                $repo->setSyncPoint($env, $iso($from));
+                continue;
+            }
+            $next = $to;
+            $done = $to >= $now;
+            $hwm = $r['permanentStorageHwmDate'] !== null ? (new \DateTimeImmutable($r['permanentStorageHwmDate']))->setTimezone($utc) : null;
+            if ($hwm !== null && $hwm < $to) {
+                // Dane w KSeF są kompletne tylko do HWM - stąd zacznie się kolejne pobieranie.
+                $next = $hwm;
+                $done = true;
+            }
+            if ($next > $from) {
+                $repo->setSyncPoint($env, $iso($next));
+            }
+            if ($done || $next <= $from) {
+                break;
+            }
+            $from = $next;
+        }
+        return ['new' => $new, 'seen' => $seen, 'more' => false];
+    }
+
+    /** XML faktury zakupowej: z bazy, a za pierwszym razem pobrany z KSeF i zapisany. */
+    public function purchaseXml(string $ksefNumber): string
+    {
+        $env = $this->env();
+        $repo = $this->purchaseInvoices();
+        $row = $repo->get($env, $ksefNumber);
+        if ($row === null) {
+            throw new \RuntimeException('Nie ma takiej faktury zakupowej (' . KsefApi::ENVIRONMENTS[$env]['label'] . ').');
+        }
+        if ($row['xml'] !== null && $row['xml'] !== '') {
+            return (string) $row['xml'];
+        }
+        if ($this->missingConnection() !== []) {
+            throw new \RuntimeException('Uzupełnij ustawienia KSeF: ' . implode(', ', $this->missingConnection()) . '.');
+        }
+        $xml = $this->api()->downloadInvoice($this->access(), $ksefNumber);
+        if (trim($xml) === '') {
+            throw new \RuntimeException('KSeF zwrócił pusty plik faktury ' . $ksefNumber . '.');
+        }
+        $repo->setXml($env, $ksefNumber, $xml);
+        return $xml;
+    }
+
     /** Sprawdza logowanie tokenem w wybranym środowisku. */
     public function testConnection(): string
     {
-        $missing = array_values(array_filter($this->missing(), static fn(string $m): bool => in_array($m, ['NIP firmy', 'token KSeF'], true)));
+        $missing = $this->missingConnection();
         if ($missing !== []) {
             throw new \RuntimeException('Brakuje: ' . implode(', ', $missing) . '.');
         }
@@ -212,8 +333,15 @@ final class KsefService
     /** Link weryfikacyjny faktury (KOD I): adres QR / NIP sprzedawcy / data wystawienia / skrót SHA-256 XML. */
     public static function verificationUrl(string $env, string $nip, string $issueDate, string $xml): string
     {
+        return self::verificationUrlForHash($env, $nip, $issueDate, KsefCrypto::sha256($xml));
+    }
+
+    /** To samo ze skrótu SHA-256 faktury w base64 (tak podaje go lista faktur KSeF). */
+    public static function verificationUrlForHash(string $env, string $nip, string $issueDate, string $hashBase64): string
+    {
         $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $issueDate);
-        return KsefApi::qrBase($env) . '/invoice/' . rawurlencode($nip) . '/' . ($d ? $d->format('d-m-Y') : $issueDate) . '/' . KsefCrypto::sha256Url($xml);
+        return KsefApi::qrBase($env) . '/invoice/' . rawurlencode($nip) . '/' . ($d ? $d->format('d-m-Y') : $issueDate) . '/'
+            . rtrim(strtr($hashBase64, '+/', '-_'), '=');
     }
 
     /** @return array<string,mixed> */

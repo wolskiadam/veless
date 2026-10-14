@@ -8,3 +8,5 @@ Oficjalne pliki XSD Ministerstwa Finansów, bez zmian, z repozytorium dokumentac
 
 `tests/ksef.php` kopiuje je do katalogu tymczasowego i podmienia adres importu (`http://crd.gov.pl/...`) na plik lokalny,
 żeby walidacja działała bez internetu.
+
+`zakup.xml` - przykładowa faktura zakupowa FA(3) (zbudowana przez `Fa3Xml`) do testu podglądu w `tests/ksef_http.php`.

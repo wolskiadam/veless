@@ -16,6 +16,10 @@ use Pase\Support\Http;
  *   closeSession() POST sessions/online/{ref}/close
  *   invoiceStatus() GET sessions/{ref}/invoices/{invoiceRef} -> numer KSeF albo powód odrzucenia
  *   invoiceUpo()   GET sessions/{ref}/invoices/{invoiceRef}/upo (XML podpisany przez MF)
+ *
+ * Faktury otrzymane (zakupowe):
+ *   queryInvoices()   POST invoices/query/metadata (lista metadanych, stronicowana)
+ *   downloadInvoice() GET invoices/ksef/{ksefNumber} (XML faktury)
  */
 final class KsefApi
 {
@@ -169,6 +173,30 @@ final class KsefApi
     public function invoiceUpo(string $accessToken, string $sessionRef, string $invoiceRef): string
     {
         return $this->raw('GET', 'sessions/' . rawurlencode($sessionRef) . '/invoices/' . rawurlencode($invoiceRef) . '/upo', $accessToken);
+    }
+
+    /**
+     * Metadane faktur spełniających filtry (np. subjectType Subject2 = faktury, w których firma jest nabywcą).
+     * Strona do 250 pozycji; hasMore = jest kolejna strona, isTruncated = wynik obcięty limitem 10 000 faktur.
+     * @param array<string,mixed> $filters
+     * @return array{hasMore:bool,isTruncated:bool,invoices:list<array<string,mixed>>,permanentStorageHwmDate:?string}
+     */
+    public function queryInvoices(string $accessToken, array $filters, int $pageOffset = 0, int $pageSize = 250): array
+    {
+        $r = $this->call('POST', 'invoices/query/metadata?' . http_build_query(['pageOffset' => max(0, $pageOffset),
+            'pageSize' => max(10, min(250, $pageSize)), 'sortOrder' => 'Asc']), $filters, $accessToken);
+        return [
+            'hasMore' => !empty($r['hasMore']),
+            'isTruncated' => !empty($r['isTruncated']),
+            'invoices' => array_values(array_filter((array) ($r['invoices'] ?? []), 'is_array')),
+            'permanentStorageHwmDate' => isset($r['permanentStorageHwmDate']) ? (string) $r['permanentStorageHwmDate'] : null,
+        ];
+    }
+
+    /** XML faktury o podanym numerze KSeF. */
+    public function downloadInvoice(string $accessToken, string $ksefNumber): string
+    {
+        return $this->raw('GET', 'invoices/ksef/' . rawurlencode($ksefNumber), $accessToken, null, 'application/xml');
     }
 
     /** Opis statusu KSeF: „opis (szczegóły)”. */

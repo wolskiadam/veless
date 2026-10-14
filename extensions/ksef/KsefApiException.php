@@ -56,7 +56,7 @@ final class KsefApiException extends \RuntimeException
         $what = match (true) {
             $status === 0 => 'brak połączenia z KSeF',
             $status === 401 => 'brak autoryzacji (sprawdź token KSeF i NIP)',
-            $status === 403 => 'brak uprawnień (token musi mieć uprawnienie do wystawiania faktur)',
+            $status === 403 => 'brak uprawnień (token KSeF musi mieć uprawnienie do wystawiania faktur, a do pobierania faktur zakupowych - do ich przeglądania)',
             $status === 429 => 'przekroczony limit zapytań KSeF, spróbuj za chwilę',
             $status >= 500 => 'KSeF jest chwilowo niedostępny',
             default => 'błąd ' . $status,

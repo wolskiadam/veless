@@ -207,6 +207,7 @@ return [
     'orders.side.archive' => 'Archiwum',
     'orders.side.trash'   => 'Kosz',
     'orders.side.back'    => 'Wróć do aktywnych',
+    'orders.side.status'  => 'Status',
     'orders.side.manage'  => 'Zarządzaj statusami',
     'orders.stats.today'  => 'Dziś',
     'orders.stats.last30' => 'Ostatnie 30 dni',

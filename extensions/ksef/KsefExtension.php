@@ -43,7 +43,7 @@ final class KsefExtension extends AbstractExtension
         return new ExtensionManifest(
             type: 'ksef',
             name: 'KSeF - e-faktury',
-            version: '1.4.0',
+            version: '1.4.1',
             author: 'Veless',
             description: 'Połączenie z Krajowym Systemem e-Faktur (API 2.0): wystawianie faktur FA(3) z zamówień (numer KSeF, UPO i link weryfikacyjny w karcie zamówienia) oraz podgląd faktur sprzedażowych i zakupowych firmy pobranych z KSeF (z PDF). W ustawieniach wybierz, co ma robić, i wpisz token KSeF.',
             icon: '🏛️',
@@ -108,11 +108,20 @@ final class KsefExtension extends AbstractExtension
                 exit;
             }]);
 
-        if (($cfg['do_purchases'] ?? '0') === '1') {
-            $this->bootKsefInvoices($service, Purchases::PURCHASE);
+        // Faktury pobierane z KSeF: jedna pozycja menu, rodzaje jako zakładki na stronie listy.
+        $kinds = array_values(array_filter([
+            ($cfg['do_sales_list'] ?? '1') !== '0' ? Purchases::SALE : null,
+            ($cfg['do_purchases'] ?? '0') === '1' ? Purchases::PURCHASE : null,
+        ]));
+        foreach ($kinds as $kind) {
+            $this->bootKsefInvoices($service, $kind, $kinds);
         }
-        if (($cfg['do_sales_list'] ?? '1') !== '0') {
-            $this->bootKsefInvoices($service, Purchases::SALE);
+        if ($kinds !== []) {
+            Hooks::addPage('rejestr', ['title' => '🧾 Rejestr faktur KSeF', 'group' => 'orders', 'role' => 'viewer',
+                'render' => static function () use ($kinds): void {
+                    header('Location: ' . Hooks::pageUrl('ksef.' . self::KINDS[$kinds[0]]['list']));
+                    exit;
+                }]);
         }
         if (($cfg['do_sales'] ?? '1') !== '0') {
             $this->bootSales($service);
@@ -229,11 +238,12 @@ final class KsefExtension extends AbstractExtension
     }
 
     /** Faktury zakupowe albo sprzedażowe: lista pobrana z KSeF, pobieranie nowych, podgląd, PDF i XML. */
-    private function bootKsefInvoices(\Closure $service, string $kind): void
+    /** @param list<string> $kinds włączone rodzaje - zakładki nad listą */
+    private function bootKsefInvoices(\Closure $service, string $kind, array $kinds): void
     {
         $k = self::KINDS[$kind];
-        Hooks::addPage($k['list'], ['title' => $k['title'], 'group' => 'orders', 'role' => 'viewer',
-            'render' => static fn(PDO $pdo, array $ctx): string => self::invoicesPage($service(), $ctx, $kind)]);
+        Hooks::addPage($k['list'], ['title' => $k['title'], 'group' => 'orders', 'role' => 'viewer', 'menu' => false,
+            'render' => static fn(PDO $pdo, array $ctx): string => self::tabs($kinds, $kind) . self::invoicesPage($service(), $ctx, $kind)]);
 
         Hooks::addPage($k['fetch'], ['title' => 'Pobierz faktury ' . $k['adj'], 'menu' => false, 'role' => 'editor',
             'render' => static function (PDO $pdo, array $ctx) use ($service, $kind, $k): void {
@@ -582,6 +592,22 @@ final class KsefExtension extends AbstractExtension
             }
         }
         return $html . '</table></div>' . self::pager($page, $pages, static fn(int $p): string => $link(['p' => $p])) . '</div>';
+    }
+
+    /** Zakładki rodzajów faktur z KSeF (gdy włączone są oba). @param list<string> $kinds */
+    private static function tabs(array $kinds, string $current): string
+    {
+        if (count($kinds) < 2) {
+            return '';
+        }
+        $html = '<nav aria-label="Rodzaj faktur" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">';
+        foreach ($kinds as $kind) {
+            $k = self::KINDS[$kind];
+            $html .= $kind === $current
+                ? '<span class="btn" aria-current="page">' . self::h($k['title']) . '</span>'
+                : '<a class="btn secondary" href="' . self::h(Hooks::pageUrl('ksef.' . $k['list'])) . '">' . self::h($k['title']) . '</a>';
+        }
+        return $html . '</nav>';
     }
 
     /** Paginacja jak w liście zamówień: ← Poprzednia · 1 … 4 [5] 6 … 20 · Następna →. */

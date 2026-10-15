@@ -210,14 +210,19 @@ try {
     ok($pdfRes['status'] === 200 && str_starts_with($pdfRes['body'], '%PDF-1.4') && str_ends_with($pdfRes['body'], "%%EOF\n") && str_contains($one['body'], 'Pobierz PDF')
         && str_contains($one['body'], '<svg'), 'Purchase invoice PDF downloads and the preview has the PDF button and QR code');
     ok(request($vi, 'admin/ext.php?page=ksef.zakuppdf&k=nie-ma')['status'] === 404, 'Missing purchase invoice PDF is 404');
-    ok(str_contains(request($boss, 'admin/index.php')['body'], 'href="ext.php?page=ksef.zakupy"'), 'Menu has the purchase invoices entry');
+    $menu = request($boss, 'admin/index.php')['body'];
+    $reg = request($boss, 'admin/ext.php?page=ksef.rejestr');
+    ok(substr_count($menu, 'href="ext.php?page=ksef.rejestr"') >= 1 && str_contains($menu, 'Rejestr faktur KSeF') && !str_contains($menu, 'href="ext.php?page=ksef.zakupy"')
+        && !str_contains($menu, 'href="ext.php?page=ksef.sprzedaz"') && $reg['status'] === 302 && str_contains($reg['headers'] ?? '', 'page=ksef.sprzedaz'),
+        'One menu entry for KSeF invoices, opening the sales tab');
     $sl = request($vi, 'admin/ext.php?page=ksef.sprzedaz');
     $pdo->prepare("INSERT INTO ext_ksef_sales (env, ksef_number, invoice_number, invoice_type, buyer_nip, buyer_name, issue_date, storage_date, net, vat, gross, currency, invoice_hash, xml, created_at)
         VALUES ('test', '5260250274-20261010-BBBBBBBBBBBB-01', 'KSEF/9/10/2026', 'Vat', '1132853869', 'Pasieka Pod Lipą', '2026-10-10', '2026-10-10T09:00:00+00:00', 100, 23, 123, 'PLN', ?, ?, '2026-10-14 13:00:00')")
         ->execute([base64_encode(hash('sha256', $fa, true)), $fa]);
     $sl2 = request($ola, 'admin/ext.php?page=ksef.sprzedaz&m=2026-10');
     ok($sl['status'] === 200 && str_contains($sl['body'], 'Faktury sprzedażowe KSeF') && str_contains($sl2['body'], 'Pasieka Pod Lipą') && str_contains($sl2['body'], 'page=ksef.pobierzsp')
-        && str_contains(request($boss, 'admin/index.php')['body'], 'href="ext.php?page=ksef.sprzedaz"'), 'Sales invoices list in the menu, with fetch button for editors');
+        && str_contains($sl2['body'], 'href="ext.php?page=ksef.zakupy"') && str_contains($zk['body'] ?? '', 'href="ext.php?page=ksef.sprzedaz"'),
+        'Sales invoices list with fetch button for editors and tabs between sales and purchases');
     $spdf = request($vi, 'admin/ext.php?page=ksef.sprzedazpdf&k=5260250274-20261010-BBBBBBBBBBBB-01');
     ok($spdf['status'] === 200 && str_starts_with($spdf['body'], '%PDF-1.4'), 'Sales invoice PDF downloads');
 

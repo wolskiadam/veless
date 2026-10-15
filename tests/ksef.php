@@ -29,6 +29,7 @@ use PaseExt\Ksef\KsefExtension;
 use PaseExt\Ksef\KsefService;
 use PaseExt\Ksef\OrderInvoice;
 use PaseExt\Ksef\Pdf;
+use PaseExt\Ksef\Purchases;
 use PaseExt\Ksef\QrCode;
 
 // Funkcje panelu, których używa sekcja karty zamówienia.
@@ -206,6 +207,8 @@ try {
         public bool $rotateOnce = false;
         /** Faktury otrzymane: lista metadanych (permanentStorageDate) i XML; stronicowanie i limit wyniku jak w KSeF, tylko mniejsze. */
         public array $received = [];
+        /** Faktury wystawione przez firmę (Subject1). */
+        public array $issued = [];
         public ?string $hwm = null;
         public int $metaPage = 2;
         public int $metaCap = 100;
@@ -283,10 +286,10 @@ try {
                         $to = min($to, new DateTimeImmutable($this->hwm));
                     }
                     $field = $r['dateType'] === 'Issue' ? 'issueDate' : 'permanentStorageDate';
-                    if ($in['subjectType'] !== 'Subject2' || !in_array($r['dateType'], ['PermanentStorage', 'Issue'], true) || $to->getTimestamp() - $from->getTimestamp() > 100 * 86400) {
+                    if (!in_array($in['subjectType'], ['Subject1', 'Subject2'], true) || !in_array($r['dateType'], ['PermanentStorage', 'Issue'], true) || $to->getTimestamp() - $from->getTimestamp() > 100 * 86400) {
                         return $json(400, ['exception' => ['exceptionDetailList' => [['exceptionCode' => 21405, 'exceptionDescription' => 'Zły filtr']]]]);
                     }
-                    $hits = array_values(array_filter(array_map(static fn(array $f): array => $f['meta'], $this->received), static function (array $mt) use ($from, $to, $field): bool {
+                    $hits = array_values(array_filter(array_map(static fn(array $f): array => $f['meta'], $in['subjectType'] === 'Subject1' ? $this->issued : $this->received), static function (array $mt) use ($from, $to, $field): bool {
                         $d = new DateTimeImmutable($mt[$field] . ($field === 'issueDate' ? 'T12:00:00+00:00' : ''));
                         return $d >= $from && $d <= $to;
                     }));
@@ -296,7 +299,8 @@ try {
                     return $json(200, ['hasMore' => count($capped) > ((int) $qs['pageOffset'] + 1) * $this->metaPage, 'isTruncated' => count($hits) > $this->metaCap,
                         'permanentStorageHwmDate' => $this->hwm, 'invoices' => $pageRows]);
                 case $method === 'GET' && preg_match('#^invoices/ksef/(.+)$#', $path, $m) === 1:
-                    return isset($this->received[$m[1]]) ? ['status' => 200, 'body' => $this->received[$m[1]]['xml']]
+                    $file = $this->received[$m[1]] ?? $this->issued[$m[1]] ?? null;
+                    return $file !== null ? ['status' => 200, 'body' => $file['xml']]
                         : $json(404, ['exception' => ['exceptionDetailList' => [['exceptionCode' => 21164, 'exceptionDescription' => 'Faktura nie istnieje']]]]);
                 case $method === 'GET' && preg_match('#^sessions/(SES-\d+)/invoices/(INV-\d+)/upo$#', $path, $m) === 1:
                     return ['status' => 200, 'body' => '<?xml version="1.0"?><Potwierdzenie><NumerKSeFDokumentu>5260250274-20261014-0100A0B1C2D3-4E</NumerKSeFDokumentu></Potwierdzenie>'];
@@ -528,6 +532,24 @@ try {
     check(str_contains($page, 'Hurtownia Pszczelarska') && str_contains($page, 'Wosk &lt;pszczeli&gt;') && str_contains($page, 'qr-test.ksef.mf.gov.pl/invoice/7740001454/14-10-2026/'),
         'Purchase invoice page shows the invoice and the KSeF link');
     $_GET = [];
+    // Faktury sprzedażowe z KSeF (firma jako sprzedawca, Subject1): osobna tabela i punkt pobierania, kontrahent = nabywca
+    $saleXml = Fa3Xml::build(['number' => 'KSEF/9/10/2026', 'seller' => ['nip' => '5260250274', 'name' => 'Klub Testowy sp. z o.o.', 'address1' => 'ul. Prosta 1', 'address2' => '00-001 Warszawa'],
+        'buyer' => ['nip' => '1132853869', 'name' => 'Pasieka Pod Lipą', 'address1' => 'Leśna 2', 'address2' => '05-500 Piaseczno'],
+        'paid' => true, 'payment_form' => 6, 'payment_desc' => '', 'bank_account' => '', 'footer' => '', 'order_number' => ''] + $base);
+    $ksef->issued['5260250274-20261010-BBBBBBBBBBBB-01'] = ['xml' => $saleXml, 'meta' => ['ksefNumber' => '5260250274-20261010-BBBBBBBBBBBB-01', 'invoiceNumber' => 'KSEF/9/10/2026',
+        'issueDate' => '2026-10-10', 'permanentStorageDate' => '2026-10-10T09:00:00.000+00:00', 'seller' => ['nip' => '5260250274', 'name' => 'Klub Testowy'],
+        'buyer' => ['identifier' => ['type' => 'Nip', 'value' => '1132853869'], 'name' => 'Pasieka Pod Lipą'], 'netAmount' => 100, 'vatAmount' => 23, 'grossAmount' => 123,
+        'currency' => 'PLN', 'invoiceType' => 'Vat', 'invoiceHash' => KsefCrypto::sha256($saleXml)]];
+    $ksef->metaQueries = [];
+    $saleBuyer = new KsefService($pdo, $buyerSettings + ['do_sales_list' => '1'], 'token-testowy', $factory, $noSleep);
+    $sr = $saleBuyer->syncInvoices(Purchases::SALE, $clock);
+    $sales = $saleBuyer->ksefInvoices(Purchases::SALE);
+    $saleRows = $sales->latest('test');
+    check($sr['new'] === 1 && $ksef->metaQueries[0]['subject'] === 'Subject1' && count($saleRows) === 1 && $saleRows[0]['party_name'] === 'Pasieka Pod Lipą'
+        && $saleRows[0]['party_nip'] === '1132853869' && $sales->syncPoint('test') !== null && $purchases->get('test', '5260250274-20261010-BBBBBBBBBBBB-01') === null
+        && $saleBuyer->salesListEnabled() && count($sales->latest('test', 'Lipą')) === 1, 'Sales invoices are fetched as Subject1 into their own list, with the buyer as counterparty');
+    check($saleBuyer->fetchInvoices(Purchases::SALE, '2026-10-01', '2026-10-14', $clock)['seen'] === 1 && end($ksef->metaQueries)['subject'] === 'Subject1'
+        && $saleBuyer->invoiceXml(Purchases::SALE, '5260250274-20261010-BBBBBBBBBBBB-01') === $saleXml, 'Sales invoices: period fetch and XML download');
     $render = static fn(array $get): string => ($_GET = $get) !== null ? (Hooks::page('ksef.zakupy')['render'])($pdo, ['canEdit' => false, 'isAdmin' => false, 'csrf' => '', 'url' => '', 'post' => false]) : '';
     $newest = (string) array_key_first($purchases->months('test'));
     $page = $render([]);
@@ -544,6 +566,18 @@ try {
         && str_contains($p1, '2026-02') && !str_contains($p1, '2025-12'), 'Month view pages 50 invoices at a time with totals for the whole month');
     $p9 = $render(['m' => '2026-01', 'p' => '9']);
     check(str_contains($p9, 'strona 2 z 2') && str_contains($render(['m' => '2025-05']), 'Brak faktur wystawionych w tym miesiącu'), 'Out of range page and empty month are handled');
+    check(Hooks::page('ksef.sprzedaz') === null, 'Sales list is off when unticked in settings');
+    ExtensionSettings::save($pdo, $ext->manifest(), $buyerSettings + ['do_sales_list' => '1']);
+    ExtensionRegistry::reset();
+    $_GET = [];
+    $sp = (Hooks::page('ksef.sprzedaz')['render'])($pdo, ['canEdit' => true, 'isAdmin' => false, 'csrf' => 'csrf-test', 'url' => '', 'post' => false]);
+    $_GET = ['k' => '5260250274-20261010-BBBBBBBBBBBB-01'];
+    $one = (Hooks::page('ksef.sprzedazfv')['render'])($pdo, ['canEdit' => true]);
+    $salePdf = (Hooks::page('ksef.sprzedazpdf')['render'])($pdo);
+    check(Hooks::page('ksef.sprzedaz')['title'] === '📤 Faktury sprzedażowe KSeF' && str_contains($sp, 'Pasieka Pod Lipą') && str_contains($sp, '<th>Nabywca</th>')
+        && str_contains($sp, 'jest sprzedawcą') && str_contains($sp, 'page=ksef.pobierzsp') && str_contains($sp, 'k=5260250274-20261010-BBBBBBBBBBBB-01') && !str_contains($sp, 'Hurtownia')
+        && str_contains($one, 'KSEF/9/10/2026') && str_contains($one, 'qr-test.ksef.mf.gov.pl/invoice/5260250274/10-10-2026/') && str_contains($one, 'page=ksef.sprzedazpdf')
+        && str_starts_with($salePdf, '%PDF-1.4'), 'Sales list, invoice preview with our NIP in the KSeF link, and PDF');
     $_GET = [];
 
     echo "\n{$checks} checks passed\n";

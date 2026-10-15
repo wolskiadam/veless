@@ -107,6 +107,18 @@ final class KsefService
         return new Purchases($this->pdo);
     }
 
+    /** Faktury z KSeF danego rodzaju (Purchases::PURCHASE albo Purchases::SALE). */
+    public function ksefInvoices(string $kind): Purchases
+    {
+        return new Purchases($this->pdo, $kind);
+    }
+
+    /** Czy wtyczka pobiera i pokazuje faktury sprzedażowe z KSeF (ustawienie „Faktury sprzedażowe”, domyślnie tak). */
+    public function salesListEnabled(): bool
+    {
+        return (string) ($this->settings['do_sales_list'] ?? '1') !== '0';
+    }
+
     /**
      * Podgląd faktury zamówienia (bez numeru i bez wysyłki).
      * @return array{invoice:array<string,mixed>,totals:array<string,mixed>,error:?string}
@@ -234,6 +246,15 @@ final class KsefService
      */
     public function syncPurchases(?\DateTimeImmutable $now = null): array
     {
+        return $this->syncInvoices(Purchases::PURCHASE, $now);
+    }
+
+    /**
+     * Jak syncPurchases(), dla wybranego rodzaju: zakupowe (firma jako nabywca, Subject2) albo sprzedażowe (firma jako sprzedawca, Subject1).
+     * @return array{new:int,seen:int,more:bool}
+     */
+    public function syncInvoices(string $kind, ?\DateTimeImmutable $now = null): array
+    {
         $missing = $this->missingConnection();
         if ($missing !== []) {
             throw new \RuntimeException('Uzupełnij ustawienia KSeF: ' . implode(', ', $missing) . '.');
@@ -241,7 +262,7 @@ final class KsefService
         $utc = new \DateTimeZone('UTC');
         $now = ($now ?? new \DateTimeImmutable('now'))->setTimezone($utc);
         $env = $this->env();
-        $repo = $this->purchaseInvoices();
+        $repo = $this->ksefInvoices($kind);
         $point = $repo->syncPoint($env);
         $days = max(1, min(730, (int) ($this->settings['purchases_days'] ?? 30)));
         $from = ($point !== null ? new \DateTimeImmutable($point) : $now->modify('-' . $days . ' days'))->setTimezone($utc);
@@ -251,7 +272,7 @@ final class KsefService
 
         while ($from < $now) {
             $to = min($from->modify('+' . self::WINDOW_DAYS . ' days'), $now);
-            $filters = ['subjectType' => 'Subject2', 'dateRange' => ['dateType' => 'PermanentStorage', 'from' => $iso($from), 'to' => $iso($to),
+            $filters = ['subjectType' => self::subject($kind), 'dateRange' => ['dateType' => 'PermanentStorage', 'from' => $iso($from), 'to' => $iso($to),
                 'restrictToPermanentStorageHwmDate' => true]];
             $last = null;
             $page = 0;
@@ -303,6 +324,15 @@ final class KsefService
      */
     public function fetchPurchases(string $fromDate, string $toDate, ?\DateTimeImmutable $now = null): array
     {
+        return $this->fetchInvoices(Purchases::PURCHASE, $fromDate, $toDate, $now);
+    }
+
+    /**
+     * Jak fetchPurchases(), dla wybranego rodzaju faktur.
+     * @return array{new:int,seen:int,more:bool,until:?string}
+     */
+    public function fetchInvoices(string $kind, string $fromDate, string $toDate, ?\DateTimeImmutable $now = null): array
+    {
         $missing = $this->missingConnection();
         if ($missing !== []) {
             throw new \RuntimeException('Uzupełnij ustawienia KSeF: ' . implode(', ', $missing) . '.');
@@ -319,13 +349,13 @@ final class KsefService
         $end = min($to->modify('+1 day'), ($now ?? new \DateTimeImmutable('now'))->setTimezone($pl));
         $iso = static fn(\DateTimeImmutable $d): string => $d->format('Y-m-d\\TH:i:s.vP');
         $env = $this->env();
-        $repo = $this->purchaseInvoices();
+        $repo = $this->ksefInvoices($kind);
         $api = $this->api();
         $new = $seen = $requests = 0;
         $start = $from;
         while ($start < $end) {
             $windowEnd = min($start->modify('+' . self::WINDOW_DAYS . ' days'), $end);
-            $filters = ['subjectType' => 'Subject2', 'dateRange' => ['dateType' => 'Issue', 'from' => $iso($start), 'to' => $iso($windowEnd)]];
+            $filters = ['subjectType' => self::subject($kind), 'dateRange' => ['dateType' => 'Issue', 'from' => $iso($start), 'to' => $iso($windowEnd)]];
             $last = null;
             $page = 0;
             do {
@@ -358,11 +388,17 @@ final class KsefService
     /** XML faktury zakupowej: z bazy, a za pierwszym razem pobrany z KSeF i zapisany. */
     public function purchaseXml(string $ksefNumber): string
     {
+        return $this->invoiceXml(Purchases::PURCHASE, $ksefNumber);
+    }
+
+    /** XML faktury pobranej z KSeF (zakupowej albo sprzedażowej): z bazy, a za pierwszym razem z KSeF. */
+    public function invoiceXml(string $kind, string $ksefNumber): string
+    {
         $env = $this->env();
-        $repo = $this->purchaseInvoices();
+        $repo = $this->ksefInvoices($kind);
         $row = $repo->get($env, $ksefNumber);
         if ($row === null) {
-            throw new \RuntimeException('Nie ma takiej faktury zakupowej (' . KsefApi::ENVIRONMENTS[$env]['label'] . ').');
+            throw new \RuntimeException('Nie ma takiej faktury ' . ($kind === Purchases::SALE ? 'sprzedażowej' : 'zakupowej') . ' (' . KsefApi::ENVIRONMENTS[$env]['label'] . ').');
         }
         if ($row['xml'] !== null && $row['xml'] !== '') {
             return (string) $row['xml'];
@@ -411,6 +447,12 @@ final class KsefService
             throw new \RuntimeException('Nie znaleziono zamówienia ' . $orderId . '.');
         }
         return $order;
+    }
+
+    /** Strona faktury w zapytaniu KSeF: Subject1 = firma jest sprzedawcą, Subject2 = nabywcą. */
+    private static function subject(string $kind): string
+    {
+        return $kind === Purchases::SALE ? 'Subject1' : 'Subject2';
     }
 
     private function api(): KsefApi

@@ -24,8 +24,11 @@ W **Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia** wybierasz, co wtyczka
   miesiącami (domyślnie najnowszy miesiąc z fakturami, przyciski poprzedni/następny, wybór miesiąca albo „Wszystkie
   miesiące”), po 50 na stronę z paginacją. Sumy netto, VAT i brutto liczone są dla całego miesiąca, nie tylko strony.
   Wyszukiwanie po numerze, sprzedawcy i NIP (bez wybranego miesiąca szuka we wszystkich).
-- **Podgląd faktury**: sprzedawca, nabywca, pozycje, stawki VAT, kwota do zapłaty, termin i rachunek do przelewu,
-  pobranie XML i link do faktury w KSeF.
+- **Podgląd faktury** w układzie wizualizacji KSeF: numer faktury i numer KSeF, sprzedawca i nabywca, szczegóły, pozycje,
+  kwota należności, podsumowanie stawek, płatność, adnotacje (np. MPP) i kod QR z linkiem weryfikacyjnym (KOD I).
+  Przyciski: **Pobierz PDF** / **Otwórz PDF** (ten sam układ, generowany na serwerze bez dodatkowych bibliotek:
+  `Pdf.php` ze standardowymi czcionkami PDF i polskimi znakami, `QrCode.php` - port qrcodegen), **Pobierz XML**
+  i **Faktura w KSeF**. PDF jest tylko wizualizacją; dokumentem jest XML w KSeF.
 
 Na stronie **Zamówienia → Faktury KSeF** jest też stan połączenia i przycisk „Sprawdź połączenie” (bez wystawiania
 e-faktur strona nie ma pozycji w menu; link do niej jest na stronie faktur zakupowych).

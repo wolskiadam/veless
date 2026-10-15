@@ -26,7 +26,7 @@ final class InvoiceView
     /**
      * @return array{seller:array<string,string>,buyer:array<string,string>,number:string,issue_date:string,sale_date:string,place:string,
      *   kind:string,currency:string,lines:list<array<string,string>>,rates:list<array{label:string,net:string,vat:string}>,total:string,
-     *   payment:array<string,string>,notes:list<string>}
+     *   payment:array<string,string>,period:string,annotations:list<string>,corrected:list<string>,reason:string,registers:list<string>,notes:list<string>}
      */
     public static function parse(string $xml): array
     {
@@ -64,7 +64,7 @@ final class InvoiceView
             $net = $v->text('P_13_' . $k, $fa);
             $vat = $v->text('P_14_' . $k, $fa);
             if ($net !== '' || $vat !== '') {
-                $rates[] = ['label' => $label, 'net' => $net, 'vat' => $vat];
+                $rates[] = ['label' => $label, 'net' => $net, 'vat' => $vat, 'gross' => number_format((float) $net + (float) $vat, 2, '.', '')];
             }
         }
         $pay = $v->node('Platnosc', $fa);
@@ -78,6 +78,32 @@ final class InvoiceView
                 'account' => $v->text('RachunekBankowy/NrRB', $pay),
                 'bank' => $v->text('RachunekBankowy/NazwaBanku', $pay),
             ];
+        }
+        $annotations = [];
+        foreach (['P_16' => 'metoda kasowa', 'P_17' => 'samofakturowanie', 'P_18' => 'odwrotne obciążenie', 'P_18A' => 'mechanizm podzielonej płatności'] as $k => $label) {
+            if ($v->text('Adnotacje/' . $k, $fa) === '1') {
+                $annotations[] = $label;
+            }
+        }
+        if ($v->text('Adnotacje/Zwolnienie/P_19', $fa) === '1') {
+            $annotations[] = 'zwolnienie z VAT: ' . trim($v->text('Adnotacje/Zwolnienie/P_19A', $fa) . ' ' . $v->text('Adnotacje/Zwolnienie/P_19B', $fa) . ' ' . $v->text('Adnotacje/Zwolnienie/P_19C', $fa));
+        }
+        if ($v->text('Adnotacje/PMarzy/P_PMarzy', $fa) === '1') {
+            $annotations[] = 'procedura marży';
+        }
+        $corrected = [];
+        foreach ($v->nodes('DaneFaKorygowanej', $fa) as $d) {
+            $ksef = $v->text('NrKSeFFaKorygowanej', $d);
+            $corrected[] = trim($v->text('NrFaKorygowanej', $d) . ($v->text('DataWystFaKorygowanej', $d) !== '' ? ' z ' . $v->text('DataWystFaKorygowanej', $d) : '')
+                . ($ksef !== '' ? ', KSeF ' . $ksef : ''));
+        }
+        $registers = [];
+        foreach ($v->nodes('Stopka/Rejestry', $root) as $r) {
+            foreach (['KRS' => 'KRS', 'REGON' => 'REGON', 'BDO' => 'BDO'] as $k => $label) {
+                if ($v->text($k, $r) !== '') {
+                    $registers[] = $label . ' ' . $v->text($k, $r);
+                }
+            }
         }
         $notes = [];
         foreach ($v->nodes('DodatkowyOpis', $fa) as $d) {
@@ -93,6 +119,7 @@ final class InvoiceView
             'number' => $v->text('P_2', $fa),
             'issue_date' => $v->text('P_1', $fa),
             'sale_date' => $v->text('P_6', $fa),
+            'period' => trim($v->text('OkresFa/P_6_Od', $fa) . ' - ' . $v->text('OkresFa/P_6_Do', $fa), ' -'),
             'place' => $v->text('P_1M', $fa),
             'kind' => $v->text('RodzajFaktury', $fa),
             'currency' => $v->text('KodWaluty', $fa) ?: 'PLN',
@@ -100,64 +127,166 @@ final class InvoiceView
             'rates' => $rates,
             'total' => $v->text('P_15', $fa),
             'payment' => $payment,
+            'annotations' => $annotations,
+            'corrected' => $corrected,
+            'reason' => $v->text('PrzyczynaKorekty', $fa),
+            'registers' => $registers,
             'notes' => array_values(array_filter($notes, static fn(string $n): bool => $n !== '')),
         ];
     }
 
-    /** Podgląd faktury jako HTML (dane z XML są escapowane). */
-    public static function html(string $xml): string
+    /**
+     * Podgląd faktury jako HTML w układzie wizualizacji KSeF (dane z XML są escapowane).
+     * @param array{ksef?:string,qr?:string} $meta numer KSeF i link weryfikacyjny (KOD I) - z nich kod QR pod fakturą
+     */
+    public static function html(string $xml, array $meta = []): string
     {
         $inv = self::parse($xml);
         $h = static fn(mixed $s): string => htmlspecialchars((string) $s, ENT_QUOTES);
-        $m = static fn(string $s): string => $s === '' ? '' : (is_numeric($s) ? number_format((float) $s, 2, ',', ' ') : htmlspecialchars($s));
+        $m = static fn(string $s): string => $h(self::money($s));
+        $cur = $h($inv['currency']);
+        $section = static fn(string $title): string => '<h4 class="ksef-h">' . $h($title) . '</h4>';
         $party = static function (string $title, array $p) use ($h): string {
-            $id = $p['nip'] !== '' ? 'NIP ' . $p['nip'] : ($p['eu'] !== '' ? 'VAT UE ' . $p['eu'] : ($p['other'] !== '' ? $p['other'] : ''));
-            return '<div><div style="color:var(--ink-3);font-size:12px">' . $h($title) . '</div><b>' . $h($p['name'] ?: '-') . '</b>'
-                . ($id !== '' ? '<br>' . $h($id) : '') . ($p['address'] !== '' ? '<br>' . $h($p['address']) : '')
-                . ($p['contact'] !== '' ? '<br><small>' . $h($p['contact']) . '</small>' : '') . '</div>';
+            $id = self::partyId($p);
+            return '<div class="ksef-party"><div class="ksef-label">' . $h($title) . '</div><b>' . $h($p['name'] ?: '-') . '</b>'
+                . ($id !== '' ? '<div>' . $h($id) . '</div>' : '') . ($p['address'] !== '' ? '<div>' . $h($p['address']) . '</div>' : '')
+                . ($p['contact'] !== '' ? '<div class="ksef-muted">' . $h($p['contact']) . '</div>' : '') . '</div>';
         };
-        $html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:12px">'
-            . $party('Sprzedawca', $inv['seller']) . $party('Nabywca', $inv['buyer']) . '</div>'
-            . '<p><b>Faktura ' . $h(self::kindLabel($inv['kind'])) . ' nr ' . $h($inv['number']) . '</b><br>Data wystawienia: ' . $h($inv['issue_date'])
-            . ($inv['sale_date'] !== '' ? ', data sprzedaży: ' . $h($inv['sale_date']) : '') . ($inv['place'] !== '' ? ', ' . $h($inv['place']) : '') . '</p>';
+        $html = '<style>
+.ksef-doc{max-width:900px;font-size:14px;line-height:1.45}
+.ksef-top{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:2px solid var(--ink-1,#2c2a26);padding-bottom:10px;margin-bottom:14px}
+.ksef-top h3{margin:0;font-size:20px}.ksef-label{color:var(--ink-3,#888);font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px}
+.ksef-muted{color:var(--ink-2,#666)}.ksef-h{margin:18px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2,#666);border-bottom:1px solid var(--line,#e5e2da);padding-bottom:4px}
+.ksef-parties{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.ksef-party{border:1px solid var(--line,#e5e2da);border-radius:8px;padding:10px 12px}
+.ksef-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:6px 16px}
+.ksef-doc table{width:100%}.ksef-doc td.n,.ksef-doc th.n{text-align:right;white-space:nowrap}
+.ksef-total{display:flex;justify-content:flex-end;gap:12px;align-items:baseline;margin-top:10px;font-size:16px}
+.ksef-total b{font-size:20px}
+.ksef-qr{display:flex;gap:16px;align-items:center;border:1px solid var(--line,#e5e2da);border-radius:8px;padding:12px;margin-top:18px}
+.ksef-qr svg{width:120px;height:120px;flex:none}.ksef-qr a{word-break:break-all;font-size:12px}
+</style><div class="ksef-doc">';
+        $html .= '<div class="ksef-top"><div><div class="ksef-label">Numer faktury</div><h3>' . $h($inv['number'] ?: '-') . '</h3>'
+            . '<div class="ksef-muted">' . $h(self::kindTitle($inv['kind'])) . '</div></div>'
+            . (!empty($meta['ksef']) ? '<div style="text-align:right"><div class="ksef-label">Numer KSeF</div><code>' . $h($meta['ksef']) . '</code></div>' : '') . '</div>';
+        $html .= '<div class="ksef-parties">' . $party('Sprzedawca', $inv['seller']) . $party('Nabywca', $inv['buyer']) . '</div>';
 
-        $html .= '<div style="overflow-x:auto"><table><tr><th>Lp.</th><th>Nazwa</th><th>Ilość</th><th>Cena</th><th>Wartość</th><th>VAT</th></tr>';
+        $html .= $section('Szczegóły') . '<div class="ksef-kv">';
+        foreach (self::details($inv) as $label => $value) {
+            $html .= '<div><div class="ksef-label">' . $h($label) . '</div>' . $h($value) . '</div>';
+        }
+        $html .= '</div>';
+        if ($inv['corrected'] !== [] || $inv['reason'] !== '') {
+            $html .= '<p style="margin:8px 0 0">' . ($inv['corrected'] !== [] ? 'Korygowana faktura: <b>' . $h(implode('; ', $inv['corrected'])) . '</b>' : '')
+                . ($inv['reason'] !== '' ? '<br>Przyczyna korekty: ' . $h($inv['reason']) : '') . '</p>';
+        }
+
+        $html .= $section('Pozycje') . '<div style="overflow-x:auto"><table><tr><th>Lp.</th><th>Nazwa towaru lub usługi</th><th class="n">Ilość</th><th>Miara</th>'
+            . '<th class="n">Cena jedn.</th><th class="n">Stawka</th><th class="n">Wartość</th></tr>';
         foreach ($inv['lines'] as $l) {
-            $gross = $l['value_gross'] !== '' || $l['price_gross'] !== '';
-            $html .= '<tr><td>' . $h($l['no']) . '</td><td>' . $h($l['name']) . '</td><td>' . $h(trim($l['qty'] . ' ' . $l['unit'])) . '</td>'
-                . '<td>' . $m($gross ? $l['price_gross'] : $l['price_net']) . ($gross ? ' <small>brutto</small>' : ($l['price_net'] !== '' ? ' <small>netto</small>' : '')) . '</td>'
-                . '<td>' . $m($gross ? $l['value_gross'] : $l['value_net']) . '</td><td>' . $h(is_numeric($l['rate']) ? $l['rate'] . '%' : $l['rate']) . '</td></tr>';
+            [$price, $value, $basis] = self::lineAmounts($l);
+            $html .= '<tr><td>' . $h($l['no']) . '</td><td>' . $h($l['name']) . '</td><td class="n">' . $h(self::qty($l['qty'])) . '</td><td>' . $h($l['unit']) . '</td>'
+                . '<td class="n">' . $m($price) . '</td><td class="n">' . $h(self::rate($l['rate'])) . '</td><td class="n">' . $m($value)
+                . ($basis !== '' ? ' <small class="ksef-muted">' . $basis . '</small>' : '') . '</td></tr>';
         }
         if ($inv['lines'] === []) {
-            $html .= '<tr><td colspan="6" style="color:var(--ink-2)">Faktura nie ma pozycji (np. korekta albo faktura zaliczkowa).</td></tr>';
+            $html .= '<tr><td colspan="7" class="ksef-muted">Faktura nie ma pozycji (np. korekta albo faktura zaliczkowa).</td></tr>';
         }
-        $html .= '</table></div><table style="margin-top:10px"><tr><th>Stawka</th><th>Netto</th><th>VAT</th></tr>';
-        foreach ($inv['rates'] as $r) {
-            $html .= '<tr><td>' . $h($r['label']) . '</td><td>' . $m($r['net']) . '</td><td>' . $m($r['vat']) . '</td></tr>';
-        }
-        $html .= '<tr><td><b>Do zapłaty</b></td><td colspan="2"><b>' . $m($inv['total']) . ' ' . $h($inv['currency']) . '</b></td></tr></table>';
+        $html .= '</table></div><div class="ksef-total"><span>Kwota należności ogółem</span><b>' . $m($inv['total']) . ' ' . $cur . '</b></div>';
 
-        $p = $inv['payment'];
-        $pay = [];
-        if ($p['paid'] === '1') {
-            $pay[] = 'zapłacono' . ($p['paid_date'] !== '' ? ' ' . $h($p['paid_date']) : '');
-        } elseif ($p['due'] !== '') {
-            $pay[] = 'termin płatności ' . $h($p['due']);
+        if ($inv['rates'] !== []) {
+            $html .= $section('Podsumowanie stawek podatku') . '<table><tr><th>Stawka</th><th class="n">Kwota netto</th><th class="n">Kwota podatku</th><th class="n">Kwota brutto</th></tr>';
+            foreach ($inv['rates'] as $r) {
+                $html .= '<tr><td>' . $h($r['label']) . '</td><td class="n">' . $m($r['net']) . '</td><td class="n">' . $m($r['vat']) . '</td><td class="n">' . $m($r['gross']) . '</td></tr>';
+            }
+            $html .= '</table>';
         }
-        if ($p['form'] !== '') {
-            $pay[] = $h($p['form']);
-        }
-        if ($p['account'] !== '') {
-            $nrb = preg_match('/^\d{26}$/', $p['account']) ? substr($p['account'], 0, 2) . ' ' . implode(' ', str_split(substr($p['account'], 2), 4)) : $p['account'];
-            $pay[] = 'rachunek <code>' . $h($nrb) . '</code>' . ($p['bank'] !== '' ? ' (' . $h($p['bank']) . ')' : '');
-        }
+        $pay = self::paymentRows($inv['payment']);
         if ($pay !== []) {
-            $html .= '<p><b>Płatność:</b> ' . implode(', ', $pay) . '</p>';
+            $html .= $section('Płatność') . '<div class="ksef-kv">';
+            foreach ($pay as $label => $value) {
+                $html .= '<div><div class="ksef-label">' . $h($label) . '</div>' . ($label === 'Rachunek' ? '<code>' . $h($value) . '</code>' : $h($value)) . '</div>';
+            }
+            $html .= '</div>';
         }
-        foreach ($inv['notes'] as $n) {
-            $html .= '<p style="color:var(--ink-2);white-space:pre-wrap;margin:4px 0">' . $h($n) . '</p>';
+        $extra = array_merge($inv['annotations'] !== [] ? ['Adnotacje: ' . implode(', ', $inv['annotations'])] : [], $inv['notes'], $inv['registers'] !== [] ? [implode(' · ', $inv['registers'])] : []);
+        if ($extra !== []) {
+            $html .= $section('Dodatkowe informacje');
+            foreach ($extra as $n) {
+                $html .= '<p style="white-space:pre-wrap;margin:4px 0">' . $h($n) . '</p>';
+            }
         }
-        return $html;
+        if (!empty($meta['qr'])) {
+            $html .= '<div class="ksef-qr">' . QrCode::encode((string) $meta['qr'])->svg(2, 'Kod QR weryfikacji faktury w KSeF')
+                . '<div><b>Sprawdź, czy faktura znajduje się w KSeF</b><br><span class="ksef-muted">Zeskanuj kod albo otwórz link:</span><br>'
+                . '<a href="' . $h($meta['qr']) . '" target="_blank" rel="noopener noreferrer">' . $h($meta['qr']) . '</a></div></div>';
+        }
+        return $html . '</div>';
+    }
+
+    /** Kwota z XML w formacie polskim (1 234,56); pusty lub nieliczbowy tekst bez zmian. */
+    public static function money(string $s): string
+    {
+        return $s === '' || !is_numeric($s) ? $s : number_format((float) $s, 2, ',', ' ');
+    }
+
+    public static function kindTitle(string $kind): string
+    {
+        return ['VAT' => 'Faktura podstawowa', 'KOR' => 'Faktura korygująca', 'ZAL' => 'Faktura zaliczkowa', 'ROZ' => 'Faktura rozliczeniowa',
+            'UPR' => 'Faktura uproszczona', 'KOR_ZAL' => 'Faktura korygująca zaliczkową', 'KOR_ROZ' => 'Faktura korygująca rozliczeniową'][$kind] ?? ('Faktura ' . $kind);
+    }
+
+    /** NIP, numer VAT UE albo inny identyfikator strony. */
+    public static function partyId(array $p): string
+    {
+        return $p['nip'] !== '' ? 'NIP ' . $p['nip'] : ($p['eu'] !== '' ? 'VAT UE ' . $p['eu'] : $p['other']);
+    }
+
+    /** @return array<string,string> etykieta => wartość */
+    public static function details(array $inv): array
+    {
+        return array_filter([
+            'Data wystawienia' => $inv['issue_date'],
+            'Miejsce wystawienia' => $inv['place'],
+            'Data dostawy / wykonania usługi' => $inv['sale_date'],
+            'Okres' => $inv['period'],
+            'Waluta' => $inv['currency'],
+        ], static fn(string $v): bool => $v !== '');
+    }
+
+    /** @return array<string,string> etykieta => wartość */
+    public static function paymentRows(array $p): array
+    {
+        $nrb = $p['account'] !== '' && preg_match('/^\d{26}$/', $p['account']) ? substr($p['account'], 0, 2) . ' ' . implode(' ', str_split(substr($p['account'], 2), 4)) : $p['account'];
+        return array_filter([
+            'Status' => $p['paid'] === '1' ? 'zapłacono' . ($p['paid_date'] !== '' ? ' ' . $p['paid_date'] : '') : '',
+            'Termin płatności' => $p['paid'] === '1' ? '' : $p['due'],
+            'Forma płatności' => $p['form'],
+            'Rachunek' => $nrb,
+            'Bank' => $p['bank'],
+        ], static fn(string $v): bool => $v !== '');
+    }
+
+    /**
+     * Cena jednostkowa, wartość i podstawa („netto”/„brutto”) pozycji.
+     * @return array{0:string,1:string,2:string}
+     */
+    public static function lineAmounts(array $l): array
+    {
+        $gross = $l['value_gross'] !== '' || ($l['value_net'] === '' && $l['price_gross'] !== '');
+        $price = $gross ? $l['price_gross'] : $l['price_net'];
+        $value = $gross ? $l['value_gross'] : $l['value_net'];
+        return [$price, $value, $value !== '' || $price !== '' ? ($gross ? 'brutto' : 'netto') : ''];
+    }
+
+    public static function rate(string $rate): string
+    {
+        return is_numeric($rate) ? $rate . '%' : (['zw' => 'zw.', 'oo' => 'o.o.', 'np I' => 'np.', 'np II' => 'np.'][$rate] ?? $rate);
+    }
+
+    public static function qty(string $qty): string
+    {
+        return is_numeric($qty) ? rtrim(rtrim(number_format((float) $qty, 6, ',', ' '), '0'), ',') : $qty;
     }
 
     public static function kindLabel(string $kind): string
@@ -182,7 +311,8 @@ final class InvoiceView
             'nip' => $this->text('DaneIdentyfikacyjne/NIP', $p),
             'eu' => $this->text('DaneIdentyfikacyjne/KodUE', $p) . $this->text('DaneIdentyfikacyjne/NrVatUE', $p),
             'other' => $this->text('DaneIdentyfikacyjne/NrID', $p),
-            'address' => trim($this->text('Adres/AdresL1', $p) . ', ' . $this->text('Adres/AdresL2', $p), ', '),
+            'address' => trim($this->text('Adres/AdresL1', $p) . ', ' . $this->text('Adres/AdresL2', $p), ', ')
+                . (!in_array($this->text('Adres/KodKraju', $p), ['', 'PL'], true) ? ', ' . $this->text('Adres/KodKraju', $p) : ''),
             'contact' => trim($this->text('DaneKontaktowe/Email', $p) . ', ' . $this->text('DaneKontaktowe/Telefon', $p), ', '),
         ];
     }

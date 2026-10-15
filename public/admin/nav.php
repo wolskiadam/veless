@@ -7,7 +7,7 @@ declare(strict_types=1);
  * Menu dopasowane do funkcji middleware.
  */
 
-// Definicja pozycji menu: Pase\Support\AdminMenu (wspólna z edytorem kolejności).
+// Definicja pozycji menu: Pase\Support\AdminMenu (wspólna z edytorem układu menu).
 // Konto ze szczegółowymi uprawnieniami: pełne menu przefiltrowane wg uprawnień do stron;
 // strony spoza rejestru (np. Użytkownicy) - jak dotąd, wg roli. Bez uprawnień - wg roli.
 $roleEdit  = function_exists('roleCanEdit') ? roleCanEdit() : (function_exists('canEdit') && canEdit());
@@ -24,10 +24,10 @@ if (function_exists('usesPagePermissions') && usesPagePermissions()) {
             ? canOpenPage($href) : isset($roleHrefs[$href])
     );
 }
-// Kolejność ustawiona przez administratora (Konfiguracja → Kolejność menu).
+// Układ ustawiony przez administratora (Konfiguracja → Układ menu): własne zakładki, podkategorie, ukryte pozycje.
 if (isset($pdo) && $pdo instanceof PDO) {
     try {
-        $menuGroups = \Pase\Support\AdminMenu::applyOrder(
+        $menuGroups = \Pase\Support\AdminMenu::applyLayout(
             $menuGroups,
             (new \Pase\Repository\SettingsRepository($pdo))->get(\Pase\Support\AdminMenu::SETTING)
         );

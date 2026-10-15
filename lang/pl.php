@@ -134,7 +134,7 @@ return [
     'nav.gs1'          => '🏷 GS1 (kody EAN)',
     'nav.orders.history' => '🕘 Historia zmian',
     'nav.documents_check' => '📄 Dokumenty do sprawdzenia',
-    'nav.menu_order' => '🧭 Kolejność menu',
+    'nav.menu_order' => '🧭 Układ menu',
     'nav.server_usage' => '🖥️ Obciążenie serwera',
     'nav.backup' => '💾 Kopia zapasowa',
     'nav.handover' => '🔁 Przeniesienie danych',

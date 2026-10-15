@@ -4,19 +4,31 @@ declare(strict_types=1);
 namespace Pase\Support;
 
 /**
- * Menu panelu: definicja pozycji + kolejność ustawiana przez administratora
- * (Konfiguracja → Kolejność menu, public/admin/menu_order.php).
+ * Menu panelu: definicja pozycji + układ ustawiany przez administratora
+ * (Konfiguracja → Układ menu, public/admin/menu_order.php).
  *
- * Kolejność trzymamy w settings pod kluczem NAV_ORDER jako JSON:
- *   {"groups": ["orders","catalog",...], "items": {"orders": ["index.php",...], "allegro": [...]}}
- * Klucz pozycji = href (albo 'key' dla pozycji z pod-menu, np. 'allegro').
- * Pozycje nieznane w zapisanej kolejności (np. nowo dodane w kodzie) trafiają na koniec
- * swojej grupy w domyślnym porządku - nowa funkcja nigdy nie zniknie z menu.
- * Kolejność nie zmienia uprawnień: pozycje tylko dla administratora nadal widzi tylko on.
+ * Układ trzymamy w settings pod kluczem NAV_ORDER jako JSON (wersja 2):
+ *   {"v":2,
+ *    "groups":[{"key":"orders","name":"","items":["index.php",{"key":"custom_x1","name":"Wysyłka","children":["packing.php"]}]},
+ *              {"key":"custom_a1","name":"Moja zakładka","items":[...]}],
+ *    "hidden":["queue.php"]}
+ * Zakładki (grupy) i podkategorie (pod-menu) mogą być wbudowane albo własne (klucz custom_…),
+ * każdą można nazwać po swojemu ("name", pusta = nazwa domyślna). Każdą pozycję można
+ * przenieść do dowolnej zakładki lub podkategorii albo ukryć z menu.
+ * Klucz pozycji = href (albo 'key' dla pod-menu, np. 'allegro').
+ * Pozycje nieobecne w układzie (np. nowo dodane w kodzie) trafiają na swoje domyślne miejsce
+ * - nowa funkcja nigdy nie zniknie z menu. Puste zakładki i podkategorie znikają z paska.
+ * Starszy format (sama kolejność: {"groups":[...],"items":{...}}) nadal działa (applyOrder).
+ * Układ nie zmienia uprawnień: pozycje tylko dla administratora nadal widzi tylko on,
+ * a ukrycie pozycji nie blokuje dostępu do strony.
  */
 final class AdminMenu
 {
     public const SETTING = 'NAV_ORDER';
+    /** Klucz własnej zakładki/podkategorii utworzonej w edytorze. */
+    public const CUSTOM_KEY = '/^custom_[a-z0-9]{1,24}$/';
+    /** Tej pozycji nie da się ukryć - inaczej nie byłoby jak wrócić do edytora. */
+    public const NOT_HIDEABLE = ['menu_order.php'];
 
     /** @return array<string,array{label:string,items:list<array<string,mixed>>}> */
     public static function build(bool $canEdit, bool $isAdmin): array
@@ -218,6 +230,167 @@ final class AdminMenu
             $clean['items'][$gk] = $pick($posted['items'][$gk] ?? null, $known);
         }
         return $clean;
+    }
+
+    /**
+     * Układa menu wg zapisanego ustawienia: format v2 (zakładki, podkategorie, ukryte) albo
+     * starszy format samej kolejności. $editor = widok edytora: ukryte pozycje zostają
+     * (z flagą 'hidden'), a puste zakładki i podkategorie nie znikają.
+     * Grupy i pod-menu dostają 'name' (własna nazwa, surowy tekst) i 'default' (nazwa domyślna).
+     */
+    public static function applyLayout(array $groups, ?string $json, bool $editor = false): array
+    {
+        $layout = $json ? json_decode($json, true) : null;
+        if (!is_array($layout) || ($layout['v'] ?? null) !== 2 || !is_array($layout['groups'] ?? null)) {
+            return self::applyOrder($groups, $json);
+        }
+        [$leaves, $home, $groupLabels, $subs] = self::catalog($groups);
+        $hidden = array_fill_keys(array_filter((array) ($layout['hidden'] ?? []), 'is_string'), true);
+        $used = [];
+        $out = [];
+
+        // Pozycja z katalogu (tylko te, które ten użytkownik widzi), każda najwyżej raz.
+        $leaf = static function (mixed $k) use (&$used, $leaves, $hidden, $editor): ?array {
+            if (!is_string($k) || !isset($leaves[$k]) || isset($used[$k])) { return null; }
+            $used[$k] = true;
+            if (isset($hidden[$k]) && !in_array($k, self::NOT_HIDEABLE, true)) {
+                if (!$editor) { return null; }
+                return $leaves[$k] + ['hidden' => true];
+            }
+            return $leaves[$k];
+        };
+
+        foreach ($layout['groups'] as $g) {
+            $gk = is_array($g) ? (string) ($g['key'] ?? '') : '';
+            if ($gk === '' || isset($out[$gk]) || (!isset($groupLabels[$gk]) && !preg_match(self::CUSTOM_KEY, $gk))) { continue; }
+            $items = [];
+            foreach ((array) ($g['items'] ?? []) as $entry) {
+                if (is_array($entry)) {
+                    $sk = (string) ($entry['key'] ?? '');
+                    if (isset($used['sub:' . $sk]) || (!isset($subs[$sk]) && !preg_match(self::CUSTOM_KEY, $sk))) { continue; }
+                    $used['sub:' . $sk] = true;
+                    $children = [];
+                    foreach ((array) ($entry['children'] ?? []) as $ck) {
+                        if (($c = $leaf($ck)) !== null) { $children[] = $c; }
+                    }
+                    $items[] = self::named(['key' => $sk, 'children' => $children], $entry['name'] ?? '', $subs[$sk]['label'] ?? 'Podkategoria');
+                } elseif (($it = $leaf($entry)) !== null) {
+                    $items[] = $it;
+                }
+            }
+            $out[$gk] = self::named(['items' => $items], $g['name'] ?? '', $groupLabels[$gk] ?? 'Nowa zakładka');
+        }
+
+        // Pozostałe pozycje (nowe w kodzie albo nieujęte w układzie) - na domyślne miejsce.
+        foreach ($leaves as $k => $item) {
+            if (isset($used[$k])) { continue; }
+            [$gk, $sk] = $home[$k];
+            if (!isset($out[$gk])) { $out[$gk] = self::named(['items' => []], '', $groupLabels[$gk]); }
+            if ($sk === null) { $out[$gk]['items'][] = $item; continue; }
+            $placed = false;
+            foreach ($out as $ogk => $og) {
+                foreach ($og['items'] as $i => $oi) {
+                    if (isset($oi['children']) && ($oi['key'] ?? null) === $sk) {
+                        $out[$ogk]['items'][$i]['children'][] = $item;
+                        $placed = true;
+                        break 2;
+                    }
+                }
+            }
+            if (!$placed) {
+                $out[$gk]['items'][] = self::named(['key' => $sk, 'children' => [$item]], '', $subs[$sk]['label']);
+            }
+        }
+
+        if ($editor) { return $out; }
+        foreach ($out as $gk => $g) {
+            $g['items'] = array_values(array_filter($g['items'], static fn(array $i): bool => !isset($i['children']) || $i['children'] !== []));
+            if ($g['items']) { $out[$gk] = $g; } else { unset($out[$gk]); }
+        }
+        return $out;
+    }
+
+    /**
+     * Czyści układ przesłany z edytora: tylko znane pozycje (każda raz), klucze zakładek
+     * i podkategorii wbudowane albo custom_…, nazwy przycięte do 40 znaków.
+     * @param array<string,mixed> $posted
+     * @return array{v:int,groups:list<array<string,mixed>>,hidden:list<string>}
+     */
+    public static function sanitizeLayout(array $posted, array $groups): array
+    {
+        [$leaves, , $groupLabels, $subs] = self::catalog($groups);
+        $name = static function (mixed $v): string {
+            $v = is_string($v) ? trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $v)) : '';
+            return mb_substr($v, 0, 40);
+        };
+        $used = [];
+        $leafKey = static function (mixed $k) use (&$used, $leaves): ?string {
+            if (!is_string($k) || !isset($leaves[$k]) || isset($used[$k])) { return null; }
+            $used[$k] = true;
+            return $k;
+        };
+        $clean = ['v' => 2, 'groups' => [], 'hidden' => []];
+        foreach (array_slice((array) ($posted['groups'] ?? []), 0, 40) as $g) {
+            $gk = is_array($g) && is_string($g['key'] ?? null) ? $g['key'] : '';
+            if (isset($used['group:' . $gk]) || (!isset($groupLabels[$gk]) && !preg_match(self::CUSTOM_KEY, $gk))) { continue; }
+            $used['group:' . $gk] = true;
+            $items = [];
+            foreach (array_slice((array) ($g['items'] ?? []), 0, 500) as $entry) {
+                if (is_array($entry)) {
+                    $sk = is_string($entry['key'] ?? null) ? $entry['key'] : '';
+                    if (isset($used['sub:' . $sk]) || (!isset($subs[$sk]) && !preg_match(self::CUSTOM_KEY, $sk))) { continue; }
+                    $used['sub:' . $sk] = true;
+                    $children = [];
+                    foreach (array_slice((array) ($entry['children'] ?? []), 0, 500) as $ck) {
+                        if (($c = $leafKey($ck)) !== null) { $children[] = $c; }
+                    }
+                    $items[] = ['key' => $sk, 'name' => $name($entry['name'] ?? ''), 'children' => $children];
+                } elseif (($k = $leafKey($entry)) !== null) {
+                    $items[] = $k;
+                }
+            }
+            $clean['groups'][] = ['key' => $gk, 'name' => $name($g['name'] ?? ''), 'items' => $items];
+        }
+        foreach ((array) ($posted['hidden'] ?? []) as $k) {
+            if (is_string($k) && isset($leaves[$k]) && !in_array($k, self::NOT_HIDEABLE, true) && !in_array($k, $clean['hidden'], true)) {
+                $clean['hidden'][] = $k;
+            }
+        }
+        return $clean;
+    }
+
+    /**
+     * Rozkłada menu na: pozycje (klucz => pozycja), ich domyślne miejsce ([grupa, pod-menu|null]),
+     * domyślne nazwy grup i wbudowane pod-menu (klucz => [label, group]).
+     * @return array{0:array<string,array>,1:array<string,array{0:string,1:?string}>,2:array<string,string>,3:array<string,array{label:string,group:string}>}
+     */
+    private static function catalog(array $groups): array
+    {
+        $leaves = $home = $labels = $subs = [];
+        foreach ($groups as $gk => $group) {
+            $labels[(string) $gk] = (string) $group['label'];
+            foreach ($group['items'] as $item) {
+                if (isset($item['children'])) {
+                    $sk = self::key($item);
+                    $subs[$sk] = ['label' => (string) $item['label'], 'group' => (string) $gk];
+                    foreach ($item['children'] as $c) {
+                        $k = self::key($c);
+                        if ($k !== '' && !isset($leaves[$k])) { $leaves[$k] = $c; $home[$k] = [(string) $gk, $sk]; }
+                    }
+                    continue;
+                }
+                $k = self::key($item);
+                if ($k !== '' && !isset($leaves[$k])) { $leaves[$k] = $item; $home[$k] = [(string) $gk, null]; }
+            }
+        }
+        return [$leaves, $home, $labels, $subs];
+    }
+
+    /** Ustawia 'label' (do paska; własna nazwa escapowana), 'name' i 'default' grupy/pod-menu. */
+    private static function named(array $node, mixed $name, string $default): array
+    {
+        $name = is_string($name) ? trim($name) : '';
+        return ['label' => $name !== '' ? htmlspecialchars($name, ENT_QUOTES, 'UTF-8') : $default, 'name' => $name, 'default' => $default] + $node;
     }
 
     /** Stabilne sortowanie: najpierw wg zapisanej listy, reszta na końcu w domyślnej kolejności. */

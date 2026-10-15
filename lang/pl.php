@@ -248,6 +248,8 @@ return [
     'nav.users'            => '👥 Użytkownicy',
     'stats.title'          => 'Statystyki',
     'stats.range'          => 'Zakres',
+    'stats.range.today'    => 'Dzisiaj',
+    'stats.range.yesterday' => 'Wczoraj',
     'stats.range.7'        => 'Ostatnie 7 dni',
     'stats.range.30'       => 'Ostatnie 30 dni',
     'stats.range.90'       => 'Ostatnie 90 dni',

@@ -15,11 +15,15 @@ require __DIR__ . '/auth.php';
 $statusRepo = new OrderStatusRepository($pdo);
 $statusList = $statusRepo->all();
 
-// --- Zakres dat: preset (7/30/90/365 dni, bieżący miesiąc) + możliwość ręcznej edycji dat ---
-$rangeOptions = ['7' => 'stats.range.7', '30' => 'stats.range.30', '90' => 'stats.range.90', '365' => 'stats.range.365', 'month' => 'stats.range.month'];
-$range = array_key_exists($_GET['range'] ?? '', $rangeOptions) ? $_GET['range'] : '30';
+// --- Zakres dat: preset (dzisiaj, wczoraj, 7/30/90/365 dni, bieżący miesiąc) + możliwość ręcznej edycji dat ---
+$rangeOptions = ['today' => 'stats.range.today', 'yesterday' => 'stats.range.yesterday', '7' => 'stats.range.7', '30' => 'stats.range.30', '90' => 'stats.range.90', '365' => 'stats.range.365', 'month' => 'stats.range.month'];
+$range = array_key_exists($_GET['range'] ?? '', $rangeOptions) ? $_GET['range'] : 'today';
 
-if ($range === 'month') {
+if ($range === 'today') {
+    $dateFromCalc = $dateToCalc = date('Y-m-d');
+} elseif ($range === 'yesterday') {
+    $dateFromCalc = $dateToCalc = date('Y-m-d', strtotime('-1 day'));
+} elseif ($range === 'month') {
     $dateFromCalc = date('Y-m-01');
     $dateToCalc   = date('Y-m-d');
 } else {

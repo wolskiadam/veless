@@ -16,6 +16,11 @@ W **Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia** wybierasz, co wtyczka
 - **Zamówienia → Faktury KSeF**: lista wystawionych e-faktur i sprawdzenie oczekujących.
 - **Automatyzacje**: akcja „Wyślij e-fakturę do KSeF” (np. po opłaceniu zamówienia). Zamówienie z e-fakturą jest pomijane.
 
+**Faktury sprzedażowe** (domyślnie włączone): **Zamówienia → Faktury sprzedażowe KSeF** działa jak lista zakupowa
+(opis niżej), ale pokazuje faktury, w których firma jest sprzedawcą (`subjectType = Subject1`), także wystawione poza tym
+systemem (np. w wFirma albo w Aplikacji Podatnika). Kontrahentem w tabeli jest nabywca; osobna tabela `ext_ksef_sales`
+i osobny punkt „Pobierz nowe”. Wyłączysz ją w ustawieniach wtyczki.
+
 **Faktury zakupowe** (domyślnie wyłączone):
 
 - **Zamówienia → Faktury zakupowe KSeF**: faktury, w których firma jest nabywcą. Przycisk „Pobierz nowe z KSeF” dociąga

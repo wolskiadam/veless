@@ -137,7 +137,7 @@ try {
         && str_contains($pl['body'], 'name="cfg[do_sales]" value="1" checked') && str_contains($pl['body'], 'name="cfg[do_purchases]" value="1">'), 'Plugins page lists the KSeF extension with its settings');
     $r = request($boss, 'admin/plugins.php', ['csrf' => csrfOf($pl['body']), 'action' => 'ext_settings', 'slug' => 'ksef', 'cfg' => [
         'environment' => 'test', 'nip' => '526-025-02-74', 'seller_name' => 'Klub Testowy sp. z o.o.', 'seller_address1' => 'ul. Prosta 1',
-        'seller_address2' => '00-001 Warszawa', 'number_format' => 'KSEF/{nr}/{mm}/{rrrr}', 'default_vat' => '23', 'vat_mode' => 'vat', 'do_sales' => '1', 'do_purchases' => '1', 'purchases_days' => '30']]);
+        'seller_address2' => '00-001 Warszawa', 'number_format' => 'KSEF/{nr}/{mm}/{rrrr}', 'default_vat' => '23', 'vat_mode' => 'vat', 'do_sales' => '1', 'do_sales_list' => '1', 'do_purchases' => '1', 'purchases_days' => '30']]);
     ok($r['status'] === 200 && str_contains($r['body'], 'Zapisano ustawienia'), 'Settings are saved');
 
     // ---- Strona Faktury KSeF; token w ustawieniach wtyczki
@@ -151,7 +151,7 @@ try {
     $pl = request($boss, 'admin/plugins.php');
     $r = request($boss, 'admin/plugins.php', ['csrf' => csrfOf($pl['body']), 'action' => 'ext_settings', 'slug' => 'ksef', 'cfg' => [
         'environment' => 'test', 'nip' => '526-025-02-74', 'seller_name' => 'Klub Testowy sp. z o.o.', 'seller_address1' => 'ul. Prosta 1',
-        'seller_address2' => '00-001 Warszawa', 'number_format' => 'KSEF/{nr}/{mm}/{rrrr}', 'default_vat' => '23', 'vat_mode' => 'vat', 'do_sales' => '1', 'do_purchases' => '1',
+        'seller_address2' => '00-001 Warszawa', 'number_format' => 'KSEF/{nr}/{mm}/{rrrr}', 'default_vat' => '23', 'vat_mode' => 'vat', 'do_sales' => '1', 'do_sales_list' => '1', 'do_purchases' => '1',
         'purchases_days' => '30', 'token_test' => 'token-z-panelu']]);
     $stored = (string) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'EXT_KSEF'")->fetchColumn();
     ok($r['status'] === 200 && str_contains($stored, '"token_test":"enc:v1:') && !str_contains($stored, 'token-z-panelu') && !str_contains($r['body'], 'token-z-panelu')
@@ -211,6 +211,15 @@ try {
         && str_contains($one['body'], '<svg'), 'Purchase invoice PDF downloads and the preview has the PDF button and QR code');
     ok(request($vi, 'admin/ext.php?page=ksef.zakuppdf&k=nie-ma')['status'] === 404, 'Missing purchase invoice PDF is 404');
     ok(str_contains(request($boss, 'admin/index.php')['body'], 'href="ext.php?page=ksef.zakupy"'), 'Menu has the purchase invoices entry');
+    $sl = request($vi, 'admin/ext.php?page=ksef.sprzedaz');
+    $pdo->prepare("INSERT INTO ext_ksef_sales (env, ksef_number, invoice_number, invoice_type, buyer_nip, buyer_name, issue_date, storage_date, net, vat, gross, currency, invoice_hash, xml, created_at)
+        VALUES ('test', '5260250274-20261010-BBBBBBBBBBBB-01', 'KSEF/9/10/2026', 'Vat', '1132853869', 'Pasieka Pod Lipą', '2026-10-10', '2026-10-10T09:00:00+00:00', 100, 23, 123, 'PLN', ?, ?, '2026-10-14 13:00:00')")
+        ->execute([base64_encode(hash('sha256', $fa, true)), $fa]);
+    $sl2 = request($ola, 'admin/ext.php?page=ksef.sprzedaz&m=2026-10');
+    ok($sl['status'] === 200 && str_contains($sl['body'], 'Faktury sprzedażowe KSeF') && str_contains($sl2['body'], 'Pasieka Pod Lipą') && str_contains($sl2['body'], 'page=ksef.pobierzsp')
+        && str_contains(request($boss, 'admin/index.php')['body'], 'href="ext.php?page=ksef.sprzedaz"'), 'Sales invoices list in the menu, with fetch button for editors');
+    $spdf = request($vi, 'admin/ext.php?page=ksef.sprzedazpdf&k=5260250274-20261010-BBBBBBBBBBBB-01');
+    ok($spdf['status'] === 200 && str_starts_with($spdf['body'], '%PDF-1.4'), 'Sales invoice PDF downloads');
 
     $warnings = preg_grep('/PHP (Warning|Fatal|Parse|Deprecated|Notice)|Rozszerzenie .* błąd/', file("$temp/server.log") ?: []);
     ok($warnings === [], 'No PHP warnings or extension errors' . ($warnings ? ': ' . implode(' | ', array_map('trim', $warnings)) : ''));

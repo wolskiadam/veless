@@ -6,25 +6,39 @@ namespace PaseExt\Ksef;
 use PDO;
 
 /**
- * Faktury zakupowe (otrzymane) pobrane z KSeF. Tabele tworzone przy pierwszym użyciu (MySQL i SQLite):
- *  - ext_ksef_purchases: metadane faktury z KSeF (numer KSeF, sprzedawca, kwoty), XML dociągany przy pierwszym podglądzie,
- *  - ext_ksef_sync: punkt, od którego zaczyna się kolejne pobieranie (osobno dla środowiska).
+ * Faktury pobrane z KSeF: zakupowe (firma jest nabywcą) albo sprzedażowe (firma jest sprzedawcą).
+ * Tabele tworzone przy pierwszym użyciu (MySQL i SQLite):
+ *  - ext_ksef_purchases / ext_ksef_sales: metadane faktury z KSeF (numer KSeF, kontrahent, kwoty), XML dociągany przy pierwszym podglądzie;
+ *    kontrahent to sprzedawca (seller_*) w zakupowych i nabywca (buyer_*) w sprzedażowych,
+ *  - ext_ksef_sync: punkt, od którego zaczyna się kolejne pobieranie (osobno dla rodzaju i środowiska).
  */
 final class Purchases
 {
+    public const PURCHASE = 'purchase';
+    public const SALE = 'sale';
+
     public const TYPES = ['Vat' => 'VAT', 'Kor' => 'korygująca', 'Zal' => 'zaliczkowa', 'Roz' => 'rozliczeniowa', 'Upr' => 'uproszczona',
         'KorZal' => 'korekta zaliczkowej', 'KorRoz' => 'korekta rozliczeniowej', 'VatPef' => 'PEF', 'VatPefSp' => 'PEF', 'KorPef' => 'korekta PEF',
         'VatRr' => 'VAT RR', 'KorVatRr' => 'korekta VAT RR'];
 
-    public function __construct(private readonly PDO $pdo)
+    private readonly string $table;
+    /** Prefiks kolumn kontrahenta: seller albo buyer. */
+    private readonly string $party;
+
+    public function __construct(private readonly PDO $pdo, private readonly string $kind = self::PURCHASE)
     {
-        $this->pdo->exec('CREATE TABLE IF NOT EXISTS ext_ksef_purchases (
+        if ($kind !== self::PURCHASE && $kind !== self::SALE) {
+            throw new \InvalidArgumentException('Nieznany rodzaj faktur: ' . $kind);
+        }
+        $this->table = $kind === self::SALE ? 'ext_ksef_sales' : 'ext_ksef_purchases';
+        $this->party = $kind === self::SALE ? 'buyer' : 'seller';
+        $this->pdo->exec('CREATE TABLE IF NOT EXISTS ' . $this->table . ' (
             env VARCHAR(8) NOT NULL,
             ksef_number VARCHAR(64) NOT NULL,
             invoice_number VARCHAR(256) NOT NULL,
             invoice_type VARCHAR(16) NULL,
-            seller_nip VARCHAR(16) NULL,
-            seller_name VARCHAR(512) NULL,
+            ' . $this->party . '_nip VARCHAR(16) NULL,
+            ' . $this->party . '_name VARCHAR(512) NULL,
             issue_date VARCHAR(10) NOT NULL,
             storage_date VARCHAR(40) NULL,
             net DECIMAL(14,2) NULL,
@@ -42,6 +56,11 @@ final class Purchases
         )');
     }
 
+    public function kind(): string
+    {
+        return $this->kind;
+    }
+
     /** Zapisuje metadane z KSeF (InvoiceMetadata). @return bool true = nowa faktura */
     public function save(string $env, array $m): bool
     {
@@ -52,8 +71,8 @@ final class Purchases
         $fields = [
             'invoice_number' => mb_substr((string) ($m['invoiceNumber'] ?? ''), 0, 256),
             'invoice_type' => mb_substr((string) ($m['invoiceType'] ?? ''), 0, 16),
-            'seller_nip' => mb_substr((string) ($m['seller']['nip'] ?? ''), 0, 16),
-            'seller_name' => mb_substr((string) ($m['seller']['name'] ?? ''), 0, 512),
+            $this->party . '_nip' => mb_substr($this->partyId($m), 0, 16),
+            $this->party . '_name' => mb_substr((string) ($m[$this->party]['name'] ?? ''), 0, 512),
             'issue_date' => substr((string) ($m['issueDate'] ?? ''), 0, 10),
             'storage_date' => mb_substr((string) ($m['permanentStorageDate'] ?? ''), 0, 40),
             'net' => is_numeric($m['netAmount'] ?? null) ? (float) $m['netAmount'] : null,
@@ -64,12 +83,12 @@ final class Purchases
         ];
         if ($this->get($env, $ksef) !== null) {
             $set = implode(', ', array_map(static fn(string $k): string => $k . ' = ?', array_keys($fields)));
-            $this->pdo->prepare('UPDATE ext_ksef_purchases SET ' . $set . ' WHERE env = ? AND ksef_number = ?')
+            $this->pdo->prepare('UPDATE ' . $this->table . ' SET ' . $set . ' WHERE env = ? AND ksef_number = ?')
                 ->execute([...array_values($fields), $env, $ksef]);
             return false;
         }
         $cols = ['env', 'ksef_number', ...array_keys($fields), 'created_at'];
-        $this->pdo->prepare('INSERT INTO ext_ksef_purchases (' . implode(', ', $cols) . ') VALUES (' . implode(', ', array_fill(0, count($cols), '?')) . ')')
+        $this->pdo->prepare('INSERT INTO ' . $this->table . ' (' . implode(', ', $cols) . ') VALUES (' . implode(', ', array_fill(0, count($cols), '?')) . ')')
             ->execute([$env, $ksef, ...array_values($fields), date('Y-m-d H:i:s')]);
         return true;
     }
@@ -77,14 +96,14 @@ final class Purchases
     /** @return array<string,mixed>|null */
     public function get(string $env, string $ksefNumber): ?array
     {
-        $st = $this->pdo->prepare('SELECT * FROM ext_ksef_purchases WHERE env = ? AND ksef_number = ?');
+        $st = $this->pdo->prepare('SELECT * FROM ' . $this->table . ' WHERE env = ? AND ksef_number = ?');
         $st->execute([$env, $ksefNumber]);
         return $st->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
     public function setXml(string $env, string $ksefNumber, string $xml): void
     {
-        $this->pdo->prepare('UPDATE ext_ksef_purchases SET xml = ? WHERE env = ? AND ksef_number = ?')->execute([$xml, $env, $ksefNumber]);
+        $this->pdo->prepare('UPDATE ' . $this->table . ' SET xml = ? WHERE env = ? AND ksef_number = ?')->execute([$xml, $env, $ksefNumber]);
     }
 
     /**
@@ -95,8 +114,9 @@ final class Purchases
     public function latest(string $env, string $q = '', string $month = '', int $limit = 500, int $offset = 0): array
     {
         [$where, $args] = $this->filter($env, $q, $month);
-        $st = $this->pdo->prepare('SELECT env, ksef_number, invoice_number, invoice_type, seller_nip, seller_name, issue_date, storage_date, net, vat, gross, currency, invoice_hash,
-                CASE WHEN xml IS NULL THEN 0 ELSE 1 END AS has_xml FROM ext_ksef_purchases WHERE ' . $where
+        // party_nip / party_name: kontrahent (sprzedawca zakupu albo nabywca sprzedaży)
+        $st = $this->pdo->prepare('SELECT env, ksef_number, invoice_number, invoice_type, ' . $this->party . '_nip AS party_nip, ' . $this->party . '_name AS party_name,
+                issue_date, storage_date, net, vat, gross, currency, invoice_hash, CASE WHEN xml IS NULL THEN 0 ELSE 1 END AS has_xml FROM ' . $this->table . ' WHERE ' . $where
             . ' ORDER BY issue_date DESC, storage_date DESC, ksef_number DESC LIMIT ' . max(1, $limit) . ' OFFSET ' . max(0, $offset));
         $st->execute($args);
         return $st->fetchAll(PDO::FETCH_ASSOC);
@@ -109,7 +129,7 @@ final class Purchases
     public function totals(string $env, string $q = '', string $month = ''): array
     {
         [$where, $args] = $this->filter($env, $q, $month);
-        $st = $this->pdo->prepare('SELECT currency, COUNT(*) AS n, SUM(net) AS net, SUM(vat) AS vat, SUM(gross) AS gross FROM ext_ksef_purchases WHERE '
+        $st = $this->pdo->prepare('SELECT currency, COUNT(*) AS n, SUM(net) AS net, SUM(vat) AS vat, SUM(gross) AS gross FROM ' . $this->table . ' WHERE '
             . $where . ' GROUP BY currency ORDER BY currency');
         $st->execute($args);
         $count = 0;
@@ -127,7 +147,7 @@ final class Purchases
      */
     public function months(string $env): array
     {
-        $st = $this->pdo->prepare('SELECT SUBSTR(issue_date, 1, 7) AS m, COUNT(*) AS n FROM ext_ksef_purchases WHERE env = ? GROUP BY SUBSTR(issue_date, 1, 7) ORDER BY m DESC');
+        $st = $this->pdo->prepare('SELECT SUBSTR(issue_date, 1, 7) AS m, COUNT(*) AS n FROM ' . $this->table . ' WHERE env = ? GROUP BY SUBSTR(issue_date, 1, 7) ORDER BY m DESC');
         $st->execute([$env]);
         $out = [];
         foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
@@ -145,7 +165,7 @@ final class Purchases
         $args = [$env];
         $q = trim($q);
         if ($q !== '') {
-            $sql .= ' AND (invoice_number LIKE ? OR seller_name LIKE ? OR seller_nip LIKE ? OR ksef_number LIKE ?)';
+            $sql .= ' AND (invoice_number LIKE ? OR ' . $this->party . '_name LIKE ? OR ' . $this->party . '_nip LIKE ? OR ksef_number LIKE ?)';
             $like = '%' . $q . '%';
             array_push($args, $like, $like, $like, $like);
         }
@@ -159,14 +179,14 @@ final class Purchases
     public function syncPoint(string $env): ?string
     {
         $st = $this->pdo->prepare('SELECT value FROM ext_ksef_sync WHERE name = ?');
-        $st->execute(['purchases_' . $env]);
+        $st->execute([$this->syncName($env)]);
         $v = $st->fetchColumn();
         return $v === false ? null : (string) $v;
     }
 
     public function setSyncPoint(string $env, string $value): void
     {
-        $name = 'purchases_' . $env;
+        $name = $this->syncName($env);
         $this->pdo->beginTransaction();
         try {
             $this->pdo->prepare('DELETE FROM ext_ksef_sync WHERE name = ?')->execute([$name]);
@@ -176,5 +196,17 @@ final class Purchases
             $this->pdo->rollBack();
             throw $e;
         }
+    }
+
+    private function syncName(string $env): string
+    {
+        return ($this->kind === self::SALE ? 'sales_' : 'purchases_') . $env;
+    }
+
+    /** NIP kontrahenta z metadanych: sprzedawca ma pole nip, nabywca identyfikator {type, value}. */
+    private function partyId(array $m): string
+    {
+        $p = (array) ($m[$this->party] ?? []);
+        return (string) ($p['nip'] ?? $p['identifier']['value'] ?? '');
     }
 }

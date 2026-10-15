@@ -16,8 +16,9 @@ use PDO;
  *  - karta zamówienia: sekcja „e-Faktura KSeF” (podgląd, wysyłka, status, numer KSeF, XML, UPO, link weryfikacyjny),
  *  - lista zamówień: ikona stanu e-faktury przy statusie,
  *  - automatyzacje: akcja „Wyślij e-fakturę do KSeF”.
- * Faktury zakupowe (domyślnie wyłączone):
- *  - Zamówienia → Faktury zakupowe KSeF: faktury otrzymane przez firmę, pobierane z KSeF, z podglądem i XML.
+ * Faktury sprzedażowe (domyślnie włączone) i zakupowe (domyślnie wyłączone):
+ *  - Zamówienia → Faktury sprzedażowe KSeF / Faktury zakupowe KSeF: faktury wystawione / otrzymane przez firmę,
+ *    pobierane z KSeF (także wystawione poza tym systemem), miesiącami, z podglądem, PDF i XML.
  * Zamówienia → Faktury KSeF: stan połączenia, test połączenia i lista wystawionych e-faktur.
  *
  * Domyślnie działa na środowisku testowym KSeF. Token KSeF (osobny dla każdego środowiska) wpisuje się w ustawieniach
@@ -27,23 +28,35 @@ final class KsefExtension extends AbstractExtension
 {
     private const PER_PAGE = 50;
 
+    /** Strony i teksty list faktur pobieranych z KSeF: zakupowe (firma jest nabywcą) i sprzedażowe (firma jest sprzedawcą). */
+    private const KINDS = [
+        Purchases::PURCHASE => ['list' => 'zakupy', 'fetch' => 'pobierz', 'one' => 'zakup', 'xml' => 'zakupxml', 'pdf' => 'zakuppdf',
+            'title' => '📥 Faktury zakupowe KSeF', 'one_title' => 'Faktura zakupowa', 'plural' => 'Faktury zakupowe', 'adj' => 'zakupowe', 'adj_gen' => 'zakupowej',
+            'role' => 'nabywcą', 'party' => 'Sprzedawca', 'party_q' => 'sprzedawca'],
+        Purchases::SALE => ['list' => 'sprzedaz', 'fetch' => 'pobierzsp', 'one' => 'sprzedazfv', 'xml' => 'sprzedazxml', 'pdf' => 'sprzedazpdf',
+            'title' => '📤 Faktury sprzedażowe KSeF', 'one_title' => 'Faktura sprzedażowa', 'plural' => 'Faktury sprzedażowe', 'adj' => 'sprzedażowe', 'adj_gen' => 'sprzedażowej',
+            'role' => 'sprzedawcą', 'party' => 'Nabywca', 'party_q' => 'nabywca'],
+    ];
+
     public function manifest(): ExtensionManifest
     {
         return new ExtensionManifest(
             type: 'ksef',
             name: 'KSeF - e-faktury',
-            version: '1.3.0',
+            version: '1.4.0',
             author: 'Veless',
-            description: 'Połączenie z Krajowym Systemem e-Faktur (API 2.0): wystawianie faktur FA(3) z zamówień (numer KSeF, UPO i link weryfikacyjny w karcie zamówienia) oraz podgląd faktur zakupowych otrzymanych przez firmę. W ustawieniach wybierz, co ma robić, i wpisz token KSeF.',
+            description: 'Połączenie z Krajowym Systemem e-Faktur (API 2.0): wystawianie faktur FA(3) z zamówień (numer KSeF, UPO i link weryfikacyjny w karcie zamówienia) oraz podgląd faktur sprzedażowych i zakupowych firmy pobranych z KSeF (z PDF). W ustawieniach wybierz, co ma robić, i wpisz token KSeF.',
             icon: '🏛️',
             fields: [
                 ['key' => 'environment', 'label' => 'Środowisko KSeF', 'type' => 'select', 'default' => 'test',
                  'options' => array_map(static fn(array $e): string => $e['label'], KsefApi::ENVIRONMENTS),
                  'help' => 'Zacznij od testowego. Faktury z produkcyjnego mają moc prawną i nie da się ich usunąć, tylko skorygować.'],
                 ['key' => 'do_sales', 'label' => 'Wystawianie e-faktur z zamówień (karta zamówienia, lista zamówień, automatyzacje)', 'type' => 'checkbox', 'default' => '1'],
+                ['key' => 'do_sales_list', 'label' => 'Faktury sprzedażowe: pobieranie i podgląd faktur wystawionych przez firmę w KSeF (także poza tym systemem)', 'type' => 'checkbox', 'default' => '1',
+                 'help' => 'Token KSeF musi mieć uprawnienie do przeglądania faktur. Faktury znajdziesz w Zamówienia → Faktury sprzedażowe KSeF.'],
                 ['key' => 'do_purchases', 'label' => 'Faktury zakupowe: pobieranie i podgląd faktur otrzymanych przez firmę', 'type' => 'checkbox', 'default' => '0',
                  'help' => 'Token KSeF musi mieć uprawnienie do przeglądania faktur. Faktury znajdziesz w Zamówienia → Faktury zakupowe KSeF.'],
-                ['key' => 'purchases_days', 'label' => 'Faktury zakupowe: przy pierwszym pobraniu sięgnij wstecz', 'type' => 'select', 'default' => '30',
+                ['key' => 'purchases_days', 'label' => 'Faktury sprzedażowe i zakupowe: przy pierwszym pobraniu sięgnij wstecz', 'type' => 'select', 'default' => '30',
                  'options' => ['30' => '30 dni', '90' => '90 dni', '180' => 'pół roku', '365' => 'rok']],
                 ['key' => 'nip', 'label' => 'NIP firmy', 'type' => 'text', 'required' => true],
                 ['key' => 'token_test', 'label' => 'Token KSeF: środowisko testowe', 'type' => 'password', 'secret' => true,
@@ -96,7 +109,10 @@ final class KsefExtension extends AbstractExtension
             }]);
 
         if (($cfg['do_purchases'] ?? '0') === '1') {
-            $this->bootPurchases($service);
+            $this->bootKsefInvoices($service, Purchases::PURCHASE);
+        }
+        if (($cfg['do_sales_list'] ?? '1') !== '0') {
+            $this->bootKsefInvoices($service, Purchases::SALE);
         }
         if (($cfg['do_sales'] ?? '1') !== '0') {
             $this->bootSales($service);
@@ -212,40 +228,41 @@ final class KsefExtension extends AbstractExtension
         });
     }
 
-    /** Faktury zakupowe: lista pobrana z KSeF, pobieranie nowych, podgląd i XML. */
-    private function bootPurchases(\Closure $service): void
+    /** Faktury zakupowe albo sprzedażowe: lista pobrana z KSeF, pobieranie nowych, podgląd, PDF i XML. */
+    private function bootKsefInvoices(\Closure $service, string $kind): void
     {
-        Hooks::addPage('zakupy', ['title' => '📥 Faktury zakupowe KSeF', 'group' => 'orders', 'role' => 'viewer',
-            'render' => static fn(PDO $pdo, array $ctx): string => self::purchasesPage($service(), $ctx)]);
+        $k = self::KINDS[$kind];
+        Hooks::addPage($k['list'], ['title' => $k['title'], 'group' => 'orders', 'role' => 'viewer',
+            'render' => static fn(PDO $pdo, array $ctx): string => self::invoicesPage($service(), $ctx, $kind)]);
 
-        Hooks::addPage('pobierz', ['title' => 'Pobierz faktury zakupowe', 'menu' => false, 'role' => 'editor',
-            'render' => static function (PDO $pdo, array $ctx) use ($service): void {
+        Hooks::addPage($k['fetch'], ['title' => 'Pobierz faktury ' . $k['adj'], 'menu' => false, 'role' => 'editor',
+            'render' => static function (PDO $pdo, array $ctx) use ($service, $kind, $k): void {
                 if ($ctx['post']) {
                     $od = trim((string) ($_POST['od'] ?? ''));
                     $do = trim((string) ($_POST['do'] ?? ''));
                     try {
-                        $r = $od !== '' || $do !== '' ? $service()->fetchPurchases($od, $do) : $service()->syncPurchases();
+                        $r = $od !== '' || $do !== '' ? $service()->fetchInvoices($kind, $od, $do) : $service()->syncInvoices($kind);
                         $what = $od !== '' || $do !== '' ? ' z okresu ' . $od . ' – ' . $do : '';
-                        flash('Pobrano z KSeF' . $what . ': ' . $r['new'] . ' nowych faktur zakupowych' . ($r['seen'] > $r['new'] ? ' (sprawdzono ' . $r['seen'] . ')' : '') . '.'
+                        flash('Pobrano z KSeF' . $what . ': ' . $r['new'] . ' nowych faktur ' . ($kind === Purchases::SALE ? 'sprzedażowych' : 'zakupowych') . ($r['seen'] > $r['new'] ? ' (sprawdzono ' . $r['seen'] . ')' : '') . '.'
                             . (!$r['more'] ? '' : (isset($r['until']) && $r['until'] !== null
                                 ? ' To nie wszystko (limit zapytań KSeF) - pobrano do ' . $r['until'] . '; za minutę pobierz resztę okresu.'
                                 : ' To nie wszystko - kliknij „Pobierz nowe z KSeF” jeszcze raz za minutę.')));
                     } catch (\Throwable $e) {
-                        flash('Nie pobrano faktur zakupowych: ' . $e->getMessage(), 'err');
+                        flash('Nie pobrano faktur ' . ($kind === Purchases::SALE ? 'sprzedażowych' : 'zakupowych') . ': ' . $e->getMessage(), 'err');
                     }
                 }
-                header('Location: ' . Hooks::pageUrl('ksef.zakupy'));
+                header('Location: ' . Hooks::pageUrl('ksef.' . $k['list']));
                 exit;
             }]);
 
-        Hooks::addPage('zakup', ['title' => 'Faktura zakupowa', 'menu' => false, 'role' => 'viewer',
-            'render' => static fn(PDO $pdo, array $ctx): string => self::purchasePage($service(), (string) ($_GET['k'] ?? ''))]);
+        Hooks::addPage($k['one'], ['title' => $k['one_title'], 'menu' => false, 'role' => 'viewer',
+            'render' => static fn(PDO $pdo, array $ctx): string => self::invoicePage($service(), $kind, (string) ($_GET['k'] ?? ''))]);
 
-        Hooks::addPage('zakupxml', ['title' => 'XML faktury zakupowej', 'menu' => false, 'role' => 'viewer', 'raw' => true,
-            'render' => static function (PDO $pdo) use ($service): string {
+        Hooks::addPage($k['xml'], ['title' => 'XML faktury ' . $k['adj_gen'], 'menu' => false, 'role' => 'viewer', 'raw' => true,
+            'render' => static function (PDO $pdo) use ($service, $kind): string {
                 $k = (string) ($_GET['k'] ?? '');
                 try {
-                    $xml = $service()->purchaseXml($k);
+                    $xml = $service()->invoiceXml($kind, $k);
                 } catch (\Throwable $e) {
                     http_response_code(404);
                     header('Content-Type: text/plain; charset=utf-8');
@@ -256,18 +273,18 @@ final class KsefExtension extends AbstractExtension
                 return $xml;
             }]);
 
-        Hooks::addPage('zakuppdf', ['title' => 'PDF faktury zakupowej', 'menu' => false, 'role' => 'viewer', 'raw' => true,
-            'render' => static function (PDO $pdo) use ($service): string {
+        Hooks::addPage($k['pdf'], ['title' => 'PDF faktury ' . $k['adj_gen'], 'menu' => false, 'role' => 'viewer', 'raw' => true,
+            'render' => static function (PDO $pdo) use ($service, $kind): string {
                 $k = (string) ($_GET['k'] ?? '');
                 $s = $service();
                 try {
-                    $pdf = InvoicePdf::render($s->purchaseXml($k), self::purchaseMeta($s, $k));
+                    $pdf = InvoicePdf::render($s->invoiceXml($kind, $k), self::invoiceMeta($s, $kind, $k));
                 } catch (\Throwable $e) {
                     http_response_code(404);
                     header('Content-Type: text/plain; charset=utf-8');
                     return $e->getMessage();
                 }
-                $row = $s->purchaseInvoices()->get($s->env(), $k) ?? [];
+                $row = $s->ksefInvoices($kind)->get($s->env(), $k) ?? [];
                 $name = preg_replace('/[^A-Za-z0-9_-]+/', '_', 'Faktura ' . ($row['invoice_number'] ?? $k)) ?: 'faktura';
                 header('Content-Type: application/pdf');
                 header('Content-Disposition: ' . (isset($_GET['pobierz']) ? 'attachment' : 'inline') . '; filename="' . $name . '.pdf"');
@@ -447,7 +464,8 @@ final class KsefExtension extends AbstractExtension
             $html .= '<p class="flash err">' . ($sales ? 'Do wysyłki' : 'Do połączenia') . ' brakuje: ' . self::h(implode(', ', $missing)) . '. Dane firmy ustawisz w Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia.</p>';
         }
         $html .= '<p style="margin:0 0 8px">Włączone: ' . self::h(implode(', ', array_filter([$sales ? 'wystawianie e-faktur z zamówień' : '',
-            $s->purchasesEnabled() ? 'faktury zakupowe' : ''])) ?: 'nic') . ' <small style="color:var(--ink-3)">(zmienisz w Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia)</small>'
+            $s->salesListEnabled() ? 'faktury sprzedażowe z KSeF' : '', $s->purchasesEnabled() ? 'faktury zakupowe' : ''])) ?: 'nic') . ' <small style="color:var(--ink-3)">(zmienisz w Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia)</small>'
+            . ($s->salesListEnabled() ? ' · <a href="' . self::h(Hooks::pageUrl('ksef.sprzedaz')) . '">Faktury sprzedażowe</a>' : '')
             . ($s->purchasesEnabled() ? ' · <a href="' . self::h(Hooks::pageUrl('ksef.zakupy')) . '">Faktury zakupowe</a>' : '') . '</p>';
         if ($ctx['isAdmin']) {
             $html .= '<p style="margin:8px 0">' . self::postButton('ksef.polaczenie', [], 'Sprawdź połączenie')
@@ -481,10 +499,11 @@ final class KsefExtension extends AbstractExtension
         return $v === null || $v === '' ? '' : number_format((float) $v, 2, ',', ' ');
     }
 
-    private static function purchasesPage(KsefService $s, array $ctx): string
+    private static function invoicesPage(KsefService $s, array $ctx, string $kind): string
     {
+        $k = self::KINDS[$kind];
         $env = $s->env();
-        $repo = $s->purchaseInvoices();
+        $repo = $s->ksefInvoices($kind);
         $q = trim((string) ($_GET['q'] ?? ''));
         $months = $repo->months($env);
         $month = (string) ($_GET['m'] ?? '');
@@ -495,15 +514,15 @@ final class KsefExtension extends AbstractExtension
         $missing = $s->missingConnection();
         $point = $repo->syncPoint($env);
         $html = '<div class="card">' . self::envNote($env)
-            . '<p style="margin:0 0 8px">Faktury, w których Twoja firma (NIP ' . self::h($s->nip() ?: '-') . ') jest nabywcą. '
+            . '<p style="margin:0 0 8px">Faktury, w których Twoja firma (NIP ' . self::h($s->nip() ?: '-') . ') jest ' . $k['role'] . '. '
             . ($point !== null ? 'Pobrane z KSeF do: <b>' . self::h(self::when($point)) . '</b>.' : 'Jeszcze nic nie pobrano.') . '</p>';
         if ($missing !== []) {
             $html .= '<p class="flash err">Do połączenia z KSeF brakuje: ' . self::h(implode(', ', $missing)) . '. <a href="' . self::h(Hooks::pageUrl('ksef.faktury')) . '">Faktury KSeF</a></p>';
         } elseif ($ctx['canEdit']) {
             $today = date('Y-m-d');
             $html .= '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin:0 0 12px">'
-                . '<div>' . self::postButton('ksef.pobierz', [], 'Pobierz nowe z KSeF', 'btn') . '</div>'
-                . '<form method="post" action="' . self::h(Hooks::pageUrl('ksef.pobierz')) . '" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:0">'
+                . '<div>' . self::postButton('ksef.' . $k['fetch'], [], 'Pobierz nowe z KSeF', 'btn') . '</div>'
+                . '<form method="post" action="' . self::h(Hooks::pageUrl('ksef.' . $k['fetch'])) . '" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:0">'
                 . '<input type="hidden" name="csrf" value="' . self::h($ctx['csrf']) . '">'
                 . '<label>Wystawione od<br><input type="date" name="od" required value="' . self::h(date('Y-m-01')) . '" max="' . $today . '"></label>'
                 . '<label>do<br><input type="date" name="do" required value="' . $today . '" max="' . $today . '"></label>'
@@ -512,7 +531,7 @@ final class KsefExtension extends AbstractExtension
                 . '„Pobierz z okresu” - faktury z datą wystawienia w wybranym okresie (np. starsze miesiące).</p>';
         }
         $filter = $month === 'all' ? '' : $month;
-        $link = static fn(array $over): string => Hooks::pageUrl('ksef.zakupy', array_filter(array_merge(['m' => $month, 'q' => $q], $over), static fn($v): bool => $v !== '' && $v !== 1));
+        $link = static fn(array $over): string => Hooks::pageUrl('ksef.' . $k['list'], array_filter(array_merge(['m' => $month, 'q' => $q], $over), static fn($v): bool => $v !== '' && $v !== 1));
         $opts = '<option value="all"' . ($month === 'all' ? ' selected' : '') . '>Wszystkie miesiące</option>';
         $list = $months;
         if ($month !== 'all' && !isset($list[$month])) {
@@ -531,9 +550,9 @@ final class KsefExtension extends AbstractExtension
                 . ($next <= date('Y-m') ? ' <a class="btn secondary" href="' . self::h($link(['m' => $next, 'p' => 1])) . '">' . self::h(self::monthName($next)) . ' →</a>' : '');
         }
         $html .= '<form method="get" action="ext.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:0">'
-            . '<input type="hidden" name="page" value="ksef.zakupy">'
+            . '<input type="hidden" name="page" value="ksef.' . $k['list'] . '">'
             . '<label>Miesiąc wystawienia<br><select name="m">' . $opts . '</select></label>'
-            . '<label>Szukaj<br><input type="search" name="q" value="' . self::h($q) . '" placeholder="numer, sprzedawca, NIP"></label>'
+            . '<label>Szukaj<br><input type="search" name="q" value="' . self::h($q) . '" placeholder="numer, ' . $k['party_q'] . ', NIP"></label>'
             . '<button class="btn secondary" type="submit">Pokaż</button>'
             . ($q !== '' ? ' <a href="' . self::h($link(['q' => '', 'p' => 1])) . '">wyczyść szukanie</a>' : '') . '</form>'
             . ($nav !== '' ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">' . $nav . '</div>' : '') . '</div>';
@@ -544,18 +563,18 @@ final class KsefExtension extends AbstractExtension
         $rows = $repo->latest($env, $q, $filter, self::PER_PAGE, ($page - 1) * self::PER_PAGE);
         $title = $month === 'all' ? 'Wszystkie miesiące' : ucfirst(self::monthName($month));
         $html .= '<div class="card"><h3 style="margin:0 0 8px">' . self::h($title) . ($q !== '' ? ' · „' . self::h($q) . '”' : '') . '</h3>'
-            . '<div style="overflow-x:auto"><table><tr><th>Data</th><th>Numer faktury</th><th>Sprzedawca</th><th>Netto</th><th>VAT</th><th>Brutto</th><th>Rodzaj</th><th>Numer KSeF</th></tr>';
+            . '<div style="overflow-x:auto"><table><tr><th>Data</th><th>Numer faktury</th><th>' . $k['party'] . '</th><th>Netto</th><th>VAT</th><th>Brutto</th><th>Rodzaj</th><th>Numer KSeF</th></tr>';
         foreach ($rows as $r) {
             $cur = (string) ($r['currency'] ?: 'PLN');
-            $url = Hooks::pageUrl('ksef.zakup', ['k' => $r['ksef_number']]);
+            $url = Hooks::pageUrl('ksef.' . $k['one'], ['k' => $r['ksef_number']]);
             $html .= '<tr><td>' . self::h($r['issue_date']) . '</td><td><a href="' . self::h($url) . '">' . self::h($r['invoice_number']) . '</a></td>'
-                . '<td>' . self::h($r['seller_name']) . '<br><small>NIP ' . self::h($r['seller_nip']) . '</small></td>'
+                . '<td>' . self::h($r['party_name']) . '<br><small>NIP ' . self::h($r['party_nip']) . '</small></td>'
                 . '<td>' . self::money($r['net']) . '</td><td>' . self::money($r['vat']) . '</td><td><b>' . self::money($r['gross']) . '</b> ' . self::h($cur) . '</td>'
                 . '<td>' . self::h(Purchases::TYPES[$r['invoice_type']] ?? $r['invoice_type']) . '</td><td><small><code>' . self::h($r['ksef_number']) . '</code></small></td></tr>';
         }
         if ($rows === []) {
             $html .= '<tr><td colspan="8" style="color:var(--ink-2)">' . ($q !== '' ? 'Brak faktur dla tego wyszukiwania.'
-                : ($months === [] ? 'Brak faktur zakupowych w tym środowisku. Kliknij „Pobierz nowe z KSeF”.' : 'Brak faktur wystawionych w tym miesiącu.')) . '</td></tr>';
+                : ($months === [] ? 'Brak faktur ' . ($kind === Purchases::SALE ? 'sprzedażowych' : 'zakupowych') . ' w tym środowisku. Kliknij „Pobierz nowe z KSeF”.' : 'Brak faktur wystawionych w tym miesiącu.')) . '</td></tr>';
         } else {
             foreach ($totals['sums'] as $cur => $t) {
                 $html .= '<tr><td colspan="3"><b>Razem' . (count($totals['sums']) > 1 ? ' ' . self::h($cur) : '') . ' (' . $totals['count'] . ($pages > 1 ? ', wszystkie strony' : '') . ')</b></td>'
@@ -601,25 +620,26 @@ final class KsefExtension extends AbstractExtension
         return ($names[$m - 1] ?? $ym) . ' ' . $y;
     }
 
-    private static function purchasePage(KsefService $s, string $ksefNumber): string
+    private static function invoicePage(KsefService $s, string $kind, string $ksefNumber): string
     {
+        $k = self::KINDS[$kind];
         $env = $s->env();
-        $back = '<p><a href="' . self::h(Hooks::pageUrl('ksef.zakupy')) . '">← Faktury zakupowe</a></p>';
-        $row = $s->purchaseInvoices()->get($env, $ksefNumber);
+        $back = '<p><a href="' . self::h(Hooks::pageUrl('ksef.' . $k['list'])) . '">← ' . $k['plural'] . '</a></p>';
+        $row = $s->ksefInvoices($kind)->get($env, $ksefNumber);
         if ($row === null) {
-            return $back . '<div class="flash err">Nie ma takiej faktury zakupowej.</div>';
+            return $back . '<div class="flash err">Nie ma takiej faktury ' . $k['adj_gen'] . '.</div>';
         }
-        $meta = self::purchaseMeta($s, $ksefNumber);
+        $meta = self::invoiceMeta($s, $kind, $ksefNumber);
         $html = $back . '<div class="card">' . self::envNote($env)
             . '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px">'
-            . '<a class="btn" href="' . self::h(Hooks::pageUrl('ksef.zakuppdf', ['k' => $ksefNumber, 'pobierz' => 1])) . '">Pobierz PDF</a>'
-            . '<a class="btn secondary" href="' . self::h(Hooks::pageUrl('ksef.zakuppdf', ['k' => $ksefNumber])) . '" target="_blank" rel="noopener">Otwórz PDF</a>'
-            . '<a class="btn secondary" href="' . self::h(Hooks::pageUrl('ksef.zakupxml', ['k' => $ksefNumber])) . '">Pobierz XML</a>'
+            . '<a class="btn" href="' . self::h(Hooks::pageUrl('ksef.' . $k['pdf'], ['k' => $ksefNumber, 'pobierz' => 1])) . '">Pobierz PDF</a>'
+            . '<a class="btn secondary" href="' . self::h(Hooks::pageUrl('ksef.' . $k['pdf'], ['k' => $ksefNumber])) . '" target="_blank" rel="noopener">Otwórz PDF</a>'
+            . '<a class="btn secondary" href="' . self::h(Hooks::pageUrl('ksef.' . $k['xml'], ['k' => $ksefNumber])) . '">Pobierz XML</a>'
             . (isset($meta['qr']) ? '<a class="btn secondary" href="' . self::h($meta['qr']) . '" target="_blank" rel="noopener noreferrer">Faktura w KSeF</a>' : '') . '</div>';
         try {
-            $html .= InvoiceView::html($s->purchaseXml($ksefNumber), $meta);
+            $html .= InvoiceView::html($s->invoiceXml($kind, $ksefNumber), $meta);
         } catch (\Throwable $e) {
-            $html .= '<p><b>' . self::h($row['seller_name']) . '</b> (NIP ' . self::h($row['seller_nip']) . '), faktura ' . self::h($row['invoice_number'])
+            $html .= '<p><b>' . self::h($row[$kind === Purchases::SALE ? 'buyer_name' : 'seller_name']) . '</b> (NIP ' . self::h($row[$kind === Purchases::SALE ? 'buyer_nip' : 'seller_nip']) . '), faktura ' . self::h($row['invoice_number'])
                 . ' z ' . self::h($row['issue_date']) . ': ' . self::money($row['gross']) . ' ' . self::h($row['currency']) . ' brutto.</p>'
                 . '<div class="flash err">Nie udało się pokazać treści faktury: ' . self::h($e->getMessage()) . '</div>';
         }
@@ -627,15 +647,17 @@ final class KsefExtension extends AbstractExtension
     }
 
     /**
-     * Numer KSeF i link weryfikacyjny (kod QR) faktury zakupowej.
+     * Numer KSeF i link weryfikacyjny (kod QR) faktury pobranej z KSeF. Link zawiera NIP sprzedawcy:
+     * w zakupowych to kontrahent, w sprzedażowych - nasza firma.
      * @return array{ksef:string,qr?:string}
      */
-    private static function purchaseMeta(KsefService $s, string $ksefNumber): array
+    private static function invoiceMeta(KsefService $s, string $kind, string $ksefNumber): array
     {
-        $row = $s->purchaseInvoices()->get($s->env(), $ksefNumber);
+        $row = $s->ksefInvoices($kind)->get($s->env(), $ksefNumber);
         $meta = ['ksef' => $ksefNumber];
-        if ($row !== null && !empty($row['invoice_hash']) && !empty($row['seller_nip'])) {
-            $meta['qr'] = KsefService::verificationUrlForHash($s->env(), (string) $row['seller_nip'], (string) $row['issue_date'], (string) $row['invoice_hash']);
+        $sellerNip = $kind === Purchases::SALE ? $s->nip() : (string) ($row['seller_nip'] ?? '');
+        if ($row !== null && !empty($row['invoice_hash']) && $sellerNip !== '') {
+            $meta['qr'] = KsefService::verificationUrlForHash($s->env(), $sellerNip, (string) $row['issue_date'], (string) $row['invoice_hash']);
         }
         return $meta;
     }

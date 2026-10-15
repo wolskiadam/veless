@@ -248,6 +248,8 @@ return [
     'nav.users'            => '👥 Users',
     'stats.title'          => 'Statistics',
     'stats.range'          => 'Range',
+    'stats.range.today'    => 'Today',
+    'stats.range.yesterday' => 'Yesterday',
     'stats.range.7'        => 'Last 7 days',
     'stats.range.30'       => 'Last 30 days',
     'stats.range.90'       => 'Last 90 days',

@@ -152,6 +152,13 @@ final class ProductRepository
         $this->pdo->prepare('UPDATE products SET name = :n WHERE id = :id')->execute([':n' => $name, ':id' => $id]);
     }
 
+    /** Ręczna zmiana stanu CRM jednego produktu (cena bez zmian). Wypych do sklepu kolejkuje wywołujący. */
+    public function setStock(int $id, int $stock): void
+    {
+        $this->pdo->prepare('UPDATE products SET pase_stock = :s WHERE id = :id')
+            ->execute([':s' => max(0, $stock), ':id' => $id]);
+    }
+
     /** Ręczne ustawienie stanu faktycznego (null = nie wpisany). Nie wysyła niczego do sklepów. */
     public function setActualStock(int $id, ?int $stock): void
     {

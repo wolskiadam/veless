@@ -103,6 +103,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '
             . ($marked > 0 ? ' Oznaczono też ' . $marked . ' niewysłanych zamówień jako wirtualne.' : '')
         : 'Produkt znów wymaga wysyłki.';
 }
+// Stan CRM. Jak na liście produktów: zapis w CRM + wypych do sklepu (gdy CRM jest źródłem stanów
+// sklepu), a sklep przekazuje go dalej na Allegro. Gdy źródłem jest sklep, zmiana zostaje tylko w CRM.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '') === 'save_stock') {
+    csrfCheck();
+    $raw = trim((string) ($_POST['pase_stock'] ?? ''));
+    $cur = $repo->find($id);
+    if ($cur === null) {
+        $flashErr = 'Nie znaleziono produktu.';
+    } elseif (!preg_match('/^\d{1,9}$/', $raw)) {
+        $flashErr = 'Stan: wpisz liczbę całkowitą 0 lub większą.';
+    } elseif ((int) $raw === (int) ($cur['pase_stock'] ?? -1)) {
+        $flashOk = 'Stan bez zmian.';
+    } else {
+        $stock = (int) $raw;
+        $repo->setStock($id, $stock);
+        $flashOk = "Zapisano stan: {$stock}.";
+        $intId = (int) ($cur['source_integration_id'] ?? 0);
+        $acc = (int) ($cur['woo_product_id'] ?? 0) > 0 && $intId > 0 ? (new \Pase\Repository\IntegrationAccountRepository($pdo))->find($intId) : null;
+        if ($acc === null) {
+            $flashOk .= ' Produkt nie jest powiązany ze sklepem, więc stan zmienił się tylko w CRM.';
+        } elseif (($acc['config']['stock_master'] ?? 'pase') !== 'pase') {
+            $flashOk .= " Sklep „{$acc['name']}” jest źródłem stanów (Konfiguracja → Integracje), więc stan zmienił się tylko w CRM i sklep go nie dostanie.";
+        } else {
+            (new \Pase\Queue\Queue($pdo))->enqueue('woo.stock.push', ['product_id' => $id, 'what' => 'stock'], "woo.stock.push:{$id}:" . substr((string) microtime(true), -8));
+            $flashOk .= " Wysyłka do sklepu „{$acc['name']}” zakolejkowana, sklep przekaże go dalej do powiązanych ofert Allegro.";
+        }
+    }
+}
 $useActual = $lowSvc->usesActualStock();   // pole „Stan faktyczny” włączone w Konfiguracja → Synchronizacja
 if ($useActual && $_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '') === 'save_actual_stock') {
     csrfCheck();
@@ -467,8 +495,21 @@ try {
                     <span style="color:#888">—<?= $locations === [] && canOpenPage('locations.php') ? ' (najpierw dodaj lokalizacje: <a href="locations.php">Magazyn → Lokalizacje</a>)' : '' ?></span>
                 <?php endif; ?>
             </td></tr>
-            <tr><th>Stan (CRM)</th><td><?= htmlspecialchars((string)($p['pase_stock'] ?? '—')) ?>
+            <tr><th>Stan (CRM)</th><td>
+                <?php if (canEdit()): ?>
+                    <form method="post" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0">
+                        <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
+                        <input type="hidden" name="action" value="save_stock">
+                        <input name="pase_stock" type="number" min="0" step="1" required value="<?= $p['pase_stock'] ?? '' ?>" placeholder="brak" style="width:120px">
+                        <button class="btn secondary" type="submit" style="padding:6px 12px">Zapisz</button>
+                <?php else: ?>
+                    <?= htmlspecialchars((string)($p['pase_stock'] ?? '—')) ?>
+                <?php endif; ?>
                 <?php if (\Pase\Services\LowStock::isLow($p, $lowDefault, $useActual)): $effStock = (int) \Pase\Services\LowStock::stockFor($p, $useActual); ?><span class="pill <?= $effStock <= 0 ? 'bad' : 'warn' ?>" style="margin-left:6px"><?= $effStock <= 0 ? 'Brak' : 'Niski stan' ?><?= $useActual && ($p['actual_stock'] ?? null) !== null ? ' (faktyczny)' : '' ?></span><?php endif; ?>
+                <?php if (canEdit()): ?>
+                        <span style="font-size:12px;color:#888">Stan, który idzie do sklepu i dalej na Allegro (gdy CRM jest źródłem stanów sklepu). Schodzi przy każdej sprzedaży.</span>
+                    </form>
+                <?php endif; ?>
             </td></tr>
             <?php if ($useActual): ?>
             <tr><th>Stan faktyczny</th><td>

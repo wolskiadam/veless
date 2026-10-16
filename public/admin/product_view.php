@@ -355,19 +355,46 @@ try {
             $existingOffers[$o['marketplace']] = $o;
         }
     } catch (\Throwable $e) { $existingOffers = []; }
+    // Trwające oferty do podglądu: wystawiona z CRM (offer_id w szablonie) + powiązania z product_mappings.
+    $liveOffers = ['allegro' => []];
+    $publishedId = (string) ($existingOffers['allegro']['data']['offer_id'] ?? '');
+    if ($publishedId !== '') {
+        $liveOffers['allegro'][$publishedId] = true;
+    }
+    try {
+        $ms = $pdo->prepare('SELECT allegro_offer_id FROM product_mappings WHERE sku = ? AND allegro_offer_id IS NOT NULL');
+        $ms->execute([$p['sku']]);
+        foreach ($ms->fetchAll(PDO::FETCH_COLUMN) as $oid) {
+            if ((string) $oid !== '') {
+                $liveOffers['allegro'][(string) $oid] = true;
+            }
+        }
+    } catch (\PDOException $e) { /* brak tabeli - tylko oferta z szablonu */ }
+    $offerUrl = ['allegro' => static fn(string $id): string => 'https://allegro.pl/oferta/' . rawurlencode($id)];
     ?>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
         <?php foreach ($channels as $ch): $has = isset($existingOffers[$ch['key']]); ?>
             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">
                 <div style="font-size:15px;font-weight:600"><?= $ch['icon'] ?> <?= htmlspecialchars($ch['name']) ?></div>
-                <?php if ($ch['ready']): ?>
-                    <?php if ($has): ?>
-                        <span class="pill ok" style="align-self:flex-start">szablon zapisany</span>
+                <?php if ($ch['ready']): $live = array_keys($liveOffers[$ch['key']] ?? []); ?>
+                    <?php if ($has || $live !== []): ?>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                            <?php if ($live !== []): ?><span class="pill ok">wystawiona</span><?php endif; ?>
+                            <?php if ($has): ?><span class="pill ok">szablon zapisany</span><?php endif; ?>
+                        </div>
                     <?php endif; ?>
-                    <a class="btn" href="offer_<?= $ch['key'] ?>.php?product=<?= (int)$p['id'] ?>"
-                       style="background:<?= $ch['color'] ?>;margin-top:auto">
-                       <?= $has ? 'Edytuj ofertę' : 'Przygotuj ofertę' ?>
-                    </a>
+                    <div style="margin-top:auto;display:flex;flex-direction:column;gap:6px">
+                        <?php foreach ($live as $oid): ?>
+                            <a class="btn secondary" target="_blank" rel="noopener" href="<?= htmlspecialchars($offerUrl[$ch['key']]((string) $oid)) ?>"
+                               title="Otwórz ofertę <?= htmlspecialchars((string) $oid) ?> na <?= htmlspecialchars($ch['name']) ?>">
+                               Zobacz na <?= htmlspecialchars($ch['name']) ?><?= count($live) > 1 ? ' · ' . htmlspecialchars((string) $oid) : '' ?> ↗
+                            </a>
+                        <?php endforeach; ?>
+                        <a class="btn" href="offer_<?= $ch['key'] ?>.php?product=<?= (int)$p['id'] ?>"
+                           style="background:<?= $ch['color'] ?>">
+                           <?= $has ? 'Edytuj ofertę' : 'Przygotuj ofertę' ?>
+                        </a>
+                    </div>
                 <?php else: ?>
                     <span class="pill muted" style="align-self:flex-start">wkrótce</span>
                     <button class="btn secondary" type="button" disabled style="margin-top:auto;opacity:.6">Niedostępne</button>

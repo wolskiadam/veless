@@ -89,6 +89,7 @@ try {
     $pdo->exec("INSERT INTO order_statuses (status_key,label,color,position) VALUES ('new','Nowe','#8a8f98',1)");
     $pdo->exec('CREATE TABLE integration_accounts (id INTEGER PRIMARY KEY, type TEXT, name TEXT, is_active INTEGER, config TEXT)');
     $pdo->exec('CREATE TABLE product_mappings (id INTEGER PRIMARY KEY, sku TEXT, allegro_offer_id TEXT)');
+    $pdo->exec("CREATE TABLE offer_templates (id INTEGER PRIMARY KEY, product_id INTEGER, marketplace TEXT, data TEXT, status TEXT, external_id TEXT)");
     $pdo->exec('CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, pase_stock INTEGER, pase_price REAL, source_integration_id INTEGER, woo_product_id INTEGER,
         woo_variation_id INTEGER, payload TEXT, imported_at TEXT, updated_at TEXT, description TEXT, short_description TEXT, images TEXT, categories TEXT, attributes TEXT,
         ean TEXT, weight REAL, length REAL, width REAL, height REAL, custom_fields TEXT, allegro_sections TEXT)');
@@ -159,6 +160,15 @@ try {
 
     $body = $save($boss, 1, '   ');
     ok(str_contains($body, 'Nazwa produktu: od 1 do 255 znaków.') && $nameOf(1) === 'Świeca sojowa', 'Empty name refused');
+
+    // Zakładka Marketplace: podgląd trwającej oferty (wystawiona z CRM + powiązanie), bez oferty tylko edycja.
+    $pdo->exec("INSERT INTO offer_templates (product_id, marketplace, data, status) VALUES (2, 'allegro', '{\"offer_id\":\"17001\"}', 'published')");
+    $pdo->exec("INSERT INTO product_mappings (sku, allegro_offer_id) VALUES ('moj-sklep-1', '17002'), ('moj-sklep-1', '17001')");
+    $page = request($boss, 'admin/product_view.php?id=2');
+    ok(str_contains($page['body'], 'href="https://allegro.pl/oferta/17001"') && str_contains($page['body'], 'href="https://allegro.pl/oferta/17002"')
+        && substr_count($page['body'], 'Zobacz na Allegro') === 2 && str_contains($page['body'], 'Edytuj ofertę'), 'Marketplace tab links to live Allegro offers');
+    $page = request($boss, 'admin/product_view.php?id=1');
+    ok(!str_contains($page['body'], 'Zobacz na Allegro') && str_contains($page['body'], 'Przygotuj ofertę'), 'Marketplace tab without offer: no preview link');
 
     $vi = login('vi');
     $page = request($vi, 'admin/product_view.php?id=1');

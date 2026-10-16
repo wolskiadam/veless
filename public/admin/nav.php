@@ -167,6 +167,8 @@ if (isset($pdo) && $pdo instanceof PDO) {
         </a>
     </div>
 </nav>
+<?php // Przypomnienie w aplikacji z ekranu początkowego: po reinstalacji telefon zapomina zgodę na powiadomienia push. ?>
+<div class="nav-push-remind" id="navPushRemind" hidden></div>
 
 <style>
     .nav-bar { display:flex; justify-content:space-between; align-items:center;
@@ -214,6 +216,13 @@ if (isset($pdo) && $pdo instanceof PDO) {
     .nav-push-msg { margin-top:6px; color:var(--ink); }
     .nav-push-src { margin-top:8px; }
     .nav-push-src label { display:flex; align-items:center; gap:8px; padding:3px 0; cursor:pointer; font-weight:500; }
+    .nav-push-remind { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:-13px 0 20px; padding:10px 14px;
+        background:var(--accent-soft); color:var(--ink); border:1px solid var(--line); border-radius:var(--radius); font-family:var(--font-ui); font-size:.88em; }
+    .nav-push-remind[hidden] { display:none; }
+    .nav-push-remind span { flex:1 1 220px; }
+    .nav-push-remind button { font:inherit; font-weight:600; border:1px solid var(--line); background:var(--surface); color:var(--ink); border-radius:7px; padding:6px 12px; cursor:pointer; }
+    .nav-push-remind button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .nav-push-remind button:disabled { opacity:.5; cursor:default; }
     .nav-bell-read { font-size:.85em; font-weight:500; padding:0 2px; }
     .nav-bell-gh .r { display:flex; align-items:center; gap:8px; }
     .nav-bell-row { display:flex; align-items:center; }
@@ -484,6 +493,21 @@ document.addEventListener('click', function(e) {
     var standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
     var endpoint = null;
     function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+    // Pasek nad stroną w aplikacji z ekranu początkowego, gdy powiadomienia są tu wyłączone - po reinstalacji aplikacji
+    // telefon kasuje zgodę i subskrypcję, a ustawienie w dzwoneczku łatwo przeoczyć. „Nie teraz” ukrywa go na 7 dni
+    // (pamięć przeglądarki znika razem z aplikacją, więc po kolejnej reinstalacji pasek wraca od razu).
+    var remind = document.getElementById('navPushRemind');
+    var REMIND_KEY = 'velessPushRemindUntil';
+    function remindSnoozed() { try { return Number(localStorage.getItem(REMIND_KEY) || 0) > Date.now(); } catch (e) { return false; } }
+    function showRemind(state) {
+        if (!remind) { return; }
+        if (state !== 'off' || !standalone || remindSnoozed()) { remind.hidden = true; return; }
+        remind.innerHTML = '<span>🔔 Powiadomienia o nowych zamówieniach są na tym urządzeniu <b>wyłączone</b> '
+            + '(np. po ponownej instalacji aplikacji).</span>'
+            + '<button type="button" class="on" data-remind="on">Włącz powiadomienia</button>'
+            + '<button type="button" data-remind="later">Nie teraz</button>';
+        remind.hidden = false;
+    }
     function post(fields) {
         var fd = new FormData(); fd.append('csrf', csrf);
         Object.keys(fields).forEach(function (k) { [].concat(fields[k]).forEach(function (v) { fd.append(k, v); }); });
@@ -520,6 +544,42 @@ document.addEventListener('click', function(e) {
             + (msg ? '<div class="nav-push-msg">' + esc(msg) + '</div>' : '')
             + (state === 'on' && endpoint ? '<div class="nav-push-src"></div>' : '');
         if (state === 'on' && endpoint) { loadSources(); }
+        showRemind(state);
+    }
+    // Subskrypcja push tego urządzenia; bez zgody najpierw pyta (na iPhonie tylko po stuknięciu, więc wołane z kliknięcia).
+    function subscribe() {
+        return fetch('push.php', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.ok) { throw new Error(d.error || 'brak klucza'); }
+            return navigator.serviceWorker.ready.then(function (reg) {
+                return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key(d.publicKey) });
+            });
+        }).then(save);
+    }
+    function enable() {
+        // Zgoda pytana od razu po stuknięciu - iPhone nie pokaże pytania później.
+        return Notification.requestPermission().then(function (perm) {
+            if (perm !== 'granted') { render(perm === 'denied' ? 'denied' : 'off'); return; }
+            return subscribe().then(function () { render('on', 'Gotowe. Stuknij „Wyślij test”, żeby sprawdzić.'); return true; });
+        }).catch(function (e) { render('off', 'Nie udało się włączyć: ' + e.message); });
+    }
+    if (remind) {
+        remind.addEventListener('click', function (ev) {
+            var b = ev.target.closest('[data-remind]');
+            if (!b) { return; }
+            if (b.getAttribute('data-remind') === 'later') {
+                try { localStorage.setItem(REMIND_KEY, String(Date.now() + 7 * 86400000)); } catch (e) {}
+                remind.hidden = true;
+                return;
+            }
+            remind.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+            enable().then(function (ok) {
+                if (ok) {
+                    remind.hidden = false;
+                    remind.innerHTML = '<span>🔔 Powiadomienia włączone. Test wyślesz z dzwoneczka (koło zębate).</span>';
+                    setTimeout(function () { remind.hidden = true; }, 6000);
+                }
+            });
+        });
     }
     // Z których sklepów/źródeł przychodzą powiadomienia na tym urządzeniu (wszystkie zaznaczone = także sklepy dodane później).
     function loadSources() {
@@ -555,6 +615,9 @@ document.addEventListener('click', function(e) {
                     save(sub).then(function () { try { sessionStorage.setItem('velessPushSynced', '1'); } catch (e) {} }).catch(function () {});
                 }
             } catch (e) {}
+        } else if (!sub && Notification.permission === 'granted') {
+            // Zgoda jest, a subskrypcji nie ma (np. przeglądarka ją wyczyściła) - zapisujemy ją od nowa bez pytania.
+            subscribe().then(function () { render('on'); }).catch(function () { render('off'); });
         } else {
             render(Notification.permission === 'denied' ? 'denied' : 'off');
         }
@@ -567,16 +630,7 @@ document.addEventListener('click', function(e) {
         var what = b.getAttribute('data-push');
         box.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
         if (what === 'on') {
-            // Zgoda pytana od razu po stuknięciu - iPhone nie pokaże pytania później.
-            Notification.requestPermission().then(function (perm) {
-                if (perm !== 'granted') { render(perm === 'denied' ? 'denied' : 'off'); return; }
-                return fetch('push.php', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
-                    if (!d.ok) { throw new Error(d.error || 'brak klucza'); }
-                    return navigator.serviceWorker.ready.then(function (reg) {
-                        return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key(d.publicKey) });
-                    });
-                }).then(save).then(function () { render('on', 'Gotowe. Stuknij „Wyślij test”, żeby sprawdzić.'); });
-            }).catch(function (e) { render('off', 'Nie udało się włączyć: ' + e.message); });
+            enable();
         } else if (what === 'off') {
             navigator.serviceWorker.ready.then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
                 if (!sub) { return; }

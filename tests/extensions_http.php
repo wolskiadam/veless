@@ -130,7 +130,7 @@ try {
     $list = request($boss, 'admin/index.php');
     $b = $list['body'];
     ok($list['status'] === 200 && preg_match('#aria-sort="[a-z]+"><a[^>]*>Status.*?</th><th class="col-amt">Sztuk</th>#s', $b) === 1, 'Extension column header sits right after Status');
-    ok(str_contains($b, '<td class="col-amt">2</td>') && str_contains($b, '<td class="col-amt">1</td>'), 'Extension column cells count items');
+    ok(preg_match('#<td data-col="[a-z_]+" class="col-amt">2</td>#', $b) === 1 && preg_match('#<td data-col="[a-z_]+" class="col-amt">1</td>#', $b) === 1, 'Extension column cells count items');
     ok(str_contains($b, '📝 Notatki') && str_contains($b, 'ext.php?page=przyklad.notatki&amp;ids=') === false && str_contains($b, "ext.php?page=przyklad.notatki&ids="), 'Action bar has the extension button');
     ok(str_contains($b, 'href="ext.php?page=przyklad.notatki"') && !str_contains($b, 'page=przyklad.zapisz"'), 'Menu has the extension page, hidden pages stay out');
     ok(str_contains($b, '<style data-ext="przyklad">') && str_contains($b, 'x_note'), 'Extension CSS is in the page head');

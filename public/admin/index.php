@@ -202,6 +202,44 @@ $PAGE_HEAD = <<<'CSS'
     .order-shop-id { display:block; color:var(--ink-2); font-family:var(--font-num); font-size:11px; }
     .order-source-number { display:inline-block; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
     @media (max-width:1400px) { .orders-table th,.orders-table td { padding:9px 6px; } }
+    /* Telefon: każde zamówienie to osobna karta ze wszystkimi danymi - bez przewijania tabeli w bok.
+       Komórki mają data-col (_orders_table.php); kolumny rozszerzeń zajmują całą szerokość karty. */
+    @media (max-width:820px) {
+        .orders-list-card { background:transparent; border:0; box-shadow:none; padding:0; }
+        .orders-table-scroll { overflow:visible; }
+        .orders-table, .orders-table tbody { display:block; }
+        .orders-table tr.orders-head { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin:2px 0 12px; }
+        .orders-table tr.orders-head th { display:inline-flex; align-items:center; padding:4px 8px; font-size:10.5px !important; border:1px solid var(--line);
+            border-radius:999px; background:var(--surface); font-family:inherit; text-align:left; }
+        .orders-table tr.orders-head th:not(:has(a, input)) { display:none; }
+        .orders-table tr.orders-head th[aria-sort="ascending"], .orders-table tr.orders-head th[aria-sort="descending"] { border-color:var(--accent); background:var(--accent-soft); }
+        .orders-table tr.orders-head th input { margin:0; width:16px; height:16px; accent-color:var(--accent); }
+        .orders-table tr:not(.orders-head) { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center;
+            grid-template-areas:"chk num badge" "client client client" "email email email" "source source delivery" "ind ind date" "amount amount act";
+            margin-bottom:12px; padding:14px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }
+        .orders-table tr:not(.orders-head):hover { background:var(--surface); }
+        .orders-table td { grid-column:1 / -1; min-width:0; margin-top:10px; padding:0; border:0; }
+        .orders-table td:first-child:not([data-col]):not([colspan]) { grid-area:chk; margin:0; padding-right:12px; }
+        .orders-table td:first-child:not([data-col]):not([colspan]) input { display:block; margin:0; width:20px; height:20px; accent-color:var(--accent); }
+        .orders-table td[data-col="number"] { grid-area:num; margin:0; font-size:13px !important; }
+        .orders-table td[data-col="number"] strong { font-size:16px; color:var(--ink); }
+        .orders-table td[data-col="status"] { display:contents; }
+        .orders-table td[data-col="status"] > span:first-child { grid-area:badge; justify-self:end; font-size:13px !important; padding:4px 12px !important; }
+        .orders-table td[data-col="status"] .order-indicators { grid-area:ind; flex-wrap:wrap; margin-top:10px; }
+        .orders-table td[data-col="client"] { grid-area:client; margin-top:12px; font-size:16px; font-weight:600; }
+        .orders-table td[data-col="email"] { grid-area:email; margin:0; font-size:13px !important; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .orders-table td[data-col="source"] { grid-area:source; }
+        .orders-table td[data-col="delivery"] { grid-area:delivery; justify-self:end; }
+        .orders-table td[data-col="date"] { grid-area:date; justify-self:end; align-self:end; color:var(--ink-2); }
+        .orders-table td[data-col="amount"], .orders-table td[data-col="actions"] { align-self:stretch; display:flex; align-items:center;
+            margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+        .orders-table td[data-col="amount"] { grid-area:amount; font-size:20px; }
+        .orders-table td[data-col="actions"] { grid-area:act; justify-content:flex-end; gap:4px; }
+        .orders-table .row-unread { background:#fff8e6; box-shadow:inset 3px 0 0 #f59e0b, var(--shadow); }
+        .orders-table .row-unread:hover { background:#fff8e6; }
+        .orders-table .row-unread td:first-child { box-shadow:none; }
+        .orders-table .row-merged td[data-col="status"] > * { opacity:.55; }
+    }
 
     .orders-side-col { display:flex; flex-direction:column; gap:14px; position:sticky; top:18px; }
     .orders-side { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:13px; }

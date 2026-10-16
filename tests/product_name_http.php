@@ -169,6 +169,7 @@ try {
         && substr_count($page['body'], 'Zobacz na Allegro') === 2 && str_contains($page['body'], 'Edytuj ofertę'), 'Marketplace tab links to live Allegro offers');
     $page = request($boss, 'admin/product_view.php?id=1');
     ok(!str_contains($page['body'], 'Zobacz na Allegro') && str_contains($page['body'], 'Przygotuj ofertę'), 'Marketplace tab without offer: no preview link');
+    ok(str_contains($page['body'], 'data-src="offer_allegro.php?product=1&amp;ajax=live_offers"'), 'Marketplace tab asks Allegro for offers by SKU');
 
     $vi = login('vi');
     $page = request($vi, 'admin/product_view.php?id=1');

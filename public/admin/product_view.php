@@ -377,19 +377,23 @@ try {
             <div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px">
                 <div style="font-size:15px;font-weight:600"><?= $ch['icon'] ?> <?= htmlspecialchars($ch['name']) ?></div>
                 <?php if ($ch['ready']): $live = array_keys($liveOffers[$ch['key']] ?? []); ?>
-                    <?php if ($has || $live !== []): ?>
-                        <div style="display:flex;gap:6px;flex-wrap:wrap">
-                            <?php if ($live !== []): ?><span class="pill ok">wystawiona</span><?php endif; ?>
-                            <?php if ($has): ?><span class="pill ok">szablon zapisany</span><?php endif; ?>
-                        </div>
-                    <?php endif; ?>
+                    <div class="pv-mk-pills" style="display:flex;gap:6px;flex-wrap:wrap">
+                        <?php if ($live !== []): ?><span class="pill ok">wystawiona</span><?php endif; ?>
+                        <?php if ($has): ?><span class="pill ok">szablon zapisany</span><?php endif; ?>
+                    </div>
                     <div style="margin-top:auto;display:flex;flex-direction:column;gap:6px">
-                        <?php foreach ($live as $oid): ?>
-                            <a class="btn secondary" target="_blank" rel="noopener" href="<?= htmlspecialchars($offerUrl[$ch['key']]((string) $oid)) ?>"
-                               title="Otwórz ofertę <?= htmlspecialchars((string) $oid) ?> na <?= htmlspecialchars($ch['name']) ?>">
-                               Zobacz na <?= htmlspecialchars($ch['name']) ?><?= count($live) > 1 ? ' · ' . htmlspecialchars((string) $oid) : '' ?> ↗
-                            </a>
-                        <?php endforeach; ?>
+                        <?php // Oferty z bazy od razu; resztę (np. oferty z sygnaturą = SKU, bez powiązania) doczytuje skrypt z Allegro. ?>
+                        <div class="pv-live" style="display:flex;flex-direction:column;gap:6px"
+                             <?php if ($ch['key'] === 'allegro'): ?>data-src="offer_allegro.php?product=<?= (int) $p['id'] ?>&amp;ajax=live_offers"<?php endif; ?>
+                             data-name="<?= htmlspecialchars($ch['name']) ?>">
+                            <?php foreach ($live as $oid): ?>
+                                <a class="btn secondary" target="_blank" rel="noopener" data-offer="<?= htmlspecialchars((string) $oid) ?>"
+                                   href="<?= htmlspecialchars($offerUrl[$ch['key']]((string) $oid)) ?>"
+                                   title="Otwórz ofertę <?= htmlspecialchars((string) $oid) ?> na <?= htmlspecialchars($ch['name']) ?>">
+                                   Zobacz na <?= htmlspecialchars($ch['name']) ?><?= count($live) > 1 ? ' · ' . htmlspecialchars((string) $oid) : '' ?> ↗
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
                         <a class="btn" href="offer_<?= $ch['key'] ?>.php?product=<?= (int)$p['id'] ?>"
                            style="background:<?= $ch['color'] ?>">
                            <?= $has ? 'Edytuj ofertę' : 'Przygotuj ofertę' ?>
@@ -703,9 +707,55 @@ $secDefaultOff = \Pase\Support\DescriptionSections::defaultExcluded($pdo);
     line-height:18px; text-align:center; background:#e8f0fe; color:#1a73e8; border-radius:9px; }
 </style>
 <script>
+// Zakładka Marketplace: dociągnij trwające oferty z Allegro (powiązanie, wystawiona z CRM, sygnatura = SKU).
+var pvLiveLoaded = false;
+function pvLoadLiveOffers() {
+    if (pvLiveLoaded) { return; }
+    pvLiveLoaded = true;
+    var labels = { ENDED: 'zakończona', INACTIVE: 'szkic', ACTIVATING: 'aktywacja w toku' };
+    document.querySelectorAll('.pv-live[data-src]').forEach(function (box) {
+        var note = document.createElement('span');
+        note.style.cssText = 'font-size:12px;color:#888';
+        note.textContent = 'Sprawdzam oferty na ' + box.dataset.name + '…';
+        box.appendChild(note);
+        fetch(box.getAttribute('data-src'), { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (list) {
+                note.remove();
+                if (!Array.isArray(list)) { return; }
+                list.sort(function (a, b) { return (a.status === 'ACTIVE' ? 0 : 1) - (b.status === 'ACTIVE' ? 0 : 1); });
+                var all = box.querySelectorAll('a[data-offer]').length + list.filter(function (o) { return !box.querySelector('a[data-offer="' + o.id + '"]'); }).length;
+                list.forEach(function (o) {
+                    var a = box.querySelector('a[data-offer="' + o.id + '"]');
+                    if (!a) {
+                        a = document.createElement('a');
+                        a.className = 'btn secondary';
+                        a.target = '_blank';
+                        a.rel = 'noopener';
+                        a.dataset.offer = o.id;
+                        a.href = 'https://allegro.pl/oferta/' + encodeURIComponent(o.id);
+                        box.appendChild(a);
+                    }
+                    a.title = 'Otwórz ofertę ' + o.id + (o.name ? ' · ' + o.name : '') + ' na ' + box.dataset.name;
+                    a.textContent = 'Zobacz na ' + box.dataset.name + (all > 1 ? ' · ' + o.id : '')
+                        + (o.status && o.status !== 'ACTIVE' ? ' (' + (labels[o.status] || o.status) + ')' : '') + ' ↗';
+                });
+                var pills = box.closest('div[style*="border"]').querySelector('.pv-mk-pills');
+                var active = list.some(function (o) { return o.status === 'ACTIVE'; });
+                if (active && pills && !pills.querySelector('.pv-live-pill')) {
+                    var pill = document.createElement('span');
+                    pill.className = 'pill ok pv-live-pill';
+                    pill.textContent = 'wystawiona';
+                    if (!/wystawiona/.test(pills.textContent)) { pills.prepend(pill); }
+                }
+            })
+            .catch(function () { note.remove(); });
+    });
+}
 document.querySelectorAll('.pv-tab').forEach(function (btn) {
     btn.addEventListener('click', function () {
         var tab = btn.dataset.tab;
+        if (tab === 'marketplace') { pvLoadLiveOffers(); }
         document.querySelectorAll('.pv-tab').forEach(function (b) { b.classList.toggle('active', b === btn); });
         document.querySelectorAll('.pv-pane').forEach(function (p) {
             p.style.display = (p.dataset.pane === tab) ? '' : 'none';

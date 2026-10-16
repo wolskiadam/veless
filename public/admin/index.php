@@ -156,6 +156,7 @@ $PAGE_HEAD = <<<'CSS'
     .orders-layout { display:grid; grid-template-columns:230px minmax(0,1fr); gap:18px; align-items:start; }
     .orders-main { min-width:0; }
     .orders-table-scroll { width:100%; overflow-x:auto; }
+    .orders-mobile-bar { display:none; }
     .orders-table th { white-space:nowrap; }
     .orders-table .sort-link { color:inherit; text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
     .orders-table .sort-link:hover { color:var(--accent); }
@@ -208,12 +209,12 @@ $PAGE_HEAD = <<<'CSS'
         .orders-list-card { background:transparent; border:0; box-shadow:none; padding:0; }
         .orders-table-scroll { overflow:visible; }
         .orders-table, .orders-table tbody { display:block; }
-        .orders-table tr.orders-head { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin:2px 0 12px; }
-        .orders-table tr.orders-head th { display:inline-flex; align-items:center; padding:4px 8px; font-size:10.5px !important; border:1px solid var(--line);
-            border-radius:999px; background:var(--surface); font-family:inherit; text-align:left; }
-        .orders-table tr.orders-head th:not(:has(a, input)) { display:none; }
-        .orders-table tr.orders-head th[aria-sort="ascending"], .orders-table tr.orders-head th[aria-sort="descending"] { border-color:var(--accent); background:var(--accent-soft); }
-        .orders-table tr.orders-head th input { margin:0; width:16px; height:16px; accent-color:var(--accent); }
+        .orders-table tr.orders-head { display:none; }
+        .orders-mobile-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:2px 0 12px; }
+        .orders-mobile-selall { display:inline-flex; align-items:center; gap:8px; padding-left:15px; font-size:13px; color:var(--ink-2); cursor:pointer; }
+        .orders-mobile-selall input { margin:0; width:20px; height:20px; accent-color:var(--accent); }
+        .orders-mobile-sort { display:inline-flex; align-items:center; gap:6px; margin-left:auto; font-size:13px; color:var(--ink-2); }
+        .orders-mobile-sort select { padding:6px 8px; font-size:13px; font-weight:600; max-width:170px; }
         .orders-table tr:not(.orders-head) { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center;
             grid-template-areas:"chk num badge" "client client client" "email email email" "source source delivery" "ind ind date" "amount amount act";
             margin-bottom:12px; padding:14px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); }

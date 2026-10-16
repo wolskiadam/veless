@@ -179,6 +179,23 @@ final class AllegroWysylkaPlugin extends AbstractPlugin implements CourierAsync
     }
 
     /**
+     * Wycena, gdy nie ma cennika ani historii: przy umowie Allegro i zamówieniu bez Smart sprzedawca
+     * płaci za dostawę mniej więcej tyle, ile kupujący zapłacił za tę metodę. Przy Smart Allegro
+     * dopłaca, więc kwota kupującego (zwykle 0 zł) nic nie mówi - wtedy bez wyceny.
+     * @param array $params order, service, service_label, handover
+     * @return array{price:float,message:string}|null
+     */
+    public function fallbackQuote(array $params): ?array
+    {
+        $payload = $params['order']['payload'] ?? [];
+        if (($params['service'] ?? 'allegro') !== 'allegro' || !empty($payload['delivery']['smart'])) {
+            return null;
+        }
+        $paid = (float) ($payload['delivery']['cost']['amount'] ?? 0);
+        return $paid > 0 ? ['price' => $paid, 'message' => 'tyle kupujący zapłacił za dostawę (zamówienie bez Smart)'] : null;
+    }
+
+    /**
      * Faktyczny koszt przesyłki z rozliczeń Allegro (billing-entries zamówienia).
      * Opłaty pojawiają się z opóźnieniem - null, dopóki ich nie ma.
      * @return array{amount:float,currency:string}|null

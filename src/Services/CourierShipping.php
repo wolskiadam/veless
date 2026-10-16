@@ -107,6 +107,41 @@ final class CourierShipping
     }
 
     /**
+     * Ostatni faktyczny koszt przesyłki tą samą usługą i sposobem nadania - do wyceny przed nadaniem.
+     * Bierzemy tylko przesyłki z zamówień tego samego rodzaju (Allegro Smart / bez Smart): przy Smart
+     * Allegro dopłaca do dostawy i sprzedawca płaci ułamek ceny, więc koszt z zamówienia Smart
+     * zaniżałby wycenę zamówienia bez Smart (i odwrotnie).
+     * @param array{row:array,payload:array} $order
+     * @return array{price:float,date:string}|null
+     */
+    public function lastActualCost(int $integrationId, string $serviceLabel, string $handover, array $order): ?array
+    {
+        $smart = self::isSmart($order['payload'] ?? []);
+        $hist = $this->pdo->prepare("SELECT s.price, s.request_payload, s.created_at, o.payload AS order_payload
+                                     FROM shipments s LEFT JOIN woo_orders o ON o.woo_order_id = s.woo_order_id
+                                     WHERE s.integration_id = ? AND s.price IS NOT NULL AND s.status = 'created'
+                                     ORDER BY s.id DESC LIMIT 100");
+        $hist->execute([$integrationId]);
+        foreach ($hist->fetchAll(PDO::FETCH_ASSOC) as $h) {
+            $req = json_decode((string) ($h['request_payload'] ?? ''), true) ?: [];
+            if (($req['service_label'] ?? null) !== $serviceLabel || ($req['handover'] ?? '') !== $handover) {
+                continue;
+            }
+            if (self::isSmart(json_decode((string) ($h['order_payload'] ?? ''), true) ?: []) !== $smart) {
+                continue;
+            }
+            return ['price' => (float) $h['price'], 'date' => substr((string) $h['created_at'], 0, 10)];
+        }
+        return null;
+    }
+
+    /** Zamówienie Allegro z dostawą Smart (checkout-form: delivery.smart). Inne źródła - false. */
+    public static function isSmart(array $payload): bool
+    {
+        return !empty($payload['delivery']['smart']);
+    }
+
+    /**
      * Faktyczny koszt nadanych przesyłek od przewoźnika (opcjonalna metoda wtyczki
      * shipmentCost(externalId, order) - np. rozliczenia Allegro). Sprawdzamy tylko
      * przesyłki bez ceny z ostatnich 14 dni, żeby nie odpytywać API w nieskończoność.

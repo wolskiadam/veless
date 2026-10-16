@@ -11,6 +11,8 @@ declare(strict_types=1);
  *   manual   : „Inne" - zapis numeru przesyłki nadanej poza systemem (bez wtyczki)
  *   quote    : wycena przed nadaniem - Courier::quote(); gdy wtyczka nie zna ceny,
  *              ostatni faktyczny koszt tą samą usługą i sposobem nadania z historii przesyłek
+ *              (tylko z zamówień tego samego rodzaju: Allegro Smart / bez Smart), a na końcu
+ *              opcjonalne fallbackQuote() wtyczki
  *   points   : wyszukiwanie punktu odbioru (q=…) - tylko wtyczki z metodą searchPoints() (np. ORLEN Paczka)
  * Zwraca JSON dla JS na stronie zamówienia.
  */
@@ -128,18 +130,17 @@ try {
             echo json_encode(['ok' => true, 'price' => (float) $q['price'], 'source' => $q['message'] ?: 'wycena przewoźnika']);
             return;
         }
-        // Historia: ostatni faktyczny koszt tą samą usługą i sposobem nadania.
-        $hist = $pdo->prepare("SELECT price, request_payload, created_at FROM shipments
-                               WHERE integration_id = ? AND price IS NOT NULL AND status = 'created'
-                               ORDER BY id DESC LIMIT 100");
-        $hist->execute([$integrationId]);
-        foreach ($hist->fetchAll(PDO::FETCH_ASSOC) as $h) {
-            $req = json_decode((string) ($h['request_payload'] ?? ''), true) ?: [];
-            if (($req['service_label'] ?? null) === $params['service_label'] && ($req['handover'] ?? '') === $params['handover']) {
-                echo json_encode(['ok' => true, 'price' => (float) $h['price'],
-                    'source' => 'ostatni faktyczny koszt tą metodą (' . substr((string) $h['created_at'], 0, 10) . ')']);
-                return;
-            }
+        // Historia: ostatni faktyczny koszt tą samą usługą, sposobem nadania i rodzajem zamówienia (Smart / bez Smart).
+        $h = $courier->lastActualCost($integrationId, $params['service_label'], $params['handover'], $order);
+        if ($h !== null) {
+            echo json_encode(['ok' => true, 'price' => $h['price'],
+                'source' => 'ostatni faktyczny koszt tą metodą (' . $h['date'] . ')']);
+            return;
+        }
+        // Ostatecznie: podpowiedź wtyczki (np. Allegro bez Smart - kwota, którą kupujący zapłacił za dostawę).
+        if (method_exists($plugin, 'fallbackQuote') && ($f = $plugin->fallbackQuote($params)) !== null) {
+            echo json_encode(['ok' => true, 'price' => (float) $f['price'], 'source' => $f['message']], JSON_UNESCAPED_UNICODE);
+            return;
         }
         echo json_encode(['ok' => false, 'price' => null,
             'message' => 'Brak wyceny — uzupełnij cennik w ustawieniach integracji; faktyczny koszt pokaże się po nadaniu.']);

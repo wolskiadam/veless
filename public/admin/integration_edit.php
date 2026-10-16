@@ -279,6 +279,30 @@ if ($id && $existing && $existing['type'] === 'tiktokshop' && \Pase\Services\Tik
     $tiktokStatus = $tiktok->status($existing);
 }
 
+// ERLI: „Synchronizuj teraz” / „Pobierz produkty z ERLI” + stan synchronizacji (Services\Erli).
+$erliStatus = null;
+if ($id && $existing && $existing['type'] === 'erli' && \Pase\Services\Erli::available()) {
+    \Pase\Services\Erli::migrate($pdo);
+    $erli = new \Pase\Services\Erli($pdo, null, new \Pase\Queue\Queue($pdo));
+    if (in_array($_GET['action'] ?? '', ['erli_sync', 'erli_catalog'], true) && canEdit()) {
+        try {
+            $client = $erli->client($existing);
+            if ($_GET['action'] === 'erli_catalog') {
+                $n = $erli->refreshCatalog($existing, $client, true);
+                $wooTest = ['ok' => true, 'message' => 'Pobrano ' . $n . ' produktów z ERLI.'];
+            } else {
+                $o = $erli->syncOrders($existing, $client);
+                $st = $erli->pushStock($existing, $client);
+                $tr = $erli->pushTracking($existing, $client);
+                $wooTest = ['ok' => true, 'message' => "Zamówienia: {$o}, wysłane stany: {$st}, wysłane numery przesyłek: {$tr}."];
+            }
+        } catch (\Throwable $e) {
+            $wooTest = ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+    $erliStatus = $erli->status($existing);
+}
+
 $settingsRepo = new SettingsRepository($pdo);
 if ($type === 'allegro') {
     // Jedyne źródło prawdy dla Allegro - patrz notka przy $allegroSettingsMap wyżej.
@@ -478,7 +502,7 @@ require __DIR__ . '/header.php';
 
         <p style="margin-top:18px">
             <button class="btn" type="submit"><?= $existing ? 'Zapisz' : 'Dodaj integrację' ?></button>
-            <?php if ($id && (in_array($type, ['woocommerce', 'blpaczka', 'allegro', 'wfirma', 'tiktokshop', 'orlenpaczka', 'inpost'], true))): ?>
+            <?php if ($id && (in_array($type, ['woocommerce', 'blpaczka', 'allegro', 'wfirma', 'tiktokshop', 'orlenpaczka', 'inpost', 'erli'], true))): ?>
                 <a class="btn secondary" href="?id=<?= $id ?>&action=test">Testuj połączenie</a>
             <?php endif; ?>
             <?php if ($id && $type === 'allegro'): ?>
@@ -579,6 +603,44 @@ require __DIR__ . '/header.php';
                 <code style="display:block;background:#f1f3f4;padding:8px;border-radius:6px;margin-top:4px;word-break:break-all"><?= htmlspecialchars(rtrim((string) $appBaseUrl, '/') . '/admin/tiktokshop_connect.php') ?></code></li>
             <li>Przepisz powyżej App key, App secret i Service ID, zapisz, potem kliknij <strong>„Połącz z TikTok Shop”</strong> i zaloguj się kontem sprzedawcy.</li>
             <li>Produkty łączą się po SKU: <strong>SKU sprzedawcy</strong> w TikTok musi być takie samo jak SKU w magazynie CRM.</li>
+        </ol>
+    <?php endif; ?>
+
+    <?php if ($id && $type === 'erli' && $erliStatus !== null): $es = $erliStatus; ?>
+        <hr style="margin:16px 0;border:0;border-top:1px solid #eee">
+        <strong style="font-size:13px">Synchronizacja z ERLI</strong>
+        <?php if ($es['configured']): ?>
+            <p style="font-size:13px;color:#555;margin:8px 0 0">
+                Ostatnia synchronizacja: <?= $es['last_run'] !== '' ? htmlspecialchars($es['last_run']) : 'jeszcze nie było (worker co ' . \Pase\Services\Erli::RUN_EVERY_MIN . ' min)' ?>.
+                Zamówień z ERLI w CRM: <strong><?= (int) $es['orders'] ?></strong>. Produktów w ERLI: <strong><?= (int) $es['products'] ?></strong>, w tym z tym samym SKU w magazynie CRM: <strong><?= (int) $es['products_linked'] ?></strong>.
+            </p>
+            <?php if ($es['last_error'] !== ''): ?><div class="flash err" style="margin-top:8px"><?= htmlspecialchars($es['last_error']) ?></div><?php endif; ?>
+            <?php if (canEdit()): ?>
+            <p style="margin:10px 0 0">
+                <a class="btn secondary" href="?id=<?= (int) $id ?>&action=erli_sync">↻ Synchronizuj teraz</a>
+                <a class="btn secondary" href="?id=<?= (int) $id ?>&action=erli_catalog">Pobierz produkty z ERLI</a>
+            </p>
+            <?php endif; ?>
+            <?php if ($es['stock_errors']): ?>
+                <p style="font-size:13px;margin:12px 0 4px"><strong>Stany, których ERLI nie przyjęło</strong> (kolejna próba przy następnej synchronizacji):</p>
+                <table><tr><th>SKU</th><th>Produkt</th><th>Błąd</th></tr>
+                <?php foreach ($es['stock_errors'] as $r): ?><tr><td><?= htmlspecialchars((string) $r['match_sku']) ?></td><td><?= htmlspecialchars((string) $r['product_name']) ?></td><td><?= htmlspecialchars((string) $r['error']) ?></td></tr><?php endforeach; ?>
+                </table>
+            <?php endif; ?>
+            <?php if ($es['tracking_errors']): ?>
+                <p style="font-size:13px;margin:12px 0 4px"><strong>Numery przesyłek, których ERLI nie przyjęło</strong>:</p>
+                <table><tr><th>Zamówienie</th><th>Błąd</th></tr>
+                <?php foreach ($es['tracking_errors'] as $r): ?><tr><td><a href="order_view.php?id=<?= (int) $r['woo_order_id'] ?>">#<?= htmlspecialchars((string) ($r['pase_number'] ?? $r['woo_order_id'])) ?></a> (ERLI <?= htmlspecialchars((string) $r['erli_order_id']) ?>)</td><td><?= htmlspecialchars((string) $r['tracking_error']) ?></td></tr><?php endforeach; ?>
+                </table>
+            <?php endif; ?>
+        <?php else: ?>
+            <p style="font-size:13px;color:#b45309;margin:8px 0 0">Wpisz klucz API i zapisz, żeby CRM zaczął pobierać zamówienia.</p>
+        <?php endif; ?>
+        <ol style="font-size:13px;color:#555;line-height:1.7;margin:10px 0 0;padding-left:18px">
+            <li>W panelu sprzedawcy ERLI wygeneruj klucz API (Ustawienia → Integracje) i wklej go powyżej. Klucz jest zapisywany w bazie zaszyfrowany.</li>
+            <li>Kliknij <strong>„Testuj połączenie”</strong> - CRM pokaże nazwę sklepu ERLI.</li>
+            <li>Produkty łączą się po SKU: <strong>SKU</strong> produktu w ERLI (a gdy go brak - jego identyfikator zewnętrzny) musi być takie samo jak SKU w magazynie CRM.</li>
+            <li>Numer przesyłki dodany w CRM trafia do ERLI razem z przewoźnikiem rozpoznanym po nazwie kuriera, a zamówienie dostaje status „wysłane”.</li>
         </ol>
     <?php endif; ?>
 

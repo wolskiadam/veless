@@ -100,6 +100,7 @@ jobs:
       - run: php tests/payu_payments.php
       - run: php tests/payu_payments_http.php
       - run: php tests/tiktokshop.php
+      - run: php tests/erli.php
       - run: php tests/order_merge.php
       - run: php tests/order_merge_http.php
       - run: php tests/email_log.php

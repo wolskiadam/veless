@@ -180,6 +180,16 @@ final class OrderStatus
             return $out !== '' ? $out : (string) $fallback;
         }
 
+        if (isset($payload['erli'])) { // zamówienie z ERLI
+            $st = (string) ($payload['status'] ?? $fallback ?? '');
+            $out = \Pase\Services\Erli::STATUS_LABELS[$st] ?? $st;
+            $seller = (string) ($payload['erli']['sellerStatus'] ?? '');
+            if ($seller !== '' && !in_array($seller, ['created', 'unknown'], true) && $st !== 'cancelled') {
+                $out .= ' · ' . (\Pase\Services\Erli::SELLER_STATUS_LABELS[$seller] ?? $seller);
+            }
+            return $out;
+        }
+
         if (isset($payload['tiktok'])) { // zamówienie z TikTok Shop
             $st = (string) ($payload['status'] ?? $fallback ?? '');
             return \Pase\Services\TiktokShop::STATUS_LABELS[$st] ?? $st;

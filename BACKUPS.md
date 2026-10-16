@@ -181,7 +181,7 @@ odtworzenie snapshotu do osobnej bazy. CI dodaje ten etap do testów sprzedaży.
 
 ## Szyfrowanie tokenów i kluczy API w bazie
 
-Tokeny OAuth (Allegro, TikTok), klucze API kont integracji (wFirma, PayU, SMSAPI, BLPaczka, GS1),
+Tokeny OAuth (Allegro, TikTok), klucze API kont integracji (wFirma, PayU, SMSAPI, BLPaczka, GS1, InPost, ERLI),
 sekrety webhooków, hasła SMTP i sekretne ustawienia (`*_SECRET`, `*_KEY`, `*_PASS`…) są w bazie
 szyfrowane AES-256-GCM (`Pase\Support\SecretStore`, wartości z przedrostkiem `enc:v1:`). Klucz to
 podklucz **pliku klucza 2FA** (`storage/security/totp.key` albo `TOTP_KEY_FILE`), więc:

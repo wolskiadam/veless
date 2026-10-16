@@ -235,6 +235,21 @@ try {
     Logger::warn('TikTok Shop: synchronizacja nie powiodła się: ' . $e->getMessage());
 }
 
+// --- ERLI: co kilka minut zamówienia, stany CRM do ERLI i numery przesyłek (Services\Erli) ---
+try {
+    if (\Pase\Services\Erli::available() && !$control->isPaused('erli')
+        && time() - (int) $settings->get('ERLI_RUN_AT', '0') >= \Pase\Services\Erli::RUN_EVERY_MIN * 60) {
+        $settings->setMany(['ERLI_RUN_AT' => (string) time()]);
+        \Pase\Services\Erli::migrate($pdo);
+        $r = (new \Pase\Services\Erli($pdo, null, $queue, $ruleEngine))->run();
+        if (array_sum($r) > 0) {
+            Logger::info('ERLI: zamówienia ' . $r['orders'] . ', stany ' . $r['stock'] . ', numery przesyłek ' . $r['tracking']);
+        }
+    }
+} catch (\Throwable $e) {
+    Logger::warn('ERLI: synchronizacja nie powiodła się: ' . $e->getMessage());
+}
+
 // Limit zadań na przebieg: z panelu (ograniczenie obciążenia) albo z konfiguracji.
 $batchSize          = $control->batchSize((int) $config['worker']['batch_size']);
 if ($control->isPaused('queue')) {

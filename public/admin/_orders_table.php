@@ -31,7 +31,7 @@ if (!function_exists('sourceBadge')) {
      */
     function sourceBadge(?string $type, ?string $name, ?string $configJson): string
     {
-        $labels = ['woocommerce' => 'WooCommerce', 'allegro' => 'Allegro', 'wfirma' => 'wFirma', 'manual' => 'Ręczne', 'tiktokshop' => 'TikTok Shop'];
+        $labels = ['woocommerce' => 'WooCommerce', 'allegro' => 'Allegro', 'wfirma' => 'wFirma', 'manual' => 'Ręczne', 'tiktokshop' => 'TikTok Shop', 'erli' => 'ERLI'];
         if ($type === null) {
             return '<span style="color:var(--ink-3)">—</span>';
         }

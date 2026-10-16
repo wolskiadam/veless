@@ -1,6 +1,6 @@
 # Veless
 
-Otwarty system do obsługi sklepu internetowego: zamówienia z WooCommerce, Allegro i TikTok Shop
+Otwarty system do obsługi sklepu internetowego: zamówienia z WooCommerce, Allegro, TikTok Shop i ERLI
 w jednej liście, magazyn i stany, pakowanie ze skanerem, faktury i paragony w wFirma, wysyłki,
 płatności PayU, wiadomości z klientem i automatyzacje. Działa na zwykłym hostingu z PHP 8.1+
 i MySQL/MariaDB albo w Dockerze na własnym komputerze.

@@ -188,7 +188,7 @@ final class WebPush
      */
     public function sourceOptions(): array
     {
-        $labels = ['woocommerce' => 'WooCommerce', 'allegro' => 'Allegro', 'tiktokshop' => 'TikTok Shop'];
+        $labels = ['woocommerce' => 'WooCommerce', 'allegro' => 'Allegro', 'tiktokshop' => 'TikTok Shop', 'erli' => 'ERLI'];
         $types = [];
         try {
             $types = array_keys(\Pase\Plugin\PluginRegistry::withCapability(\Pase\Plugin\Capability::ORDER_SOURCE));
@@ -388,7 +388,7 @@ final class WebPush
         if ($customer === '') {
             $customer = trim(($payload['billing']['first_name'] ?? '') . ' ' . ($payload['billing']['last_name'] ?? ''));
         }
-        $labels = ['woocommerce' => 'Sklep', 'allegro' => 'Allegro', 'manual' => 'Ręczne', 'tiktokshop' => 'TikTok Shop'];
+        $labels = ['woocommerce' => 'Sklep', 'allegro' => 'Allegro', 'manual' => 'Ręczne', 'tiktokshop' => 'TikTok Shop', 'erli' => 'ERLI'];
         $type = (string) (($row['src_type'] ?? '') ?: ($payload['created_via'] ?? ''));
         $source = (string) ($row['src_name'] ?? '');
         if ($source === '') {

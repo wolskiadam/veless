@@ -156,6 +156,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             (new WooOrderRepository($pdo))->updateLocalItems($wooOrderId, $newItems);
             $flashOk = 'Zapisano zmiany w produktach (w CRM - trafią na fakturę i paragon, sklep bez zmian).';
         }
+    } elseif ($act === 'erli_retry_tracking' && \Pase\Services\Erli::isErli($wooOrderId)) {
+        // Numer przesyłki nie przeszedł do ERLI - worker spróbuje od nowa.
+        \Pase\Services\Erli::migrate($pdo);
+        (new \Pase\Services\Erli($pdo))->retryTracking($wooOrderId);
+        $flashOk = 'Numer przesyłki zostanie wysłany do ERLI przy najbliższej synchronizacji (do ' . \Pase\Services\Erli::RUN_EVERY_MIN . ' min).';
     } elseif ($act === 'tiktok_retry_tracking' && \Pase\Services\TiktokShop::isTiktok($wooOrderId)) {
         // Numer przesyłki nie przeszedł do TikTok (np. nierozpoznany kurier) - worker spróbuje od nowa.
         \Pase\Services\TiktokShop::migrate($pdo);
@@ -563,6 +568,16 @@ if (\Pase\Services\TiktokShop::isTiktok($wooOrderId)) {
         $tiktokLink = (new \Pase\Services\TiktokShop($pdo))->orderLink($wooOrderId);
     } catch (\Throwable $e) {
         $tiktokLink = null;
+    }
+}
+// ERLI: czy numer przesyłki poszedł do ERLI (Services\Erli::pushTracking).
+$erliLink = null;
+if (\Pase\Services\Erli::isErli($wooOrderId)) {
+    try {
+        \Pase\Services\Erli::migrate($pdo);
+        $erliLink = (new \Pase\Services\Erli($pdo))->orderLink($wooOrderId);
+    } catch (\Throwable $e) {
+        $erliLink = null;
     }
 }
 
@@ -1664,6 +1679,21 @@ foreach ($absorbedOrders as $ab) {
         </div>
     <?php endif; ?>
 
+    <?php if ($erliLink !== null):
+        $erState = (string) ($erliLink['tracking_state'] ?? '');
+    ?>
+        <div style="font-size:13px;margin-top:8px;padding:8px 10px;border-radius:8px;background:<?= $erState === 'error' ? '#fdecea' : '#f4f5f7' ?>">
+            🛍️ ERLI:
+            <?php if ($erState === 'sent'): ?>numer <strong><?= htmlspecialchars((string) $erliLink['tracking_number']) ?></strong> wysłany do ERLI, zamówienie oznaczone jako wysłane.
+            <?php elseif ($erState === 'error'): ?>numer <strong><?= htmlspecialchars((string) $erliLink['tracking_number']) ?></strong> nie przeszedł: <?= htmlspecialchars((string) $erliLink['tracking_error']) ?>
+                <?php if (canEdit()): ?><form method="post" style="display:inline;margin-left:6px"><input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="action" value="erli_retry_tracking"><button class="btn secondary" type="submit" style="padding:2px 8px;font-size:12px">Spróbuj ponownie</button></form><?php endif; ?>
+            <?php elseif ($erState === 'skipped'): ?><?= htmlspecialchars((string) $erliLink['tracking_error']) ?>
+            <?php elseif (($erliLink['erli_status'] ?? '') === 'purchased'): ?>po dodaniu przesyłki z numerem CRM wyśle go do ERLI (do <?= \Pase\Services\Erli::RUN_EVERY_MIN ?> min).
+            <?php else: ?>status w ERLI: <?= htmlspecialchars(\Pase\Services\Erli::STATUS_LABELS[(string) ($erliLink['erli_status'] ?? '')] ?? (string) ($erliLink['erli_status'] ?? '')) ?>.
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
     <?php if ($shipments): ?>
         <table style="margin-top:10px">
             <tr><th>Nr listu</th><th>Kurier</th><th>Koszt</th><th>Status</th><th>Etykieta</th><th></th></tr>
@@ -1975,7 +2005,7 @@ foreach ($absorbedOrders as $ab) {
             <?php else: ?>
             <tr><th>Numer w sklepie</th><td><?= $g($row, 'order_number', (string)$wooOrderId) ?> <span style="color:#aaa">(Woo #<?= (int)$wooOrderId ?>)</span></td></tr>
             <?php endif; ?>
-            <?php if (!$isManualOrder): ?><tr><th>Status w <?= $sourceType === 'allegro' ? 'Allegro' : ($sourceType === 'tiktokshop' ? 'TikTok Shop' : 'sklepie') ?></th><td><span class="pill muted" title="<?= htmlspecialchars((string) ($o['status'] ?? $row['status'] ?? '')) ?>"><?= htmlspecialchars(\Pase\Domain\OrderStatus::channelLabel($o, $row['status'] ?? null)) ?></span></td></tr><?php endif; ?>
+            <?php if (!$isManualOrder): ?><tr><th>Status w <?= $sourceType === 'allegro' ? 'Allegro' : ($sourceType === 'tiktokshop' ? 'TikTok Shop' : ($sourceType === 'erli' ? 'ERLI' : 'sklepie')) ?></th><td><span class="pill muted" title="<?= htmlspecialchars((string) ($o['status'] ?? $row['status'] ?? '')) ?>"><?= htmlspecialchars(\Pase\Domain\OrderStatus::channelLabel($o, $row['status'] ?? null)) ?></span></td></tr><?php endif; ?>
             <tr>
                 <th>E-mail</th>
                 <td>

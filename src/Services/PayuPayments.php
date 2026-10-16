@@ -102,9 +102,9 @@ final class PayuPayments
     /** Czy zamówienie może mieć płatność PayU sklepu (nie Allegro). */
     public static function eligible(array $order): bool
     {
-        // TikTok Shop rozlicza płatność sam - zamówienia z TikTok (zakres TiktokShop::ID_MIN-ID_MAX) nie mają PayU.
+        // TikTok Shop i ERLI rozliczają płatność same - zamówienia z ich zakresów numerów nie mają PayU.
         return (int) ($order['woo_order_id'] ?? 0) > 0 && (int) $order['woo_order_id'] < 9000000000
-            && !TiktokShop::isTiktok((int) $order['woo_order_id']);
+            && !TiktokShop::isTiktok((int) $order['woo_order_id']) && !Erli::isErli((int) $order['woo_order_id']);
     }
 
     /**

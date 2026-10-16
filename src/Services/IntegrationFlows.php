@@ -130,6 +130,13 @@ final class IntegrationFlows
                 $out[] = $this->flag('Numery przesyłek', $ok && ($cfg['push_tracking'] ?? 'on') !== 'off', 'Numer przesyłki z CRM oznacza zamówienie w TikTok jako wysłane.', $edit);
                 break;
 
+            case 'erli':
+                $ok = !empty($cfg['api_key']);
+                $in[]  = $this->flag('Zamówienia', $ok, $ok ? 'Pobierane co ' . \Pase\Services\Erli::RUN_EVERY_MIN . ' min, opłacone zdejmują stan w CRM.' : 'Brak klucza API — uzupełnij w ustawieniach.', $edit);
+                $out[] = $this->flag('Stany', $ok && ($cfg['push_stock'] ?? 'on') !== 'off', 'Stan CRM do produktów ERLI o tym samym SKU, gdy się zmieni.', $edit);
+                $out[] = $this->flag('Numery przesyłek', $ok && ($cfg['push_tracking'] ?? 'on') !== 'off', 'Numer przesyłki z CRM oznacza zamówienie w ERLI jako wysłane.', $edit);
+                break;
+
             default:
                 // Wtyczki bez własnego opisu: przepływy z deklarowanych zdolności.
                 $caps = [];

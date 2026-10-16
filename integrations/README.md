@@ -26,6 +26,9 @@ nadanie asynchroniczne przez `CourierAsync`, pobranie, zlecenie odbioru - wzorze
 `integrations/tiktokshop/` (TikTok Shop: klient Open API 202309 z podpisem HMAC; OAuth przez `tiktokshop_connect.php`,
 import zamówień, stany CRM do SKU TikTok i numery przesyłek robi rdzeń w `Pase\Services\TiktokShop`, uruchamiany z workera;
 jak Allegro deklaruje `ORDER_SOURCE` bez interfejsu `OrderSource`, bo zamówienia zdejmują stan w CRM).
+`integrations/erli/` (ERLI: klient Shop API z kluczem API (Bearer) zapisanym zaszyfrowanym w configu konta; import zamówień,
+stany CRM do produktów ERLI i numery przesyłek robi rdzeń w `Pase\Services\Erli`, uruchamiany z workera - ten sam wzorzec
+co TikTok Shop, bez OAuth).
 
 Gdy wtyczka ma logikę specyficzną dla kanału, której nie pokrywa znormalizowany kontrakt
 (np. import stronami z filtrem, tryby diagnostyczne, tworzenie zamówień), może wystawić publiczną

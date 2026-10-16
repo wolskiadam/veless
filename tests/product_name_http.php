@@ -5,6 +5,7 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 // Zmiana nazwy produktu w karcie produktu przez HTTP (baza SQLite, udawany sklep WooCommerce):
 // produkt bez sklepu - tylko CRM; produkt ze sklepu - PUT name do Woo; odmowa sklepu - nazwa bez zmian;
 // wariant - tylko CRM z ostrzeżeniem; przeglądający nie widzi formularza i nie może zapisać.
+// Stan (CRM): zapis bez sklepu / przy sklepie jako źródle stanów tylko w CRM, walidacja, przeglądający bez formularza.
 $root = dirname(__DIR__);
 spl_autoload_register(static function (string $class) use ($root): void {
     if (str_starts_with($class, 'Pase\\')) { require $root . '/src/' . str_replace('\\', '/', substr($class, 5)) . '.php'; }
@@ -99,9 +100,12 @@ try {
     $pins->execute([3, 'ODMOWA-1', 'Stara nazwa', 1, 1, 300, null]);
     $pins->execute([4, 'GB-1L-BRAZ', 'Gingerbread', 3, 1, 400, 401]);
     $pins->execute([5, 'GB-1L-BIAL', 'Gingerbread', 2, 1, 400, 402]);
+    $pins->execute([6, 'SKLEP-MASTER', 'Świeca ze sklepu', 7, 2, 600, null]);
     $pdo->exec("UPDATE products SET images = '[\"https://sklep.test/wariant-braz.jpg\"]' WHERE id = 4");
     $pdo->prepare("INSERT INTO integration_accounts (id, type, name, is_active, config) VALUES (1, 'woocommerce', 'Mój Sklep', 1, ?)")
         ->execute([json_encode(['base_url' => "http://$shopAddr", 'consumer_key' => 'ck', 'consumer_secret' => 'cs'])]);
+    $pdo->prepare("INSERT INTO integration_accounts (id, type, name, is_active, config) VALUES (2, 'woocommerce', 'Drugi Sklep', 1, ?)")
+        ->execute([json_encode(['base_url' => "http://$shopAddr", 'consumer_key' => 'ck', 'consumer_secret' => 'cs', 'stock_master' => 'shop'])]);
     $pdo->exec("CREATE TABLE woo_orders (id INTEGER PRIMARY KEY, woo_order_id INTEGER UNIQUE, integration_id INTEGER, pase_status TEXT, status TEXT, currency TEXT, total REAL,
         date_created TEXT, lifecycle TEXT DEFAULT 'active', payload TEXT, local_items TEXT NULL, local_edited_at TEXT NULL)");
     \Pase\Services\OrderMargins::migrate($pdo);
@@ -171,11 +175,32 @@ try {
     ok(!str_contains($page['body'], 'Zobacz na Allegro') && str_contains($page['body'], 'Przygotuj ofertę'), 'Marketplace tab without offer: no preview link');
     ok(str_contains($page['body'], 'data-src="offer_allegro.php?product=1&amp;ajax=live_offers"'), 'Marketplace tab asks Allegro for offers by SKU');
 
+    // Stan (CRM): edytowalny; bez sklepu i przy sklepie jako źródle stanów zostaje tylko w CRM.
+    $stockOf = static fn(int $id): int => (int) $pdo->query("SELECT pase_stock FROM products WHERE id = $id")->fetchColumn();
+    $saveStock = static function (CurlHandle $h, int $id, string $stock): string {
+        $page = request($h, "admin/product_view.php?id=$id");
+        return request($h, "admin/product_view.php?id=$id", ['csrf' => csrfOf($page['body']), 'action' => 'save_stock', 'pase_stock' => $stock])['body'];
+    };
+    $page = request($boss, 'admin/product_view.php?id=1');
+    ok(str_contains($page['body'], 'name="action" value="save_stock"') && str_contains($page['body'], 'name="pase_stock" type="number" min="0" step="1" required value="5"'), 'Stock is an editable field');
+    $before = $shopLog();
+    $body = $saveStock($boss, 1, '12');
+    ok(str_contains($body, 'Zapisano stan: 12. Produkt nie jest powiązany ze sklepem') && $stockOf(1) === 12 && $shopLog() === $before, 'Product without shop: stock saved in CRM only');
+    $body = $saveStock($boss, 6, '3');
+    ok(str_contains($body, 'Sklep „Drugi Sklep” jest źródłem stanów') && $stockOf(6) === 3 && $shopLog() === $before, 'Shop as stock source: saved in CRM, nothing sent');
+    $body = $saveStock($boss, 1, '-4');
+    ok(str_contains($body, 'Stan: wpisz liczbę całkowitą 0 lub większą.') && $stockOf(1) === 12, 'Negative stock refused');
+    $body = $saveStock($boss, 1, '12');
+    ok(str_contains($body, 'Stan bez zmian.'), 'Same stock: nothing to save');
+
     $vi = login('vi');
     $page = request($vi, 'admin/product_view.php?id=1');
     ok($page['status'] === 200 && !str_contains($page['body'], 'value="save_name"') && str_contains($page['body'], 'Świeca sojowa'), 'Viewer sees name without the form');
     request($vi, 'admin/product_view.php?id=1', ['csrf' => csrfOf($page['body']), 'action' => 'save_name', 'name' => 'Hack']);
     ok($nameOf(1) === 'Świeca sojowa', 'Viewer cannot rename');
+    ok(!str_contains($page['body'], 'value="save_stock"'), 'Viewer sees stock without the form');
+    request($vi, 'admin/product_view.php?id=1', ['csrf' => csrfOf($page['body']), 'action' => 'save_stock', 'pase_stock' => '0']);
+    ok($stockOf(1) === 12, 'Viewer cannot change stock');
 
     $warnings = preg_grep('/PHP (Warning|Fatal|Parse|Deprecated|Notice)/', file("$temp/server.log") ?: []);
     ok($warnings === [], 'No PHP warnings' . ($warnings ? ': ' . implode(' | ', array_map('trim', $warnings)) : ''));

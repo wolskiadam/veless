@@ -66,6 +66,7 @@ jobs:
       - run: php tests/ui_scale_http.php
       - run: php tests/reply_templates_http.php
       - run: php tests/order_view_mobile_http.php
+      - run: php tests/orders_list_mobile_http.php
       - run: php tests/allegro_order_message.php
       - run: php tests/page_permissions_http.php
       - run: php tests/menu_layout_http.php

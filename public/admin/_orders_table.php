@@ -59,7 +59,7 @@ if (!function_exists('sourceBadge')) {
 }
 ?>
 <!-- ===== Lista ===== -->
-<div class="card">
+<div class="card orders-list-card">
     <form method="post" id="bulkForm">
     <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
 
@@ -117,7 +117,7 @@ if (!function_exists('sourceBadge')) {
 
     <div class="orders-table-scroll" tabindex="0" role="region" aria-label="<?= htmlspecialchars(t('orders.title')) ?>">
     <table class="orders-table">
-        <tr>
+        <tr class="orders-head">
             <?php if (canEdit()): ?><th style="width:28px"><input type="checkbox" onclick="document.querySelectorAll('.rowcheck').forEach(c=>c.checked=this.checked)"></th><?php endif; ?>
             <?php
             // Klikalne nagłówki: sortowanie po stronie serwera (cała lista, nie tylko bieżąca strona).
@@ -308,9 +308,10 @@ if (!function_exists('sourceBadge')) {
                     if (isset($col['cell'])) {
                         // Kolumna rozszerzenia: HTML z callbacku (błąd = pusta komórka, wpis w logu).
                         $html = \Pase\Plugin\Hooks::safe('orders.columns:' . $colKey, $col['cell'], $r);
-                        echo '<td' . (!empty($col['class']) ? ' class="' . htmlspecialchars((string) $col['class']) . '"' : '') . '>' . (is_string($html) ? $html : '') . '</td>';
+                        echo '<td data-col="' . htmlspecialchars((string) $colKey) . '"' . (!empty($col['class']) ? ' class="' . htmlspecialchars((string) $col['class']) . '"' : '') . '>' . (is_string($html) ? $html : '') . '</td>';
                     } else {
-                        echo $cells[$colKey] ?? '<td></td>';
+                        // data-col: na telefonie wiersz jest kartą, a komórki trafiają w swoje miejsce na karcie (index.php).
+                        echo preg_replace('/<td\b/', '<td data-col="' . htmlspecialchars((string) $colKey) . '"', $cells[$colKey] ?? '<td></td>', 1);
                     }
                 } ?>
             </tr>

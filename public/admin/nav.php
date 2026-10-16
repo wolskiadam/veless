@@ -402,14 +402,16 @@ document.addEventListener('click', function(e) {
         }).join('');
     }
     // Pasek ikon obok tytułu strony: każda grupa z dzwoneczka jako ikona z liczbą i linkiem.
-    var chipIcons = { client_msgs: '✉️', allegro_msgs: '💬', allegro_issues: '⚖️', allegro_ratings: '👎', returns: '↩️', low_stock: '📉',
+    // Niski stan zostaje tylko w dzwoneczku (tam każdy produkt ma własny link).
+    var chipSkip = ['low_stock'];
+    var chipIcons = { client_msgs: '✉️', allegro_msgs: '💬', allegro_issues: '⚖️', allegro_ratings: '👎', returns: '↩️',
                       new_orders: '🛒', allegro_token: '🔑', failed_jobs: '⚠️' };
     var chipLabels = { client_msgs: 'Wiadomości klientów', allegro_msgs: 'Wiadomości Allegro', new_orders: 'Nowe zamówienia',
                        allegro_token: 'Token Allegro wygasł', failed_jobs: 'Błędy kolejki' };
     function renderChips(d) {
         var box = document.getElementById('alertChips');
         if (!box) { return; }
-        var items = (d.items || []).filter(function (g) { return g.count > 0; });
+        var items = (d.items || []).filter(function (g) { return g.count > 0 && chipSkip.indexOf(g.key) === -1; });
         box.hidden = !items.length;
         box.innerHTML = items.map(function (g) {
             var label = g.short || chipLabels[g.key] || g.title;

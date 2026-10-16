@@ -107,7 +107,7 @@ w integracji. Zmianę stanu w CRM worker wypycha do sklepu.</p>
 <p><strong>Niski stan:</strong> każdy produkt może mieć <em>minimalny stan</em> (podgląd produktu albo
 „Minimum zaznaczonych” na liście). Produkty bez własnego minimum korzystają z progu domyślnego
 („⚙ Próg domyślny” przy filtrach, na start 5). Gdy stan spadnie do minimum, produkt pojawia się
-w filtrze „Niski stan”, w dzwoneczku i jako ikona 📉 przy tytule strony. Nic nie jest zamawiane
+w filtrze „Niski stan” i w dzwoneczku (każdy produkt z linkiem do jego podglądu). Nic nie jest zamawiane
 ani zmieniane w ofertach automatycznie.</p>
 <p><strong>Stan faktyczny</strong> (domyślnie wyłączony, włączasz w Konfiguracja → Synchronizacja → Magazyn): ile towaru naprawdę masz na półce (kolumna na liście produktów
 i pole w podglądzie produktu). Jest tylko w CRM: nie idzie do sklepu ani na Allegro, więc „Stan (CRM)”

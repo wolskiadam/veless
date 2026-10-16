@@ -21,6 +21,8 @@ a stronę Magazyn → GS1 i tabelę `gs1_products` ma rdzeń w `Pase\Services\Gs
 i tabelę `payu_payouts` ma rdzeń w `Pase\Services\PayuPayouts`).
 `integrations/orlenpaczka/` (ORLEN Paczka: kurier na API SOAP składanym bez php-soap, punkt odbioru z wyszukiwarką
 i własne śledzenie paczek - wzorzec dla przewoźnika z punktami).
+`integrations/inpost/` (InPost ShipX: kurier na REST/JSON z tokenem Bearer, Paczkomat z wyszukiwarką punktów,
+nadanie asynchroniczne przez `CourierAsync`, pobranie, zlecenie odbioru - wzorzec dla przewoźnika z API REST).
 `integrations/tiktokshop/` (TikTok Shop: klient Open API 202309 z podpisem HMAC; OAuth przez `tiktokshop_connect.php`,
 import zamówień, stany CRM do SKU TikTok i numery przesyłek robi rdzeń w `Pase\Services\TiktokShop`, uruchamiany z workera;
 jak Allegro deklaruje `ORDER_SOURCE` bez interfejsu `OrderSource`, bo zamówienia zdejmują stan w CRM).

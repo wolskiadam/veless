@@ -1788,7 +1788,7 @@ foreach ($absorbedOrders as $ab) {
     $blpaczkaOffered = $hasBlpaczka && array_filter($courierOptions, static fn($co) => $co['type'] === 'blpaczka') !== [];
     ?>
     <?php if ($courierOptions === []): ?>
-        <p style="color:#b06000;font-size:13px">Brak aktywnej integracji kurierskiej dla tego zamówienia. Dodaj <strong>BLPaczka</strong>, <strong>Wysyłam z Allegro</strong> albo <strong>ORLEN Paczka</strong> w <a href="integrations.php">Integracjach</a>.</p>
+        <p style="color:#b06000;font-size:13px">Brak aktywnej integracji kurierskiej dla tego zamówienia. Dodaj <strong>BLPaczka</strong>, <strong>Wysyłam z Allegro</strong>, <strong>InPost</strong> albo <strong>ORLEN Paczka</strong> w <a href="integrations.php">Integracjach</a>.</p>
     <?php endif; ?>
     <?php if (canEdit()): ?>
         <div style="margin:2px 0 10px">

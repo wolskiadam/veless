@@ -478,7 +478,7 @@ require __DIR__ . '/header.php';
 
         <p style="margin-top:18px">
             <button class="btn" type="submit"><?= $existing ? 'Zapisz' : 'Dodaj integrację' ?></button>
-            <?php if ($id && (in_array($type, ['woocommerce', 'blpaczka', 'allegro', 'wfirma', 'tiktokshop'], true) || $type === 'orlenpaczka')): ?>
+            <?php if ($id && (in_array($type, ['woocommerce', 'blpaczka', 'allegro', 'wfirma', 'tiktokshop', 'orlenpaczka', 'inpost'], true))): ?>
                 <a class="btn secondary" href="?id=<?= $id ?>&action=test">Testuj połączenie</a>
             <?php endif; ?>
             <?php if ($id && $type === 'allegro'): ?>

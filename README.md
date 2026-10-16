@@ -166,6 +166,31 @@ nadaje się dalej przez „Wysyłam z Allegro”.
 - Nie obsługujemy: zwrotów konsumenckich, nadania bez etykiety (kod nadania), protokołu przekazania.
   COD i ubezpieczenie ORLEN Paczka wycofała — wtyczka ich nie wysyła.
 
+## Integracja kurierska — InPost (ShipX)
+
+Wtyczka `integrations/inpost/` nadaje Paczkomaty i przesyłki kurierskie InPost na **własnej umowie** z InPost,
+bezpośrednio przez API ShipX (bez pośrednika). Paczki z umowy Allegro (Allegro SMART) nadaje się dalej przez
+„Wysyłam z Allegro”.
+
+- **Dodanie:** Integracje → Dodaj integrację → **InPost**. Pola: token API ShipX (Manager Paczek → Moje konto → API →
+  „Pokaż token”; zapisywany zaszyfrowany jak inne sekrety integracji) i ID organizacji, środowisko (produkcja albo
+  sandbox — osobne konto na sandbox-manager.paczkomaty.pl), domyślna usługa i sposób nadania, opcjonalnie dane nadawcy
+  (puste = dane organizacji z Managera Paczek), pobranie, format etykiety (PDF A6 / A4, ZPL) i ceny z umowy.
+  **Test połączenia** odpytuje `GET /v1/organizations/{id}` (nazwa organizacji, dostępne usługi).
+- **Nadanie:** karta zamówienia → Przesyłki → Nadaj przez → InPost. Usługi: Paczkomat (gabaryt A/B/C albo dobór
+  z wymiarów, `inpost_locker_standard`) i Kurier InPost (standard, ekspres 10:00/12:00/17:00 — waga i wymiary paczki).
+  Paczkomat bierze się z zamówienia (WooCommerce/Allegro), można go wpisać albo wyszukać po mieście, kodzie pocztowym
+  czy nazwie (`GET /v1/points`). Sposób nadania: w Paczkomacie, w PaczkoPunkcie albo odbiór przez kuriera
+  (opcjonalnie zlecenie odbioru `dispatch_orders` od razu po nadaniu). Zamówienia za pobraniem (Woo `cod`, Allegro
+  `CASH_ON_DELIVERY`) dostają pobranie na kwotę zamówienia i ubezpieczenie na tę samą kwotę.
+- ShipX kupuje ofertę asynchronicznie: wtyczka chwilę czeka na numer przesyłki, a gdy go jeszcze nie ma, zapisuje
+  przesyłkę jako „oczekuje” i kończy ją przy kolejnym otwarciu zamówienia (`CourierAsync`).
+- **Etykieta:** `GET /v1/shipments/{id}/label`; **anulowanie:** `DELETE /v1/shipments/{id}` — InPost pozwala tylko
+  przed opłaceniem, opłaconą przesyłkę anuluje się w Managerze Paczek. **Koszt:** cena wybranej oferty z ShipX, a gdy
+  InPost jej nie podaje (faktura zbiorcza) — cena z ustawień.
+- **Śledzenie:** jak dotąd publiczne API śledzenia InPost (`Services\ShipmentTracking`).
+- Nie obsługujemy: InPost International, przesyłek zwrotnych, Paczki w Weekend, paczek wielopaczkowych.
+
 ## Multi-integracja (wiele sklepów)
 
 CRM obsługuje **wiele integracji**, także kilka tego samego typu (np. kilka sklepów

@@ -59,6 +59,8 @@ jobs:
       - run: php tests/blpaczka.php
       - run: php tests/orlenpaczka.php
       - run: php tests/orlenpaczka_http.php
+      - run: php tests/inpost.php
+      - run: php tests/inpost_http.php
       - run: php tests/warehouse_locations.php
       - run: php tests/location_picker_http.php
       - run: php tests/ui_scale_http.php

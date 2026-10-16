@@ -223,6 +223,8 @@ return [
     'orders.bulk.purge'   => 'Delete permanently',
     'orders.bulk.empty'   => 'Empty trash',
     'orders.selected'  => '{n} selected',
+    'orders.select_all' => 'Select all',
+    'orders.sort.label' => 'Sort',
     'orders.page'      => 'Page {p} of {pages}',
     'orders.prev'      => '← Previous',
     'orders.next'      => 'Next →',

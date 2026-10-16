@@ -223,6 +223,8 @@ return [
     'orders.bulk.purge'   => 'Usuń trwale',
     'orders.bulk.empty'   => 'Opróżnij kosz',
     'orders.selected'  => '{n} zaznaczonych',
+    'orders.select_all' => 'Zaznacz wszystkie',
+    'orders.sort.label' => 'Sortuj',
     'orders.page'      => 'Strona {p} z {pages}',
     'orders.prev'      => '← Poprzednia',
     'orders.next'      => 'Następna →',

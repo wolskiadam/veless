@@ -115,6 +115,36 @@ if (!function_exists('sourceBadge')) {
     </div>
     <?php endif; ?>
 
+    <?php
+    // Telefon: zamiast nagłówków tabeli jeden wiersz - „zaznacz wszystkie” i lista sortowania (index.php pokazuje go do 820 px).
+    $sortUrl = static function (string $column, string $dir) use ($qs): string {
+        $q = $qs;
+        $q['sort'] = $column;
+        $q['dir'] = $dir;
+        unset($q['p']);
+        return 'index.php?' . http_build_query($q);
+    };
+    ?>
+    <div class="orders-mobile-bar">
+        <?php if (canEdit()): ?>
+            <label class="orders-mobile-selall">
+                <input type="checkbox" onclick="var on=this.checked;document.querySelectorAll('.rowcheck').forEach(function(c){c.checked=on;c.dispatchEvent(new Event('change',{bubbles:true}));})">
+                <?= htmlspecialchars(t('orders.select_all')) ?>
+            </label>
+        <?php endif; ?>
+        <label class="orders-mobile-sort">
+            <span><?= htmlspecialchars(t('orders.sort.label')) ?>:</span>
+            <select onchange="window.location.href = this.value" aria-label="<?= htmlspecialchars(t('orders.sort.label')) ?>">
+                <?php foreach (['date' => 'orders.col.date', 'amount' => 'orders.col.amount', 'shop' => 'orders.col.shop', 'status' => 'orders.col.status',
+                    'client' => 'orders.col.client', 'email' => 'orders.col.email', 'source' => 'orders.col.source', 'delivery' => 'orders.col.delivery'] as $sortKey => $sortLabel): ?>
+                    <?php foreach (['desc', 'asc'] as $dirKey): ?>
+                        <option value="<?= htmlspecialchars($sortUrl($sortKey, $dirKey)) ?>"<?= $sortColumn === $sortKey && $sortDir === $dirKey ? ' selected' : '' ?>><?= htmlspecialchars(t($sortLabel) . ' ' . ($dirKey === 'desc' ? '↓' : '↑')) ?></option>
+                    <?php endforeach; ?>
+                <?php endforeach; ?>
+            </select>
+        </label>
+    </div>
+
     <div class="orders-table-scroll" tabindex="0" role="region" aria-label="<?= htmlspecialchars(t('orders.title')) ?>">
     <table class="orders-table">
         <tr class="orders-head">

@@ -63,10 +63,29 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         if (Math.abs(pos.amount.top - pos.act.top) > 2 || pos.act.left < pos.amount.right - 1) fail('amount and actions are not on the bottom row ' + JSON.stringify([pos.amount, pos.act]));
         pass('number + status, client, source, icons, amount + actions are laid out on the card');
 
-        // Zaznaczanie działa jak w tabeli (licznik na pasku akcji).
+        // Zaznaczanie działa jak w tabeli (licznik na pasku akcji), a „Zaznacz wszystkie” zaznacza wszystkie karty.
         await page.locator('.orders-table tr:not(.orders-head) .rowcheck').first().check();
         if ((await page.locator('#selCount').textContent()).trim() !== '1') fail('selecting a card does not update the counter');
         pass('selecting a card updates the counter');
+        await page.locator('.orders-mobile-selall input').check();
+        if ((await page.locator('#selCount').textContent()).trim() !== '3') fail('select all does not select every card');
+        pass('select all selects every card');
+
+        // Sortowanie: nagłówki tabeli schowane, zamiast nich jedna lista w jednym wierszu z „Zaznacz wszystkie”.
+        const bar = await page.evaluate(() => {
+            const head = document.querySelector('.orders-table tr.orders-head');
+            const sel = document.querySelector('.orders-mobile-sort select').getBoundingClientRect();
+            const all = document.querySelector('.orders-mobile-selall input').getBoundingClientRect();
+            return { headHidden: getComputedStyle(head).display === 'none', oneRow: Math.abs((sel.top + sel.bottom) - (all.top + all.bottom)) < 4,
+                selected: document.querySelector('.orders-mobile-sort select').selectedOptions[0].textContent.trim() };
+        });
+        if (!bar.headHidden || !bar.oneRow) fail('sort bar is not one row: ' + JSON.stringify(bar));
+        if (bar.selected !== 'Data ↓') fail('sort list does not show the current sort: ' + bar.selected);
+        await Promise.all([page.waitForNavigation(), page.locator('.orders-mobile-sort select').selectOption({ label: 'Kwota ↑' })]);
+        if (!page.url().includes('sort=amount') || !page.url().includes('dir=asc')) fail('choosing a sort does not reload the list: ' + page.url());
+        const amounts = await page.$$eval('td[data-col="amount"]', (tds) => tds.map((td) => parseFloat(td.textContent)));
+        if (amounts.join() !== [...amounts].sort((a, b) => a - b).join()) fail('list is not sorted by amount: ' + amounts.join());
+        pass('one-row sort list next to select all, choosing a sort reloads the list');
 
 
         // Komputer: dalej zwykła tabela.

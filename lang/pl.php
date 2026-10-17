@@ -213,8 +213,6 @@ return [
     'orders.stats.last30' => 'Ostatnie 30 dni',
     'orders.stats.month'  => 'Ten miesiąc',
     'orders.stats.chart'  => 'Zamówienia dziennie (ostatnie 30 dni)',
-    'orders.stats.archive_now' => 'Archiwizuj starsze teraz',
-    'orders.stats.archive_confirm' => 'Przenieść do archiwum wszystkie aktywne zamówienia starsze niż 3 miesiące?',
     'orders.add'       => 'Dodaj zamówienie',
     'orders.bulk.status'  => 'Zmień status',
     'orders.bulk.archive' => 'Archiwizuj',
@@ -241,7 +239,6 @@ return [
     'orders.flash.archived'=> 'Zarchiwizowano: {n}.',
     'orders.flash.purged'  => 'Usunięto trwale: {n}.',
     'orders.flash.emptied' => 'Opróżniono kosz ({n}).',
-    'orders.flash.autoarchived' => 'Zarchiwizowano {n} zamówień starszych niż 3 miesiące.',
 
     // Statystyki
     'nav.statistics'      => '📊 Statystyki',

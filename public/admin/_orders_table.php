@@ -111,7 +111,7 @@ if (!function_exists('sourceBadge')) {
         <?php // Przyciski rozszerzeń na pasku akcji (zaznaczone wiersze: .rowcheck:checked). ?>
         <?= \Pase\Plugin\Hooks::render('orders.actionbar', $view) ?>
 
-        <span style="font-size:13px;color:var(--ink-2);margin-left:auto"><?= str_replace('{n}', '<span id="selCount">0</span>', htmlspecialchars(t('orders.selected'), ENT_QUOTES)) ?></span>
+        <span class="actionbar-count"><?= str_replace('{n}', '<span id="selCount">0</span>', htmlspecialchars(t('orders.selected'), ENT_QUOTES)) ?></span>
     </div>
     <?php endif; ?>
 

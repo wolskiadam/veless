@@ -21,6 +21,7 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         await page.goto(BASE + 'admin/index.php');
         if (process.env.SHOTS) {
             await page.screenshot({ path: process.env.SHOTS + '/mobile-orders.png', fullPage: true });
+            await page.locator('.actionbar').screenshot({ path: process.env.SHOTS + '/mobile-actionbar.png' });
         }
 
         // Lista nie przewija się w bok, a każda karta zamówienia mieści się w ekranie.
@@ -67,6 +68,23 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         await page.locator('.orders-table tr:not(.orders-head) .rowcheck').first().check();
         if ((await page.locator('#selCount').textContent()).trim() !== '1') fail('selecting a card does not update the counter');
         pass('selecting a card updates the counter');
+
+        // Pasek akcji: licznik na górze, „Zmień status” na całą szerokość, przyciski równo po dwa w rzędzie.
+        const ab = await page.evaluate(() => {
+            const box = (el) => el.getBoundingClientRect();
+            const b = box(document.querySelector('.actionbar'));
+            const btns = [...document.querySelectorAll('.actionbar > .btn')].map(box);
+            return { bar: b, count: box(document.querySelector('.actionbar-count')), flag: box(document.querySelector('.actionbar .flag-menu')), btns };
+        });
+        if (ab.count.top >= ab.flag.top) fail('selected counter is not above the action buttons');
+        if (ab.flag.width < ab.bar.width - 24) fail('"Zmień status" does not span the action bar');
+        if (ab.btns.length < 4) fail('expected at least 4 action buttons, got ' + ab.btns.length);
+        for (let i = 0; i + 1 < ab.btns.length; i += 2) {
+            const [a, b] = [ab.btns[i], ab.btns[i + 1]];
+            if (Math.abs(a.top - b.top) > 1 || Math.abs(a.width - b.width) > 1) fail('action buttons are not in even pairs: ' + JSON.stringify(ab.btns));
+        }
+        if (ab.btns.some((r) => r.right > ab.bar.right)) fail('an action button sticks out of the bar');
+        pass('action bar: counter on top, status full width, buttons in even pairs');
         await page.locator('.orders-mobile-selall input').check();
         if ((await page.locator('#selCount').textContent()).trim() !== '3') fail('select all does not select every card');
         pass('select all selects every card');

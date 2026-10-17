@@ -301,6 +301,17 @@ $PAGE_HEAD = <<<'CSS'
     }
     .actionbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; padding:8px 12px; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm); flex-wrap:wrap; }
     .actionbar .btn { padding:7px 12px; font-size:13px; }
+    .actionbar-count { font-size:13px; color:var(--ink-2); margin-left:auto; }
+    /* Telefon: licznik zaznaczonych na górze, „Zmień status” na całą szerokość, pozostałe przyciski
+       równo po dwa w rzędzie (nieparzysty ostatni rozciąga się na cały rząd) - także przyciski rozszerzeń. */
+    @media (max-width:820px) {
+        .actionbar { gap:8px; padding:10px; }
+        .actionbar-count { order:-1; flex:1 0 100%; margin-left:0; }
+        .actionbar .flag-menu { flex:1 0 100%; }
+        .actionbar .flag-btn { width:100%; justify-content:center; min-height:40px; }
+        .actionbar .flag-dropdown { right:0; }
+        .actionbar > .btn { flex:1 1 calc(50% - 4px); min-height:40px; justify-content:center; text-align:center; }
+    }
     .row-act { padding:6px 9px !important; font-size:13px; margin-left:2px; display:inline-flex; align-items:center; }
     .flag-menu { position:relative; }
     .flag-btn { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-sm); padding:8px 12px; cursor:pointer; font-size:14px; color:var(--ink); display:flex; align-items:center; gap:6px; }

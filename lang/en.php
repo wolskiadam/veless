@@ -213,8 +213,6 @@ return [
     'orders.stats.last30' => 'Last 30 days',
     'orders.stats.month'  => 'This month',
     'orders.stats.chart'  => 'Daily orders (last 30 days)',
-    'orders.stats.archive_now' => 'Archive older now',
-    'orders.stats.archive_confirm' => 'Move all active orders older than 3 months to archive?',
     'orders.add'       => 'Add order',
     'orders.bulk.status'  => 'Change status',
     'orders.bulk.archive' => 'Archive',
@@ -241,7 +239,6 @@ return [
     'orders.flash.archived'=> 'Archived: {n}.',
     'orders.flash.purged'  => 'Permanently deleted: {n}.',
     'orders.flash.emptied' => 'Trash emptied ({n}).',
-    'orders.flash.autoarchived' => 'Archived {n} orders older than 3 months.',
 
     // Statistics
     'nav.statistics'      => '📊 Statistics',

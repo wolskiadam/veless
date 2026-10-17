@@ -49,10 +49,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         $bulkFlash = t('orders.flash.purged', ['n' => $orderRepo->purgeMany($ids)]);
     } elseif ($act === 'empty_trash') {
         $bulkFlash = t('orders.flash.emptied', ['n' => $orderRepo->emptyTrash()]);
-    } elseif ($act === 'auto_archive') {
-        // Ręczne wywołanie tego samego mechanizmu, co godzinna auto-archiwizacja
-        // w cli/worker.php - przydatne, gdy cron jeszcze nie zdążył przetworzyć zaległości.
-        $bulkFlash = t('orders.flash.autoarchived', ['n' => $orderRepo->autoArchiveOlderThan(90)]);
     }
 }
 
@@ -253,8 +249,6 @@ $PAGE_HEAD = <<<'CSS'
     .stats-row .stats-value { font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:600; font-size:15px; color:var(--ink); }
     .stats-chart { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
     .stats-widget-cta { display:flex; align-items:center; gap:5px; margin-top:10px; font-size:12px; font-weight:600; color:var(--accent); }
-    .stats-archive-form { margin-top:12px; }
-    .stats-archive-btn { width:100%; font-size:12px; padding:7px 10px; }
     .side-search { display:flex; align-items:center; gap:8px; padding:7px 11px; margin-bottom:2px;
         border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface-2); }
     .side-search:focus-within { border-color:var(--accent); background:var(--surface); }
@@ -523,14 +517,6 @@ unset($searchHidden['q'], $searchHidden['p']);
             <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
         </div>
     </a>
-    <?php if (canEdit() && $view === 'active'): ?>
-        <form method="post" class="stats-archive-form"
-              onsubmit="return confirm('<?= htmlspecialchars(t('orders.stats.archive_confirm'), ENT_QUOTES) ?>');">
-            <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
-            <input type="hidden" name="action" value="auto_archive">
-            <button type="submit" class="btn secondary stats-archive-btn"><?= htmlspecialchars(t('orders.stats.archive_now')) ?></button>
-        </form>
-    <?php endif; ?>
 </div>
 </div><!-- /orders-side-col -->
 

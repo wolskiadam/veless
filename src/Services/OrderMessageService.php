@@ -112,6 +112,10 @@ final class OrderMessageService
             . htmlspecialchars($this->orderLabel($order)) . '</strong>:</p>'
             . '<blockquote style="border-left:3px solid #ddd;padding-left:12px;color:#444">'
             . nl2br(htmlspecialchars($body)) . '</blockquote>';
+        $panel = $this->adminLink($order);
+        if ($panel !== null) {
+            $html .= '<p><a href="' . htmlspecialchars($panel) . '">Otwórz zamówienie w panelu</a></p>';
+        }
         $this->send($to, 'Klient: nowa wiadomość — zamówienie ' . $this->orderLabel($order), $html, $order, 'client_message');
     }
 
@@ -136,6 +140,14 @@ final class OrderMessageService
     {
         // Adres strony zamówienia w domenie sklepu, z którego jest zamówienie (albo domyślny w CRM).
         return (new ClientLinks($this->pdo))->forOrder($order);
+    }
+
+    /** Link do zamówienia w panelu (sekcja wiadomości). Null gdy brak adresu CRM (APP_BASE_URL). */
+    public function adminLink(array $order): ?string
+    {
+        $base = rtrim((string) ($this->settings->get('APP_BASE_URL', '') ?? ''), '/');
+        $id = (int) ($order['woo_order_id'] ?? 0);
+        return $base === '' || $id === 0 ? null : $base . '/admin/order_view.php?id=' . $id . '#msgThread';
     }
 
     private function orderLabel(array $order): string

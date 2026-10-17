@@ -158,6 +158,15 @@ check($r['ok'] && str_contains($r['message'], 'przykładowymi') && str_contains(
 check(!$test->send($tplInvoice, 'adam@example.test', '999')['ok'] && !$test->send($tplInvoice, 'zly-adres')['ok'] && count($sent()) === 5, 'unknown order or bad address sends nothing');
 check((new EmailLog($pdo))->entries([], 1)[0]['type'] === 'template_test', 'template test is logged as its own kind');
 
+// --- Wiadomość od klienta: powiadomienie administratora z linkiem do zamówienia w panelu ---
+$pdo->exec("INSERT INTO settings VALUES ('MAIL_ADMIN_NOTIFY', 'obsluga@example.test'), ('APP_BASE_URL', 'https://crm.example.test/public/')");
+$staff->fromClient($order, 'Czy mam jeszcze dopłacić?', 'Ola', null);
+$mails = $sent();
+[$head, $parts] = mimeParts(end($mails));
+$html = implode('', array_column($parts, 'body'));
+check(count($mails) === 6 && str_contains($head, 'To: <obsluga@example.test>') && str_contains($html, 'zamówienia <strong>#77</strong>')
+    && str_contains($html, 'href="https://crm.example.test/public/admin/order_view.php?id=1001#msgThread"'), 'client message e-mail links to the order in the panel');
+
 proc_terminate($proc);
 exec('rm -rf ' . escapeshellarg(PASE_ROOT));
 echo "\ninvoice_email: {$checks} checks passed\n";

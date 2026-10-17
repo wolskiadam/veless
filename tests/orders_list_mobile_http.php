@@ -133,6 +133,12 @@ try {
     }
     $search = request($boss, 'admin/orders_search.php?q=Wiktoria');
     ok($search['status'] === 200 && str_contains((string) ($search['json']['html'] ?? ''), '<td data-col="client"'), 'Live search returns the same marked cells');
+    // Numer z maila („zamówienie #3”) znajduje zamówienie po numerze CRM - z # tylko to jedno.
+    $rows = static fn(array $r): int => substr_count((string) ($r['json']['html'] ?? ''), '<td data-col="client"');
+    $hash = request($boss, 'admin/orders_search.php?q=' . urlencode('#3'));
+    ok($rows($hash) === 1 && str_contains((string) $hash['json']['html'], 'Wiktoria'), 'Search for #3 finds the order with CRM number 3');
+    ok($rows(request($boss, 'admin/orders_search.php?q=' . urlencode('#9'))) === 0, 'Search for #9 (no such CRM number) finds nothing');
+    ok(str_contains(request($boss, 'admin/index.php?q=' . urlencode('#3'))['body'], 'Wiktoria'), 'Order list page finds #3 too');
 
     $node = trim((string) shell_exec('command -v node'));
     $hasPw = $node !== '' && trim((string) shell_exec('NODE_PATH=' . escapeshellarg((string) getenv('NODE_PATH')) . ' ' . escapeshellarg($node)

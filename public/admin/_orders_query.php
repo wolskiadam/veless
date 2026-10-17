@@ -92,10 +92,20 @@ if ($fUnread) {
 // Kolumny prefiksowane aliasem wo. - oba zapytania (count i lista) używają tego
 // samego aliasu, dzięki czemu JOIN z integration_accounts nie powoduje
 // niejednoznaczności kolumn.
-if ($q !== '') {
+if ($q !== '' && preg_match('/^#\s*(\d+)$/', $q, $qm)) {
+    // „#545” to numer zamówienia w CRM (tak podają go maile i karta zamówienia) - szukamy dokładnie po nim.
+    $where[] = '(wo.pase_number = :qpn OR wo.order_number = :qon)';
+    $params[':qpn'] = (int) $qm[1];
+    $params[':qon'] = $qm[1];
+} elseif ($q !== '') {
     $where[] = '(wo.order_number LIKE :q1 OR wo.customer_name LIKE :q2 OR wo.customer_email LIKE :q3'
         // Numer dołączonego (scalonego) zamówienia znajduje zamówienie główne.
-        . ($hasMergeColumn ? ' OR EXISTS (SELECT 1 FROM woo_orders mo WHERE mo.merged_into = wo.woo_order_id AND mo.order_number LIKE :q4)' : '') . ')';
+        . ($hasMergeColumn ? ' OR EXISTS (SELECT 1 FROM woo_orders mo WHERE mo.merged_into = wo.woo_order_id AND mo.order_number LIKE :q4)' : '')
+        // Sam numer (np. 545) znajduje też zamówienie o tym numerze w CRM.
+        . (ctype_digit($q) ? ' OR wo.pase_number = :qpn' : '') . ')';
+    if (ctype_digit($q)) {
+        $params[':qpn'] = (int) $q;
+    }
     $like = "%{$q}%";
     if ($hasMergeColumn) {
         $params[':q4'] = $like;

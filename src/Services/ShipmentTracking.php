@@ -460,12 +460,21 @@ final class ShipmentTracking
             if ($st === '') {
                 continue;
             }
-            [$code, $desc] = self::INPOST_STATUSES[$st]
-                ?? (str_starts_with($st, 'undelivered') ? ['ISSUE', 'Nie doręczono']
-                : (str_starts_with($st, 'return') ? ['RETURNED', 'Zwrot do nadawcy'] : ['IN_TRANSIT', str_replace('_', ' ', $st)]));
+            [$code, $desc] = self::inpostStatus($st);
             $statuses[] = ['code' => $code, 'description' => $desc, 'occurredAt' => (string) ($d['datetime'] ?? '')];
         }
         return $statuses === [] ? null : ['waybill' => $waybill, 'trackingDetails' => ['statuses' => $statuses]];
+    }
+
+    /**
+     * Status InPost (ShipX, np. „ready_to_pickup") -> [kod jak w Allegro, opis]. Używa go też webhook wtyczki InPost.
+     * @return array{0:string,1:string}
+     */
+    public static function inpostStatus(string $st): array
+    {
+        return self::INPOST_STATUSES[$st]
+            ?? (str_starts_with($st, 'undelivered') ? ['ISSUE', 'Nie doręczono']
+            : (str_starts_with($st, 'return') ? ['RETURNED', 'Zwrot do nadawcy'] : ['IN_TRANSIT', str_replace('_', ' ', $st)]));
     }
 
     /**

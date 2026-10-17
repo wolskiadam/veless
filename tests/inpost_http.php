@@ -192,6 +192,59 @@ try {
     ok($cancel['ok'] && $pdo->query('SELECT status FROM shipments WHERE id = ' . (int) $sh['id'])->fetchColumn() === 'cancelled', 'Cancel through InPost');
     ok($lastCall()['key'] === 'DELETE /v1/shipments/9001', 'Cancel called the API');
 
+    // --- webhook ShipX: włączenie w Integracjach, sprawdzenie adresu, numer i statusy od InPost ---
+    $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('APP_BASE_URL', " . $pdo->quote(rtrim($base, '/')) . ")");
+    $ip = request($boss, "admin/integration_edit.php?id={$accId}");
+    ok(str_contains($ip['body'], 'Włącz webhook InPost') && str_contains($ip['body'], 'Stan: wyłączony'), 'Integration page offers the webhook');
+    preg_match('/name="csrf" value="([a-f0-9]+)"/', $ip['body'], $m);
+    request($boss, "admin/integration_edit.php?id={$accId}", ['csrf' => $m[1], 'plugin_action' => 'webhook_on']);
+    $ip = request($boss, "admin/integration_edit.php?id={$accId}");
+    ok(preg_match('#webhook_plugin\.php\?a=' . $accId . '&amp;k=([a-f0-9]{32})#', $ip['body'], $wm) === 1 && str_contains($ip['body'], 'Moje konto → API → Webhook'), 'Webhook address with secret shown to paste in Manager Paczek');
+    $hookToken = $wm[1];
+    $rawCfg = (string) $pdo->query("SELECT config FROM integration_accounts WHERE id = {$accId}")->fetchColumn();
+    ok(!str_contains($rawCfg, $hookToken) && str_contains($rawCfg, 'TOKEN-SECRET') === false, 'Webhook secret stored encrypted');
+    $hook = static function (string $method, string $k, ?array $body = null) use ($base, $accId): array {
+        $h = curl_init($base . 'webhook_plugin.php?a=' . $accId . '&k=' . $k);
+        curl_setopt_array($h, [CURLOPT_RETURNTRANSFER => true, CURLOPT_PROXY => '', CURLOPT_TIMEOUT => 20, CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json']] + ($body !== null ? [CURLOPT_POSTFIELDS => json_encode($body)] : []));
+        $res = (string) curl_exec($h);
+        return ['status' => curl_getinfo($h, CURLINFO_RESPONSE_CODE), 'body' => $res];
+    };
+    ok($hook('GET', $hookToken)['status'] === 200, 'Address check (GET) answers 200');
+    ok($hook('GET', 'zly-klucz')['status'] === 401 && $hook('POST', 'zly-klucz', ['event' => 'x', 'payload' => []])['status'] === 401, 'Wrong secret is rejected');
+
+    // Druga przesyłka czeka na numer - webhook shipment_confirmed dokańcza ją bez otwierania zamówienia.
+    $created2 = ['id' => 9002] + $created;
+    $confirmed2 = ['id' => 9002, 'tracking_number' => '620000999888777666555444'] + $confirmed;
+    $responses['POST /v1/organizations/4321/shipments'] = [201, json_encode($created2)];
+    $responses['GET /v1/shipments/9002'] = [200, json_encode($created2)];
+    $setResponses($responses);
+    $send = $post(['action' => 'send', 'service' => 'locker_auto', 'weight' => 1, 'side_x' => 30, 'side_y' => 20, 'side_z' => 5,
+        'label_format' => 'PDF', 'handover' => 'parcel_locker', 'point' => 'KRA010', 'service_label' => 'Paczkomat']);
+    ok($send['ok'] && $send['pending'] === true, 'Second shipment waits for its number');
+    $responses['GET /v1/shipments/9002'] = [200, json_encode($confirmed2)];
+    $setResponses($responses);
+    $r = $hook('POST', $hookToken, ['event_ts' => '2026-10-17 10:00:00 +0200', 'event' => 'shipment_confirmed', 'organization_id' => 4321,
+        'payload' => ['shipment_id' => 9002, 'tracking_number' => '620000999888777666555444']]);
+    $sh2 = $pdo->query("SELECT * FROM shipments WHERE bl_order_id = '9002'")->fetch(PDO::FETCH_ASSOC);
+    ok($r['status'] === 200 && $sh2['status'] === 'created' && $sh2['waybill_no'] === '620000999888777666555444', 'shipment_confirmed gives the number right away');
+
+    $r = $hook('POST', $hookToken, ['event_ts' => '2026-10-17 12:30:00 +0200', 'event' => 'shipment_status_changed', 'organization_id' => 4321,
+        'payload' => ['shipment_id' => 9002, 'status' => 'ready_to_pickup', 'tracking_number' => '620000999888777666555444']]);
+    $sh2 = $pdo->query("SELECT * FROM shipments WHERE bl_order_id = '9002'")->fetch(PDO::FETCH_ASSOC);
+    $ev = json_decode((string) $sh2['tracking_events'], true);
+    ok($r['status'] === 200 && $sh2['tracking_status'] === 'ready_for_pickup' && $sh2['tracking_carrier'] === 'INPOST', 'shipment_status_changed sets the shipment stage');
+    ok(end($ev)['desc'] === 'Czeka na odbiór w Paczkomacie', 'Status stored in the tracking history');
+    $r = $hook('POST', $hookToken, ['event' => 'shipment_status_changed', 'organization_id' => 999,
+        'payload' => ['shipment_id' => 9002, 'status' => 'delivered', 'tracking_number' => '620000999888777666555444']]);
+    ok($r['body'] === 'ignored' && $pdo->query("SELECT tracking_status FROM shipments WHERE bl_order_id = '9002'")->fetchColumn() === 'ready_for_pickup', 'Other organization is ignored');
+    ok($hook('POST', $hookToken, null)['status'] === 400, 'Unreadable body answers 400');
+    $ip = request($boss, "admin/integration_edit.php?id={$accId}");
+    ok(str_contains($ip['body'], 'Ostatnie powiadomienie') && str_contains($ip['body'], 'shipment_status_changed'), 'Integration page shows the last notification');
+    preg_match('/name="csrf" value="([a-f0-9]+)"/', $ip['body'], $m);
+    request($boss, "admin/integration_edit.php?id={$accId}", ['csrf' => $m[1], 'plugin_action' => 'webhook_off']);
+    ok($hook('GET', $hookToken)['status'] === 401, 'Turned off: old address stops working');
+
     echo "\nAll {$checks} InPost HTTP checks passed.\n";
 } finally {
     if (is_resource($process)) { proc_terminate($process); proc_close($process); }

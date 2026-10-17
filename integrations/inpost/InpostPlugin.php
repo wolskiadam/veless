@@ -23,7 +23,7 @@ use Pase\Support\PickupPoint;
  *  - zlecenie odbioru przez kuriera (opcjonalnie): POST /v1/organizations/{id}/dispatch_orders,
  *  - pobranie: przy zamówieniach za pobraniem (Woo „cod", Allegro CASH_ON_DELIVERY) - kwota zamówienia + ubezpieczenie,
  *  - śledzenie: robi rdzeń (Services\ShipmentTracking, publiczne API śledzenia InPost) - w odpowiedzi zapisujemy
- *    carrierId INPOST.
+ *    carrierId INPOST; opcjonalnie webhook ShipX (handleWebhook()) daje numer i statusy od razu.
  *
  * Wejście createShipment() (tablica od rdzenia, patrz public/admin/courier_shipment.php):
  *   order        => ['row' => wiersz woo_orders, 'payload' => zamówienie]
@@ -451,6 +451,191 @@ final class InpostPlugin extends AbstractPlugin implements CourierAsync
             return ['ok' => false, 'message' => 'InPost nie pozwala anulować przez API opłaconej przesyłki — anuluj ją w Managerze Paczek (nienadana przesyłka nie zostanie rozliczona).'];
         }
         return ['ok' => false, 'message' => 'InPost nie anulował przesyłki: ' . $r['message']];
+    }
+
+    // ================= Webhook (powiadomienia z ShipX) =================
+
+    /** Zakres adresów, z którego InPost wysyła webhooki (dokumentacja „Webhooki") - do opisu w panelu. */
+    public const WEBHOOK_IPS = '91.216.25.0/24';
+
+    /** Czy webhook jest włączony w CRM (adres wygenerowany; wpisuje się go w Managerze Paczek). */
+    public function webhookActive(): bool
+    {
+        return (string) $this->cfg('webhook_active', '') === '1' && (string) $this->cfg('webhook_token', '') !== '';
+    }
+
+    /** Adres webhooka: {APP_BASE_URL}/webhook_plugin.php?a=<id konta>&k=<token> (ShipX nie podpisuje powiadomień). */
+    public static function webhookUrl(string $baseUrl, int $accountId, string $token): string
+    {
+        return rtrim(trim($baseUrl), '/') . '/webhook_plugin.php?a=' . $accountId . '&k=' . $token;
+    }
+
+    /**
+     * Powiadomienie ShipX (rdzeń: public/webhook_plugin.php?a=<id konta>). GET = sprawdzenie adresu przy zapisie
+     * w Managerze Paczek (musi oddać 200). POST: {event_ts, event, organization_id, payload:{shipment_id, status, tracking_number}}.
+     *  - shipment_confirmed: przesyłka „oczekuje" dostaje numer od razu (bez otwierania zamówienia),
+     *  - shipment_status_changed: etap przesyłki i reguły „Status przesyłki" (ShipmentTracking::applyPush).
+     * @param array{method:string,headers:array<string,string>,query:array<string,mixed>,body:string,account_id:int} $request
+     * @return array{status:int,body:string}
+     */
+    public function handleWebhook(array $request, \PDO $pdo): array
+    {
+        $token = (string) $this->cfg('webhook_token', '');
+        $given = $request['query']['k'] ?? '';
+        if (!$this->webhookActive() || !is_string($given) || !hash_equals($token, $given)) {
+            Logger::warn('InPost webhook: powiadomienie bez poprawnego tokenu - odrzucone', ['account' => $request['account_id'] ?? 0]);
+            return ['status' => 401, 'body' => 'unauthorized'];
+        }
+        $method = strtoupper((string) ($request['method'] ?? ''));
+        if ($method === 'GET' || $method === 'HEAD') {
+            return ['status' => 200, 'body' => 'ok'];
+        }
+        if ($method !== 'POST') {
+            return ['status' => 405, 'body' => 'GET or POST only'];
+        }
+        $data = json_decode((string) ($request['body'] ?? ''), true, 16, JSON_BIGINT_AS_STRING);
+        if (!is_array($data) || !is_string($data['event'] ?? null) || !is_array($data['payload'] ?? null)) {
+            Logger::warn('InPost webhook: nieczytelne powiadomienie', ['body' => mb_substr((string) ($request['body'] ?? ''), 0, 300)]);
+            return ['status' => 400, 'body' => 'bad payload'];
+        }
+        $org = trim((string) ($data['organization_id'] ?? ''));
+        if ($org !== '' && $org !== trim((string) $this->cfg('organization_id', ''))) {
+            Logger::warn('InPost webhook: powiadomienie innej organizacji - pominięte', ['organization' => $org]);
+            return ['status' => 200, 'body' => 'ignored'];
+        }
+        $event = $data['event'];
+        $p = $data['payload'];
+        $shipmentId = preg_replace('/\D/', '', (string) ($p['shipment_id'] ?? '')) ?? '';
+        $tracking = preg_replace('/\s+/', '', (string) ($p['tracking_number'] ?? '')) ?? '';
+        $accountId = (int) ($request['account_id'] ?? 0);
+
+        // Przesyłka nadana z CRM, która jeszcze czeka na numer - dokańczamy ją od razu.
+        $resolved = $shipmentId !== '' && in_array($event, ['shipment_confirmed', 'shipment_status_changed'], true)
+            && $this->resolvePendingFor($pdo, $accountId, $shipmentId);
+
+        $matched = 0;
+        if ($event === 'shipment_status_changed' && $tracking !== '' && ($st = trim((string) ($p['status'] ?? ''))) !== '') {
+            [$code, $desc] = \Pase\Services\ShipmentTracking::inpostStatus($st);
+            $matched = \Pase\Services\ShipmentTracking::applyPush($pdo, self::CARRIER, $tracking,
+                ['code' => $code, 'description' => $desc, 'occurredAt' => self::eventTime((string) ($data['event_ts'] ?? ''))]);
+        }
+        Logger::info('InPost webhook: ' . $event, ['shipment' => $shipmentId, 'status' => $p['status'] ?? null, 'matched' => $matched, 'resolved' => $resolved]);
+        self::rememberWebhook($pdo, $accountId, ['at' => date('c'), 'event' => $event, 'shipment' => $shipmentId,
+            'tracking' => $tracking, 'status' => (string) ($p['status'] ?? ''), 'matched' => $matched + ($resolved ? 1 : 0)]);
+        return ['status' => 200, 'body' => 'ok'];
+    }
+
+    /** Dokańcza przesyłkę „pending" tego konta o id ShipX (CourierShipping::resolvePending). */
+    private function resolvePendingFor(\PDO $pdo, int $accountId, string $shipmentId): bool
+    {
+        $stmt = $pdo->prepare("SELECT * FROM shipments WHERE integration_id = ? AND bl_order_id = ? AND status = 'pending'");
+        $stmt->execute([$accountId, $shipmentId]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        return $rows !== [] && (new \Pase\Services\CourierShipping($pdo))->resolvePending($rows);
+    }
+
+    /** Czas zdarzenia z event_ts (różne formaty) jako ISO 8601; nieczytelny - teraz. */
+    private static function eventTime(string $ts): string
+    {
+        $t = $ts !== '' ? strtotime($ts) : false;
+        return date(DATE_ATOM, $t !== false ? $t : time());
+    }
+
+    private static function rememberWebhook(\PDO $pdo, int $accountId, array $info): void
+    {
+        if ($accountId <= 0) {
+            return;
+        }
+        try {
+            (new \Pase\Repository\SettingsRepository($pdo))->setMany(['INPOST_WEBHOOK_LAST_' . $accountId => json_encode($info, JSON_UNESCAPED_UNICODE)]);
+        } catch (\Throwable $e) {
+            Logger::warn('InPost webhook: nie zapisano znacznika ostatniego powiadomienia: ' . $e->getMessage());
+        }
+    }
+
+    /** Ostatnie powiadomienie webhooka dla konta (do panelu integracji). */
+    public static function lastWebhook(\PDO $pdo, int $accountId): ?array
+    {
+        try {
+            $raw = (new \Pase\Repository\SettingsRepository($pdo))->get('INPOST_WEBHOOK_LAST_' . $accountId);
+        } catch (\Throwable) {
+            return null;
+        }
+        $v = $raw !== null ? json_decode($raw, true) : null;
+        return is_array($v) ? $v : null;
+    }
+
+    // ----- Panel integracji (rdzeń: public/admin/integration_edit.php) -----
+
+    /** Przyciski pod formularzem integracji: akcja => etykieta. */
+    public function adminActions(): array
+    {
+        return $this->webhookActive()
+            ? ['webhook_new' => 'Wygeneruj nowy adres webhooka', 'webhook_off' => 'Wyłącz webhook']
+            : ['webhook_on' => '⚡ Włącz webhook InPost'];
+    }
+
+    /**
+     * Opis stanu webhooka nad przyciskami. @param array{account_id:int,base_url:string,pdo:\PDO,local:bool} $ctx
+     * @return string[] akapity (tekst)
+     */
+    public function adminInfo(array $ctx): array
+    {
+        $lines = ['Webhook: InPost sam wysyła do CRM nadanie numeru i każdą zmianę statusu przesyłki, więc numer pojawia się bez '
+            . 'otwierania zamówienia, a etap przesyłki i reguły „Status przesyłki” zmieniają się od razu. Harmonogram „Śledzenie przesyłek” działa dalej na wszelki wypadek.'];
+        if (!$this->webhookActive()) {
+            $lines[] = 'Stan: wyłączony.';
+            return $lines;
+        }
+        $url = self::webhookUrl((string) ($ctx['base_url'] ?? ''), (int) $ctx['account_id'], (string) $this->cfg('webhook_token', ''));
+        $lines[] = 'Stan: włączony. Wklej ten adres w Managerze Paczek' . ($this->cfg('env') === 'sandbox' ? ' testowym (sandbox-manager.paczkomaty.pl)' : '')
+            . ' → Moje konto → API → Webhook: ' . $url;
+        $lines[] = 'Adres zawiera tajny klucz — nie udostępniaj go. InPost wysyła powiadomienia z adresów ' . self::WEBHOOK_IPS . '.';
+        $last = self::lastWebhook($ctx['pdo'], (int) $ctx['account_id']);
+        if ($last === null) {
+            $lines[] = 'Nie przyszło jeszcze żadne powiadomienie od InPost.';
+        } else {
+            $when = date('Y-m-d H:i', strtotime((string) ($last['at'] ?? '')) ?: time());
+            $lines[] = 'Ostatnie powiadomienie: ' . $when . ' — ' . ($last['event'] ?? '?')
+                . (($last['tracking'] ?? '') !== '' ? ', przesyłka ' . $last['tracking'] : (($last['shipment'] ?? '') !== '' ? ', przesyłka ShipX ' . $last['shipment'] : ''))
+                . (($last['status'] ?? '') !== '' ? ', status ' . $last['status'] : '')
+                . ((int) ($last['matched'] ?? 0) > 0 ? '.' : ' (nie ma jej w CRM).');
+        }
+        return $lines;
+    }
+
+    /**
+     * Akcja z panelu integracji. $ctx['save'] zapisuje config konta (fn(array $config): void).
+     * @param array{account_id:int,base_url:string,pdo:\PDO,local:bool,save:callable} $ctx
+     * @return array{ok:bool,message:string}
+     */
+    public function adminAction(string $action, array $ctx): array
+    {
+        $config = $this->config;
+        switch ($action) {
+            case 'webhook_on':
+            case 'webhook_new':
+                $base = trim((string) ($ctx['base_url'] ?? ''));
+                if (!empty($ctx['local'])) {
+                    return ['ok' => false, 'message' => 'CRM działa w trybie lokalnym (na tym komputerze) — InPost nie ma jak wysłać do niego powiadomień. Statusy pobiera harmonogram.'];
+                }
+                if (!preg_match('#^https?://#i', $base) || str_contains($base, 'twojsklep.pl')) {
+                    return ['ok' => false, 'message' => 'Ustaw adres CRM (APP_BASE_URL) w Konfiguracji — na niego InPost wyśle powiadomienia.'];
+                }
+                $config['webhook_token'] = bin2hex(random_bytes(16));
+                $config['webhook_active'] = '1';
+                ($ctx['save'])($config);
+                return ['ok' => true, 'message' => ($action === 'webhook_new' ? 'Nowy adres webhooka gotowy — stary przestał działać. ' : 'Webhook włączony. ')
+                    . 'Skopiuj adres poniżej i wklej go w Managerze Paczek → Moje konto → API → Webhook.'
+                    . (str_starts_with(strtolower($base), 'http://') ? ' Uwaga: adres CRM nie używa HTTPS.' : '')];
+
+            case 'webhook_off':
+                $config['webhook_active'] = '';
+                $config['webhook_token'] = '';
+                ($ctx['save'])($config);
+                return ['ok' => true, 'message' => 'Webhook wyłączony — powiadomienia od InPost będą odrzucane. Usuń też adres w Managerze Paczek.'];
+        }
+        return ['ok' => false, 'message' => 'Nieznana akcja.'];
     }
 
     // ================= Zlecenie odbioru =================

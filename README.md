@@ -189,6 +189,11 @@ bezpośrednio przez API ShipX (bez pośrednika). Paczki z umowy Allegro (Allegro
   przed opłaceniem, opłaconą przesyłkę anuluje się w Managerze Paczek. **Koszt:** cena wybranej oferty z ShipX, a gdy
   InPost jej nie podaje (faktura zbiorcza) — cena z ustawień.
 - **Śledzenie:** jak dotąd publiczne API śledzenia InPost (`Services\ShipmentTracking`).
+- **Webhook (opcjonalnie):** przycisk „Włącz webhook InPost” na stronie integracji pokazuje adres
+  `{APP_BASE_URL}/webhook_plugin.php?a=<id konta>&k=<tajny klucz>` do wklejenia w Managerze Paczek → Moje konto → API → Webhook
+  (ShipX nie podpisuje powiadomień, więc klucz jest w adresie; zapisany zaszyfrowany). `shipment_confirmed` od razu daje numer
+  przesyłce „oczekuje”, a `shipment_status_changed` zmienia etap przesyłki i uruchamia reguły „Status przesyłki”. Zapytanie GET
+  (sprawdzenie adresu przy zapisie w Managerze Paczek) dostaje 200. Harmonogram śledzenia działa dalej jako zabezpieczenie.
 - Nie obsługujemy: InPost International, przesyłek zwrotnych, Paczki w Weekend, paczek wielopaczkowych.
 
 ## Multi-integracja (wiele sklepów)

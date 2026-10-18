@@ -105,6 +105,53 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         if (amounts.join() !== [...amounts].sort((a, b) => a - b).join()) fail('list is not sorted by amount: ' + amounts.join());
         pass('one-row sort list next to select all, choosing a sort reloads the list');
 
+        // „Pobierz teraz” obok filtrów: widoczny, mieści się w ekranie (kliknięcie sprawdza tests/orders_sync_now_mysql.php).
+        const sync = await page.evaluate(() => {
+            const b = document.querySelector('#ordersSyncNow button').getBoundingClientRect();
+            const f = document.getElementById('ordersFilterToggle').getBoundingClientRect();
+            return { b, f, vw: document.documentElement.clientWidth, form: document.getElementById('ordersSyncNow').getAttribute('action') };
+        });
+        if (sync.form !== 'orders_sync_now.php' || !sync.b.width) fail('"Pobierz teraz" button is missing');
+        if (sync.b.right > sync.vw || Math.abs(sync.b.top - sync.f.top) > 2) fail('"Pobierz teraz" is not next to the filters: ' + JSON.stringify(sync));
+        pass('"Pobierz teraz" sits next to the filters and fits the screen');
+
+        // Przeciągnij w dół na górze strony: wskaźnik rośnie, a po puszczeniu strona się odświeża (zwykły GET tego adresu).
+        // Nowa karta: zrzut całej strony (SHOTS) potrafi wyłączyć emulację dotyku w bieżącej.
+        const pp = await ctx.newPage();
+        pp.on('pageerror', (e) => errors.push(e.message));
+        await pp.goto(BASE + 'admin/index.php');
+        const touch = (ys, release) => pp.evaluate(({ ys, release }) => {
+            const el = document.querySelector('.orders-table');
+            const mk = (y) => new Touch({ identifier: 1, target: el, clientX: 200, clientY: y });
+            el.dispatchEvent(new TouchEvent('touchstart', { touches: [mk(ys[0])], changedTouches: [mk(ys[0])], bubbles: true, cancelable: true }));
+            let prevented = false;
+            for (const y of ys.slice(1)) {
+                const ev = new TouchEvent('touchmove', { touches: [mk(y)], changedTouches: [mk(y)], bubbles: true, cancelable: true });
+                el.dispatchEvent(ev);
+                prevented = prevented || ev.defaultPrevented;
+            }
+            if (release) { el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [mk(ys[ys.length - 1])], bubbles: true, cancelable: true })); }
+            const ind = document.querySelector('.ptr');
+            return { prevented, ready: !!ind && ind.classList.contains('ready'), opacity: ind ? getComputedStyle(ind).opacity : null };
+        }, { ys, release });
+        await pp.evaluate(() => window.scrollTo(0, 0));
+        const steps = [300, 320, 360, 400, 440, 480];
+        const half = await touch(steps, false);
+        if (!half.prevented || !half.ready) fail('pulling down at the top does not show the refresh indicator: ' + JSON.stringify(half));
+        if (process.env.SHOTS) { await pp.waitForTimeout(50); await pp.screenshot({ path: process.env.SHOTS + '/pull-to-refresh.png' }); }
+        await pp.evaluate(() => document.dispatchEvent(new TouchEvent('touchcancel', { bubbles: true })));
+        await pp.evaluate(() => { window.__notReloaded = true; });
+        await touch([300, 310, 320, 330], true);
+        if (!(await pp.evaluate(() => window.__notReloaded === true))) fail('a short pull reloads the page');
+        await pp.evaluate(() => window.scrollTo(0, 400));
+        const scrolled = await touch(steps, true);
+        if (scrolled.prevented || !(await pp.evaluate(() => window.__notReloaded === true))) fail('pulling down in the middle of the page refreshes instead of scrolling');
+        await pp.evaluate(() => window.scrollTo(0, 0));
+        const url = pp.url();
+        await Promise.all([pp.waitForNavigation(), touch(steps, true)]);
+        if (pp.url() !== url || (await pp.evaluate(() => window.__notReloaded === true))) fail('releasing a full pull does not reload the same page');
+        pass('pull to refresh: indicator at the top, full pull reloads the list, short pull and scrolled page do not');
+
 
         // Komputer: dalej zwykła tabela.
         await page.setViewportSize({ width: 1400, height: 900 });

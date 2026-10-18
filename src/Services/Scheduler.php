@@ -238,6 +238,18 @@ final class Scheduler
     }
 
     /**
+     * Pobranie nowych zamówień od razu, poza harmonogramem - przycisk „Pobierz zamówienia teraz”
+     * (OrdersSyncNow). Przesuwa znacznik przepływu, więc cron nie powtórzy tego za minutę.
+     * Działa też przy wyłączonym cyklicznym pobieraniu (interwał 0). @return int liczba zakolejkowanych zadań
+     */
+    public function pullOrdersNow(): int
+    {
+        $this->refreshTokens(time());
+        $this->settings->setMany([self::FLOWS['orders'][1] => (string) time()]);
+        return $this->pullOrders();
+    }
+
+    /**
      * Cykliczne pobranie NOWYCH zamówień ze wszystkich aktywnych kanałów sprzedaży.
      *
      * Sklepy (WooCommerce): „tylko nowsze niż ostatni import" - bierzemy

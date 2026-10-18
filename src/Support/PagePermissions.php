@@ -39,7 +39,8 @@ final class PagePermissions
             // --- Zamówienia ---
             'orders' => ['label' => 'Zamówienia (lista i szczegóły)', 'group' => 'Zamówienia', 'legacy' => 'viewer', 'files' => [
                 'index.php', 'orders.php', 'orders_search.php', 'order_icons.php', 'order_view.php', 'shipment_create.php', 'shipment_cancel.php',
-                'shipment_track.php', 'courier_shipment.php', 'label_download.php', 'attachment.php', 'print_document.php', 'order_merge.php', 'order_new.php']],
+                'shipment_track.php', 'courier_shipment.php', 'label_download.php', 'attachment.php', 'print_document.php', 'order_merge.php', 'order_new.php',
+                'orders_sync_now.php']],
             'orders_import' => ['label' => 'Import zamówień', 'group' => 'Zamówienia', 'legacy' => 'editor',
                 'files' => ['import_orders.php', 'import_allegro.php', 'import_woo.php'], 'getWrites' => ['import_orders.php' => ['run']]],
             'packing' => ['label' => 'Asystent pakowania (także telefon)', 'group' => 'Zamówienia', 'legacy' => 'editor',

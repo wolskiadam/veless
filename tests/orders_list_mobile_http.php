@@ -131,6 +131,11 @@ try {
     foreach (['number', 'source', 'status', 'client', 'email', 'amount', 'delivery', 'date', 'actions'] as $col) {
         ok(substr_count($list['body'], '<td data-col="' . $col . '"') === 3, "Every order row has its {$col} cell marked");
     }
+    ok(str_contains($list['body'], 'action="orders_sync_now.php"'), 'Order list has the "Pobierz teraz" button');
+    ok(!str_contains(request(login('vi'), 'admin/index.php')['body'], 'orders_sync_now.php'), 'Viewer does not get the "Pobierz teraz" button');
+    $get = request($boss, 'admin/orders_sync_now.php');
+    ok($get['status'] === 302 && str_contains($get['headers'], 'Location: index.php'), 'Opening the sync address directly just goes back to the list');
+    ok(request($boss, 'admin/orders_sync_now.php', ['csrf' => 'bad'])['status'] === 419, 'Sync without a valid CSRF token is refused');
     $search = request($boss, 'admin/orders_search.php?q=Wiktoria');
     ok($search['status'] === 200 && str_contains((string) ($search['json']['html'] ?? ''), '<td data-col="client"'), 'Live search returns the same marked cells');
     // Numer z maila („zamówienie #3”) znajduje zamówienie po numerze CRM - z # tylko to jedno.

@@ -27,23 +27,11 @@ if (\PHP_SAPI !== 'cli') {
     exit('Tylko CLI.');
 }
 
-use Pase\Handlers\NewAllegroOrderHandler;
-use Pase\Handlers\StockSyncHandler;
-use Pase\Automation\RuleEngine;
-use Pase\Handlers\WooOrderImportHandler;
-use Pase\Handlers\WooProductImportHandler;
-use Pase\Handlers\WooStockPushHandler;
-use Pase\Repository\IntegrationAccountRepository;
+use Pase\Queue\JobRunner;
 use Pase\Queue\Queue;
-use Pase\Repository\AutomationRuleRepository;
-use Pase\Repository\IntegrationRepository;
-use Pase\Repository\OrderLogRepository;
-use Pase\Repository\ProductMappingRepository;
-use Pase\Repository\ProductRepository;
 use Pase\Repository\SettingsRepository;
 use Pase\Repository\WooOrderRepository;
 use Pase\Support\Logger;
-use PasePlugin\Allegro\AllegroPlugin;
 
 $config = require dirname(__DIR__) . '/config/config.php';
 
@@ -131,26 +119,12 @@ if ($control->isPaused('worker')) {
 }
 
 // --- Złóż zależności (ręczny DI - bez kontenera, lekko dla shared hostingu) ---
-$queue              = new Queue($pdo);
-$products           = new ProductRepository($pdo);
-$mappings           = new ProductMappingRepository($pdo);
-$orderLogs          = new OrderLogRepository($pdo);
-$integrations       = new IntegrationRepository($pdo);
-$integrationAccounts = new IntegrationAccountRepository($pdo);
-$wooOrders          = new WooOrderRepository($pdo);
-
-$allegro = AllegroPlugin::makeClient($pdo, $config['allegro']); // klient Allegro z wtyczki
-
-// Allegro nie tworzy już zamówienia w Woo (CRM jest głównym źródłem prawdy) - zamiast
-// tego zapisuje wprost do woo_orders (wspólna lista "Zamówienia", źródło = Allegro)
-// i odejmuje/wypycha stan magazynowy. Patrz NewAllegroOrderHandler.
-$ruleEngine = new RuleEngine($pdo, new AutomationRuleRepository($pdo), $config['allegro'] ?? []);
-$orderHandler = new NewAllegroOrderHandler($products, $orderLogs, $wooOrders, $integrationAccounts, $queue, $ruleEngine);
-$stockHandler = new StockSyncHandler($mappings, $allegro);
-$wooImportHandler = new WooOrderImportHandler($wooOrders, $ruleEngine, new \Pase\Services\ActualStock($pdo),
-    new \Pase\Services\PaymentFailure($pdo));
-$wooProductHandler = new WooProductImportHandler($products, \Pase\Services\WooCustomFields::withShopMedia($pdo));
-$stockPushHandler = new WooStockPushHandler($products, $integrationAccounts);
+$queue     = new Queue($pdo);
+$wooOrders = new WooOrderRepository($pdo);
+// Handlery zadań (typ zadania -> handler) siedzą w JobRunner - ten sam kod przetwarza świeżo pobrane
+// zamówienia po kliknięciu „Pobierz zamówienia teraz” na liście zamówień.
+$jobs       = new JobRunner($pdo, $config);
+$ruleEngine = $jobs->ruleEngine();
 
 // --- Odzysk zawieszonych zadań ---
 $queue->recoverStuck(\Pase\Services\TaskTimings::get($settings, 'QUEUE_STUCK_MINUTES'));
@@ -274,35 +248,11 @@ for ($i = 0; $i < $batchSize; $i++) {
     Logger::info("worker: przetwarzam #{$jobId} [{$jobType}]");
 
     try {
-        switch ($jobType) {
-            case 'allegro.order.new':
-                $orderHandler->handle($payload);
-                break;
-
-            case 'woo.stock.sync':
-                // Rate-limit Allegro: utrzymaj minimalny odstęp między żądaniami.
-                $lastAllegroCallAt = throttleAllegro($lastAllegroCallAt, $allegroMinInterval);
-                $stockHandler->handle($payload);
-                break;
-
-            case 'woo.order.import':
-                // Pobranie zamówienia z WooCommerce do tabeli woo_orders.
-                $wooImportHandler->handle($payload);
-                break;
-
-            case 'woo.product.import':
-                // Import produktu z WooCommerce do magazynu PASE (products).
-                $wooProductHandler->handle($payload);
-                break;
-
-            case 'woo.stock.push':
-                // Wypych stanu magazynowego PASE -> WooCommerce (gdy PASE master).
-                $stockPushHandler->handle($payload);
-                break;
-
-            default:
-                throw new \RuntimeException("Nieznany typ zadania: {$jobType}");
+        if ($jobType === 'woo.stock.sync') {
+            // Rate-limit Allegro: utrzymaj minimalny odstęp między żądaniami.
+            $lastAllegroCallAt = throttleAllegro($lastAllegroCallAt, $allegroMinInterval);
         }
+        $jobs->handle($jobType, $payload);
 
         $queue->complete($jobId);
         $processed++;

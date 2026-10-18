@@ -80,10 +80,12 @@ final class Queue
      * Atomowo rezerwuje JEDNO gotowe zadanie i zwraca je (lub null).
      * Wzorzec "claim by token": najpierw oznaczamy wiersz unikalnym reserved_at,
      * potem go odczytujemy - bez SELECT ... FOR UPDATE, działa też na MyISAM/replica.
+     * $types zawęża do wybranych typów zadań (np. tylko import zamówień - patrz JobRunner::ORDER_IMPORT_TYPES).
      *
+     * @param list<string> $types
      * @return array<string,mixed>|null
      */
-    public function reserveNext(): ?array
+    public function reserveNext(array $types = []): ?array
     {
         // Unikalny znacznik tej rezerwacji (mikrosekundy + pid + losowość).
         $token = sprintf('%s.%d.%s', microtime(true), getmypid() ?: 0, bin2hex(random_bytes(4)));
@@ -91,11 +93,16 @@ final class Queue
         // Token idzie do reserved_token (VARCHAR), a reserved_at dostaje
         // prawdziwą datę. Wcześniej token trafiał do reserved_at (DATETIME),
         // przez co odczyt po tokenie zawsze zawodził i zadania utykały.
+        $typeParams = [];
+        foreach (array_values($types) as $i => $type) {
+            $typeParams[':type' . $i] = $type;
+        }
         $update = $this->pdo->prepare(
             "UPDATE job_queue
              SET status = :reserved, reserved_token = :token, reserved_at = UTC_TIMESTAMP()
              WHERE status = :pending
-               AND available_at <= UTC_TIMESTAMP()
+               AND available_at <= UTC_TIMESTAMP()"
+            . ($typeParams !== [] ? ' AND job_type IN (' . implode(',', array_keys($typeParams)) . ')' : '') . "
              ORDER BY id ASC
              LIMIT 1"
         );
@@ -103,7 +110,7 @@ final class Queue
             ':reserved' => JobStatus::Reserved->value,
             ':token'    => $token,
             ':pending'  => JobStatus::Pending->value,
-        ]);
+        ] + $typeParams);
 
         if ($update->rowCount() === 0) {
             return null; // brak gotowych zadań

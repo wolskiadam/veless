@@ -146,10 +146,10 @@ $PAGE_TITLE_ACTIONS = (canEdit() && $view === 'active' ? '<a class="btn" href="o
     . '</button>';
 // „Pobierz teraz”: nowe zamówienia ze sklepów i z Allegro od razu, bez czekania na cykliczne pobieranie (orders_sync_now.php).
 if (canEdit() && $view === 'active') {
-    $PAGE_TITLE_ACTIONS .= '<form method="post" action="orders_sync_now.php" class="sync-now-form" id="ordersSyncNow">'
+    $PAGE_TITLE_SIDE = '<form method="post" action="orders_sync_now.php" class="sync-now-form" id="ordersSyncNow">'
         . '<input type="hidden" name="csrf" value="' . htmlspecialchars(csrfToken()) . '">'
         . '<input type="hidden" name="back" value="' . htmlspecialchars(basename((string) ($_SERVER['REQUEST_URI'] ?? 'index.php'))) . '">'
-        . '<button type="submit" class="filters-toggle sync-now" title="Pobierz nowe zamówienia ze sklepów i z Allegro teraz, bez czekania na automatyczne pobieranie">'
+        . '<button type="submit" class="filters-toggle sync-now" title="Pobierz nowe zamówienia ze sklepów i z Allegro teraz, bez czekania na automatyczne pobieranie" aria-label="Pobierz zamówienia teraz">'
         . '<span class="filters-toggle-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg></span>'
         . '<span class="sync-now-label">Pobierz teraz</span>'
         . '</button></form>';
@@ -345,19 +345,17 @@ $PAGE_HEAD = <<<'CSS'
     .filters-toggle-icon svg { width:13px; height:13px; }
     .filters-toggle-chevron { width:15px; height:15px; color:var(--ink-2); transition:transform .15s ease; flex-shrink:0; }
     .filters-toggle[aria-expanded="true"] .filters-toggle-chevron { transform:rotate(180deg); }
-    /* „Pobierz teraz” - wygląda jak przycisk filtrów obok; w trakcie pobierania ikona się kręci. */
-    .sync-now-form { display:inline-flex; margin:0 0 0 8px; }
-    .sync-now { padding-right:16px; }
+    /* „Pobierz teraz” - okrągła ikona tuż przy tytule „Zamówienia”; w trakcie pobierania się kręci. */
+    .sync-now-form { display:inline-flex; margin:0 auto 0 -2px; }
+    .sync-now { padding:6px; }
+    .sync-now .filters-toggle-icon { border:0; }
+    .sync-now .filters-toggle-icon svg { width:17px; height:17px; }
+    .sync-now-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
     .sync-now[disabled] { cursor:progress; opacity:.75; }
     .sync-now[disabled] .filters-toggle-icon svg { animation:sync-now-spin .9s linear infinite; }
     @keyframes sync-now-spin { to { transform:rotate(360deg); } }
-    /* Telefon: obok „Filtrowanie zamówień” mieści się tylko sama okrągła ikona. */
-    @media (max-width:700px) {
-        .sync-now { padding:6px; }
-        .sync-now .filters-toggle-icon { border:0; }
-        .sync-now .filters-toggle-icon svg { width:17px; height:17px; }
-        .sync-now-label { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
-    }
+    /* Telefon: przy tytule brak miejsca obok „Nowe zamówienie” - ikona idzie na koniec, obok „Filtrowanie zamówień”. */
+    @media (max-width:700px) { .sync-now-form { order:2; margin:0 0 0 auto; } }
     /* Okienko „Opis ikon zamówienia” (klik w ikonę $ / FV / PAR / ciężarówkę). */
     .order-indicator { cursor:pointer; }
     #orderIconsDialog { width:min(720px, calc(100vw - 32px)); box-sizing:border-box; padding:22px 24px; border:1px solid var(--line); border-radius:16px; background:var(--surface); color:var(--ink); font-family:var(--font-ui); box-shadow:0 20px 60px rgba(0,0,0,.2); }

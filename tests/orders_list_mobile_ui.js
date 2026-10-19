@@ -157,6 +157,13 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         await page.setViewportSize({ width: 1400, height: 900 });
         if (await page.locator('.orders-table tr:not(.orders-head)').first().evaluate((tr) => getComputedStyle(tr).display) !== 'table-row') fail('desktop lost the table');
         pass('desktop keeps the table');
+        const side = await page.evaluate(() => {
+            const h = document.querySelector('.page-title-row h1').getBoundingClientRect();
+            const b = document.querySelector('#ordersSyncNow button').getBoundingClientRect();
+            return { gap: b.left - h.right, mid: Math.abs((h.top + h.bottom) - (b.top + b.bottom)) / 2, width: b.width };
+        });
+        if (side.gap < 0 || side.gap > 24 || side.mid > 6 || side.width > 48) fail('"Pobierz teraz" is not a small icon next to the title on desktop: ' + JSON.stringify(side));
+        pass('desktop: "Pobierz teraz" is an icon right next to the title');
         if (errors.length) fail('page errors: ' + errors.join('; '));
     } finally {
         await browser.close();

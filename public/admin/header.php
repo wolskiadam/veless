@@ -114,6 +114,8 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
         <main>
             <div class="page-title-row">
                 <h1><?= htmlspecialchars($pageTitle) ?></h1>
+                <?php // Mały przycisk tuż przy tytule (np. „Pobierz teraz” na liście zamówień). ?>
+                <?= $PAGE_TITLE_SIDE ?? '' ?>
                 <?php // Ważne sprawy jako ikony (te same dane co dzwoneczek, wypełnia je skrypt w nav.php). ?>
                 <div class="alert-chips" id="alertChips" hidden></div>
                 <?php if (!empty($PAGE_TITLE_ACTIONS)): ?>

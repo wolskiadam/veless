@@ -187,6 +187,10 @@ try {
     ok($au['status'] === 200 && preg_match('#"x_przyklad_note":\{"label":"Dopisz notatkę wewnętrzną","ready":true,"param":\{"label":"Treść notatki","hint":"[^"]+"\}\}#u', $au['body']) === 1, 'Automation editor offers the extension action');
     $pl = request($boss, 'admin/plugins.php');
     ok(str_contains($pl['body'], 'Notatki wewnętrzne (przykład)') && str_contains($pl['body'], 'name="cfg[items_column]"'), 'Plugins page lists the extension with its settings');
+    ok(preg_match('#<dialog class="pl-dialog" id="pl-cfg-extension-przyklad"[^>]*>.*?name="cfg\[items_column\]".*?</dialog>#s', $pl['body']) === 1
+        && str_contains($pl['body'], 'data-open="pl-cfg-extension-przyklad"'), 'Extension settings sit in a dialog opened by the gear icon');
+    ok(preg_match('#Uprawnienia:(?:(?!</td>).)*Lista zamówień(?:(?!</td>).)*Pakowanie(?:(?!</td>).)*Statystyki#s', $pl['body']) === 1, 'Plugins page shows the extension permissions from its hooks');
+    ok(str_contains(request($boss, 'admin/index.php')['body'], '<style data-ext="przyklad">'), 'Probing permissions leaves the running extension hooks in place');
     $r = request($boss, 'admin/plugins.php', ['csrf' => csrfOf($pl['body']), 'action' => 'ext_settings', 'slug' => 'przyklad', 'cfg' => ['column_after' => 'client']]);
     ok($r['status'] === 200 && str_contains($r['body'], 'Zapisano ustawienia'), 'Extension settings are saved');
     ok(!str_contains(request($boss, 'admin/index.php')['body'], '>Sztuk</th>'), 'Turning the column off removes it from the list');

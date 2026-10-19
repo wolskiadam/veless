@@ -133,7 +133,8 @@ try {
     // ---- Ustawienia z manifestu na stronie Wtyczki
     $pl = request($boss, 'admin/plugins.php');
     ok(str_contains($pl['body'], 'KSeF - e-faktury') && str_contains($pl['body'], 'name="cfg[number_format]"') && str_contains($pl['body'], 'name="cfg[environment]"')
-        && str_contains($pl['body'], '>Rozszerzenie</span>') && !str_contains($pl['body'], 'Rozszerzenia (')
+        && !str_contains($pl['body'], '>Rozszerzenie</span>') && str_contains($pl['body'], 'data-open="pl-cfg-extension-ksef"')
+        && preg_match('#Uprawnienia:.*?Połączenie zewnętrzne.*?Karta zamówienia#s', $pl['body']) === 1
         && str_contains($pl['body'], 'name="cfg[do_sales]" value="1" checked') && str_contains($pl['body'], 'name="cfg[do_purchases]" value="1">'), 'Plugins page lists the KSeF extension with its settings');
     $r = request($boss, 'admin/plugins.php', ['csrf' => csrfOf($pl['body']), 'action' => 'ext_settings', 'slug' => 'ksef', 'cfg' => [
         'environment' => 'test', 'nip' => '526-025-02-74', 'seller_name' => 'Klub Testowy sp. z o.o.', 'seller_address1' => 'ul. Prosta 1',

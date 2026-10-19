@@ -75,6 +75,7 @@ final class MojafunkcjaExtension extends AbstractExtension
             fields: [                     // ustawienia w panelu (opcjonalnie), format jak w integracjach
                 ['key' => 'kolor', 'label' => 'Kolor', 'type' => 'select', 'options' => ['red' => 'Czerwony', 'blue' => 'Niebieski']],
             ],
+            connects: '',                 // usługa poza CRM, z którą się łączysz (np. 'KSeF'), do opisu uprawnień
         );
     }
 
@@ -94,6 +95,10 @@ obok jest „usuń zapisany”), a `$this->setting()` oddaje je odszyfrowane - r
 `AbstractExtension` daje: `$this->setting('kolor', 'red')` (ustawienia z panelu), `$this->path('assets/x.js')`
 (plik w katalogu rozszerzenia), `$this->pdo()` (baza). `boot()` tylko rejestruje haki; ciężką pracę (kwerendy)
 rób w callbackach, bo `boot()` działa przy każdym żądaniu.
+
+Strona Wtyczki pokazuje przy rozszerzeniu jego **uprawnienia**, czyli części CRM, pod które się podpina. Rdzeń wylicza
+je sam, uruchamiając `boot()` na próbę i patrząc na zarejestrowane haki (`Hooks::probe()`), więc nie trzeba ich
+deklarować. Połączenia z usługą poza CRM nie da się tak wykryć: wpisz ją w `connects` manifestu.
 
 Gotowy, działający przykład używający każdego haka: **`examples/extensions/przyklad/`** (notatki wewnętrzne do zamówień).
 Skopiuj go do `extensions/przyklad/`, żeby zobaczyć efekt.

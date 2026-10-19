@@ -64,6 +64,13 @@ try {
     check(Hooks::packingAction('ext_przyklad_note') !== null && Hooks::packingAction('ext_nope') === null, 'Packing action is registered with ext_ prefix');
     check(str_contains(Hooks::assetTags('packing'), 'PackExt') && str_contains(Hooks::assetTags('admin'), 'x_note'), 'Assets are inlined for packing and admin');
 
+    // Uprawnienia na stronie Wtyczki: boot() na próbę, bez ruszania działających haków.
+    $perms = array_column(\Pase\Plugin\PluginPermissions::forExtension('przyklad', ExtensionRegistry::all()['przyklad']), 0);
+    check($perms === ['Lista zamówień', 'Karta zamówienia', 'Pakowanie', 'Automatyzacje', 'Statystyki', 'Własne strony', 'Kod na każdej stronie panelu'],
+        'Permissions are read from the hooks the extension registers: ' . implode(', ', $perms));
+    check(Hooks::packingAction('ext_przyklad_note') !== null && isset(Hooks::pages()['przyklad.notatki'])
+        && count(Hooks::applyFilters('orders.columns', ['number' => [], 'status' => []], 'active')) === 3, 'Probing keeps the running hooks, without duplicates');
+
     // Ustawienia: wyłączenie kolumny w panelu działa od następnego żądania.
     $m = ExtensionRegistry::all()['przyklad']->manifest();
     ExtensionSettings::save($pdo, $m, ['column_after' => 'nope']);

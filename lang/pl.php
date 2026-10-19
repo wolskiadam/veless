@@ -163,6 +163,7 @@ return [
     // Grupa Marketplace → marketplace'y (Allegro i kolejne)
     'nav.marketplace'       => 'Marketplace',
     'nav.allegro'           => '🛒 Allegro',
+    'nav.erli'              => '🛍️ Erli',
     'nav.allegro.sync'      => 'Pobieranie zamówień',
     'nav.allegro.listing'   => 'Wystawianie',
     'nav.allegro.offers'    => 'Zarządzanie ofertami',

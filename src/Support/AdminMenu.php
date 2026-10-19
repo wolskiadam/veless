@@ -84,6 +84,7 @@ final class AdminMenu
                             ['href' => 'allegro_messages.php',   'label' => t('nav.allegro.messages')],
                         ],
                     ],
+                    ['href' => 'erli.php', 'label' => t('nav.erli'), 'desc' => ''],
                 ],
             ],
             'config' => [
@@ -117,6 +118,11 @@ final class AdminMenu
         // GS1 to wtyczka - bez niej (wyłączonej albo usuniętej) strona znika z menu.
         if (!\Pase\Services\Gs1::available()) {
             $groups['catalog']['items'] = array_values(array_filter($groups['catalog']['items'], static fn(array $i): bool => ($i['href'] ?? '') !== 'gs1.php'));
+        }
+
+        // ERLI to wtyczka - bez niej (wyłączonej albo usuniętej) zakładka znika z Marketplace.
+        if (!\Pase\Services\Erli::available()) {
+            $groups['marketplace']['items'] = array_values(array_filter($groups['marketplace']['items'], static fn(array $i): bool => ($i['href'] ?? '') !== 'erli.php'));
         }
 
         // PayU (wypłaty = prawdziwe pieniądze) - wtyczka i tylko administrator albo konto z nadanym uprawnieniem do strony.

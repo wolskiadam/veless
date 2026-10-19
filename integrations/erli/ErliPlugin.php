@@ -40,10 +40,10 @@ final class ErliPlugin extends AbstractPlugin
                 ['key' => 'push_tracking', 'label' => 'Numery przesyłek', 'type' => 'select', 'default' => 'on',
                  'options' => ['on' => 'Wysyłaj numer przesyłki do ERLI (oznacza zamówienie jako wysłane)', 'off' => 'Nie wysyłaj numerów']],
             ],
-            color: '#e6007e',
+            color: '#4295b8',
             icon: '🛍️',
             // Logo kanału na liście zamówień (Services\OrderChannelIcons).
-            logo: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#e6007e"/><text x="12" y="16" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="9" font-weight="700" fill="#fff">erli</text></svg>',
+            logo: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#4295b8"/><text x="12" y="16" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="9" font-weight="700" fill="#fff">erli</text></svg>',
             multiple: true,   // każdy sklep ERLI to osobne konto z własnym kluczem
             description: 'Zamówienia z ERLI na liście zamówień, stany CRM wysyłane do produktów ERLI po SKU i numery przesyłek odsyłane do ERLI.',
             category: Capability::CAT_MARKETPLACE

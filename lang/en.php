@@ -149,6 +149,7 @@ return [
     'nav.print_tpl'    => '🖨️ Print templates',
     'nav.email_smtp'   => '📧 Email (SMTP)',
     'nav.client_page'  => '👤 Customer page',
+    'nav.texts'        => '🔤 Texts',
     'nav.sync'         => '🔄 Synchronization',
     'nav.company'      => '🏢 Company',
     'nav.statuses'     => '🏷️ Order statuses',

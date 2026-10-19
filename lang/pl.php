@@ -149,6 +149,7 @@ return [
     'nav.print_tpl'    => '🖨️ Szablony wydruku',
     'nav.email_smtp'   => '📧 E-mail (SMTP)',
     'nav.client_page'  => '👤 Strona klienta',
+    'nav.texts'        => '🔤 Teksty',
     'nav.sync'         => '🔄 Synchronizacja',
     'nav.company'      => '🏢 Firma',
     'nav.statuses'     => '🏷️ Statusy zamówień',

@@ -92,6 +92,7 @@ final class PagePermissions
                 'print_templates.php', 'print_template_image.php', 'print_asset.php', 'print_asset_image.php', 'print_asset_preview.php', 'print_drop.php']],
             'email_settings' => ['label' => 'E-mail (SMTP)', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['email_settings.php']],
             'client_settings' => ['label' => 'Strona klienta', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['client_settings.php']],
+            'texts' => ['label' => 'Teksty', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['texts.php']],
             'company'       => ['label' => 'Firma', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['company.php']],
             'sync_settings' => ['label' => 'Synchronizacja', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['sync_settings.php']],
             'statuses' => ['label' => 'Statusy zamówień', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['statuses.php']],

@@ -95,6 +95,9 @@ try {
     $dbSettings = []; // brak bazy/tabeli -> fallback na .env
 }
 
+// Teksty zmienione w panelu (Konfiguracja → Teksty) - nadpisują słowniki z lang/.
+\Pase\Support\I18n::useOverrides($dbSettings);
+
 // Helper: wartość z bazy (priorytet) lub z .env (fallback).
 $cfg = static function (string $dbKey, string $envKey, string $default = '') use ($dbSettings): string {
     $fromDb = $dbSettings[$dbKey] ?? '';

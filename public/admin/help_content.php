@@ -618,6 +618,10 @@ klienta.</p>
 <p><strong>Dodanie języka:</strong> skopiuj <code>lang/pl.php</code> do np. <code>lang/en.php</code>,
 przetłumacz wartości (klucze zostaw bez zmian), ustaw <code>'_name'</code> na nazwę języka. Pojawi się
 automatycznie.</p>
+<p><strong>Zmiana tekstów bez kodu:</strong> w <a href="texts.php">Konfiguracja → Teksty</a> można
+zmienić każdy tekst ze słowników (osobno dla każdego języka). Zmiana zapisuje się w bazie i ma
+pierwszeństwo nad plikiem; „Przywróć” wraca do tekstu z pliku. Napisy, które nie są jeszcze w słowniku,
+są w kodzie stron i zmienia się je w kodzie.</p>
 <p><strong>Panel administracyjny</strong> ma już przełącznik języka (PL/EN obok obszaru użytkownika,
 zapamiętany per zalogowany użytkownik). Przetłumaczone są: logowanie, nawigacja i lista zamówień
 (wzorzec). Kolejne ekrany przekładamy stopniowo — każdy tekst zamieniamy na <code>t('klucz')</code>

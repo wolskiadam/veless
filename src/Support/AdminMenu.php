@@ -97,6 +97,7 @@ final class AdminMenu
                     ['href' => 'print_templates.php', 'label' => t('nav.print_tpl'), 'desc' => ''],
                     ['href' => 'email_settings.php',  'label' => t('nav.email_smtp'), 'desc' => ''],
                     ['href' => 'client_settings.php', 'label' => t('nav.client_page'), 'desc' => ''],
+                    ['href' => 'texts.php',           'label' => t('nav.texts'), 'desc' => ''],
                     ['href' => 'sync_settings.php',   'label' => t('nav.sync'), 'desc' => ''],
                     ['href' => 'statuses.php',        'label' => t('nav.statuses'), 'desc' => ''],
                     ['href' => 'printing.php',        'label' => t('nav.printing'), 'desc' => ''],

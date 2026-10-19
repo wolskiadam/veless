@@ -62,4 +62,13 @@ final class SettingsRepository
             $stmt->execute([':k' => $key, ':v' => SecretStore::sealSetting((string) $key, $value)]);
         }
     }
+
+    /** Usuwa podane klucze (np. tekst przywrócony do domyślnego). @param list<string> $keys */
+    public function deleteMany(array $keys): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM settings WHERE setting_key = ?');
+        foreach ($keys as $key) {
+            $stmt->execute([$key]);
+        }
+    }
 }

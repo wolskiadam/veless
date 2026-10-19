@@ -16,14 +16,22 @@ namespace Pase\Support;
  *   echo I18n::t('orders.found', ['n' => 12]);  // z podstawieniem {n}
  *
  * Globalny skrót t() jest zdefiniowany w config/config.php.
+ *
+ * Teksty zmienione w panelu (Konfiguracja → Teksty) leżą w tabeli settings pod kluczami
+ * "text.<język>.<klucz>" i mają pierwszeństwo nad plikami - config/config.php podaje je
+ * przez useOverrides() razem z resztą ustawień (bez dodatkowego zapytania).
  */
 final class I18n
 {
     public const DEFAULT = 'pl';
+    /** Prefiks klucza w tabeli settings dla tekstu zmienionego w panelu. */
+    public const OVERRIDE_PREFIX = 'text.';
 
     private static string $locale = self::DEFAULT;
     /** @var array<string,array<string,string>> wczytane słowniki per locale */
     private static array $dict = [];
+    /** @var array<string,array<string,string>> teksty zmienione w panelu per locale */
+    private static array $overrides = [];
 
     /** Języki dostępne (mają plik lang/<code>.php). @return array<string,string> code=>nazwa */
     public static function available(): array
@@ -79,6 +87,81 @@ final class I18n
     }
 
     /**
+     * Wczytuje teksty zmienione w panelu z mapy ustawień (klucz settings => wartość).
+     * Pozostałe ustawienia są pomijane; puste wartości nic nie nadpisują.
+     * @param array<string,?string> $settings
+     */
+    public static function useOverrides(array $settings): void
+    {
+        self::$overrides = [];
+        foreach ($settings as $name => $value) {
+            $name = (string) $name;
+            if (!str_starts_with($name, self::OVERRIDE_PREFIX) || $value === null || $value === '') {
+                continue;
+            }
+            $rest = substr($name, strlen(self::OVERRIDE_PREFIX));
+            $dot  = strpos($rest, '.');
+            if ($dot === false || $dot === 0) {
+                continue;
+            }
+            self::$overrides[substr($rest, 0, $dot)][substr($rest, $dot + 1)] = (string) $value;
+        }
+    }
+
+    /** Klucz w tabeli settings dla tekstu $key w języku $locale. */
+    public static function overrideKey(string $locale, string $key): string
+    {
+        return self::OVERRIDE_PREFIX . $locale . '.' . $key;
+    }
+
+    /** @return array<string,string> teksty zmienione w panelu dla języka */
+    public static function overrides(string $locale): array
+    {
+        return self::$overrides[$locale] ?? [];
+    }
+
+    /**
+     * Teksty z pliku słownika (bez zmian z panelu) - wartości domyślne.
+     * @return array<string,string>
+     */
+    public static function dictionary(string $locale): array
+    {
+        $data = self::load($locale);
+        unset($data['_name']);
+        return $data;
+    }
+
+    /** Nazwy {placeholderów} w tekście, np. ['n', 'order']. @return list<string> */
+    public static function placeholders(string $text): array
+    {
+        preg_match_all('/\{([a-z0-9_]+)\}/i', $text, $m);
+        return array_values(array_unique($m[1]));
+    }
+
+    /**
+     * Porządkuje tekst wpisany w panelu. t() bywa wstawiane do HTML i do JS bez dodatkowej
+     * obróbki, więc tekst ma być zwykły: jedna linia, bez znaczników, encji i ukośników, a proste
+     * cudzysłowy i apostrofy zamieniamy na typograficzne („…”, ’).
+     */
+    public static function clean(string $text): string
+    {
+        $text = preg_replace('/\s+/u', ' ', $text) ?? '';
+        $text = str_replace(['<', '>', '`', '\\'], '', $text);
+        do { // encje HTML (&#39; itp.), także sklejane („&&#39;;”)
+            $before = $text;
+            $text = preg_replace('/&(?=#?[a-z0-9]+;)/i', '', $text) ?? '';
+        } while ($text !== $before);
+        $text = str_replace("'", '’', $text);
+        $open = true;
+        $text = preg_replace_callback('/"/', static function () use (&$open): string {
+            $q = $open ? '„' : '”';
+            $open = !$open;
+            return $q;
+        }, $text) ?? '';
+        return mb_substr(trim($text), 0, 1000);
+    }
+
+    /**
      * Wybiera język na podstawie kodu z zamówienia lub nagłówka Accept-Language.
      * Zwraca dostępny kod (z fallbackiem na DEFAULT).
      */
@@ -113,6 +196,9 @@ final class I18n
 
     private static function lookup(string $locale, string $key): ?string
     {
+        if (isset(self::$overrides[$locale][$key])) {
+            return self::$overrides[$locale][$key];
+        }
         $data = self::load($locale);
         return $data[$key] ?? null;
     }

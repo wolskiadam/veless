@@ -16,7 +16,12 @@ use Pase\Support\Http;
  *  - PATCH /orders/{id}                numer przesyłki (deliveryTracking: status, vendor, trackingNumber)
  *  - PATCH /orders/{id}/status         status sprzedawcy (sellerStatus, np. sent)
  *  - POST  /products/_search           produkty sklepu ze stanami (kursor po externalId)
- *  - PATCH /products/batch-update      stany produktów (po externalId), wynik osobno dla każdego produktu
+ *  - PATCH /products/batch-update      stany i ceny produktów (po externalId), wynik osobno dla każdego produktu
+ *  - POST  /products/{externalId}      wystawienie produktu (202; 409 = już jest)
+ *  - PATCH /products/{externalId}      aktualizacja wystawionego produktu
+ *  - GET   /delivery/priceLists        cenniki dostaw sklepu (tworzone w panelu ERLI)
+ *  - POST  /dictionaries/categories/_search    drzewo kategorii ERLI (strony po id)
+ *  - POST  /dictionaries/attributes/_search    parametry kategorii; attributeValues/_search - wartości słownikowe
  */
 final class ErliClient
 {
@@ -125,7 +130,7 @@ final class ErliClient
     }
 
     /**
-     * Produkty sklepu (externalId, sku, ean, name, stock, frozen), stronami po externalId.
+     * Produkty sklepu (externalId, sku, ean, name, stock, price, frozen), stronami po externalId.
      * @return array<int,array<string,mixed>>
      */
     public function searchProducts(string $after = '', int $limit = 100): array
@@ -136,7 +141,7 @@ final class ErliClient
         }
         $res = $this->call('POST', '/products/_search', [
             'pagination' => $pagination,
-            'fields'     => ['name', 'sku', 'ean', 'stock', 'status', 'frozen'],
+            'fields'     => ['name', 'sku', 'ean', 'stock', 'price', 'status', 'frozen'],
         ]);
         return array_values(array_filter(is_array($res) ? $res : [], 'is_array'));
     }
@@ -148,11 +153,22 @@ final class ErliClient
      */
     public function updateStocks(array $stocks): array
     {
+        return $this->updateProducts(array_map(static fn($qty): array => ['stock' => max(0, (int) $qty)], $stocks));
+    }
+
+    /**
+     * Zmiana pól wielu produktów naraz: [externalId => ['stock' => .., 'price' => grosze]].
+     * Zwraca błędy po externalId (pusta tablica = wszystkie przyjęte).
+     * @param array<string,array<string,mixed>> $changes
+     * @return array<string,string>
+     */
+    public function updateProducts(array $changes): array
+    {
         $errors = [];
-        foreach (array_chunk($stocks, self::BATCH_LIMIT, true) as $chunk) {
+        foreach (array_chunk($changes, self::BATCH_LIMIT, true) as $chunk) {
             $body = [];
-            foreach ($chunk as $externalId => $qty) {
-                $body[] = ['externalId' => (string) $externalId, 'stock' => max(0, (int) $qty)];
+            foreach ($chunk as $externalId => $fields) {
+                $body[] = ['externalId' => (string) $externalId] + $fields;
             }
             $res = $this->call('PATCH', '/products/batch-update', $body);
             foreach (is_array($res) ? $res : [] as $r) {
@@ -176,5 +192,66 @@ final class ErliClient
             'deliveryTracking' => ['status' => 'sent', 'vendor' => $vendor, 'trackingNumber' => $trackingNumber],
         ]);
         $this->call('PATCH', '/orders/' . rawurlencode($orderId) . '/status', ['status' => 'sent']);
+    }
+
+    /** Wystawia produkt. false = produkt o tym externalId już jest w ERLI (wtedy updateProduct). */
+    public function createProduct(string $externalId, array $product): bool
+    {
+        try {
+            $this->call('POST', '/products/' . rawurlencode($externalId), $product);
+            return true;
+        } catch (ErliException $e) {
+            if ($e->getCode() === 409) {
+                return false;
+            }
+            throw $e;
+        }
+    }
+
+    public function updateProduct(string $externalId, array $fields): void
+    {
+        $this->call('PATCH', '/products/' . rawurlencode($externalId), $fields);
+    }
+
+    /** @return array<int,array{id:int,name:string}> cenniki dostaw sklepu; domyślny ma nazwę „*” */
+    public function priceLists(): array
+    {
+        $res = $this->call('GET', '/delivery/priceLists');
+        return array_values(array_filter(is_array($res) ? $res : [], static fn($r) => is_array($r) && isset($r['name'])));
+    }
+
+    /** @return array<int,array<string,mixed>> szczegóły cenników (metody dostawy, ceny w groszach, czas dostawy) */
+    public function priceListDetails(): array
+    {
+        $res = $this->call('GET', '/delivery/priceListsDetails');
+        return array_values(array_filter(is_array($res) ? $res : [], 'is_array'));
+    }
+
+    /**
+     * Strona drzewa kategorii ERLI (id rosnąco, id > $after).
+     * @return array<int,array{id:int,name:string,leaf:bool,breadcrumb:array}>
+     */
+    public function categories(int $after = 0, int $limit = 500): array
+    {
+        $body = ['limit' => $limit];
+        if ($after > 0) {
+            $body['after'] = $after;
+        }
+        $res = $this->call('POST', '/dictionaries/categories/_search', $body);
+        return array_values(array_filter(is_array($res) ? $res : [], static fn($r) => is_array($r) && isset($r['id'])));
+    }
+
+    /** @return array<int,array<string,mixed>> parametry kategorii: id, name, type, required, maxValues, unit */
+    public function attributes(int $categoryId): array
+    {
+        $res = $this->call('POST', '/dictionaries/attributes/_search', ['categoryId' => $categoryId]);
+        return array_values(array_filter(is_array($res) ? $res : [], static fn($r) => is_array($r) && isset($r['id'])));
+    }
+
+    /** @return array<int,array{id:int,values?:list<string>,valueIds?:list<string>}> wartości parametrów słownikowych */
+    public function attributeValues(int $categoryId): array
+    {
+        $res = $this->call('POST', '/dictionaries/attributeValues/_search', ['categoryId' => $categoryId]);
+        return array_values(array_filter(is_array($res) ? $res : [], static fn($r) => is_array($r) && isset($r['id'])));
     }
 }

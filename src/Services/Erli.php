@@ -143,6 +143,14 @@ final class Erli
             seen_at DATETIME NULL,
             UNIQUE (integration_id, external_id)
         )' . $tail);
+        foreach (['pushed_price' => 'INT NULL', 'erli_price' => 'INT NULL'] as $col => $def) {
+            try {
+                $pdo->query('SELECT ' . $col . ' FROM erli_products LIMIT 0');
+            } catch (\PDOException) {
+                $pdo->exec('ALTER TABLE erli_products ADD COLUMN ' . $col . ' ' . $def);
+            }
+        }
+        ErliOffers::migrate($pdo);
     }
 
     /** @return array<int,array<string,mixed>> aktywne konta ERLI */
@@ -628,8 +636,8 @@ final class Erli
         $n = 0;
         $after = '';
         $find = $this->pdo->prepare('SELECT id FROM erli_products WHERE integration_id = ? AND external_id = ?');
-        $ins = $this->pdo->prepare('INSERT INTO erli_products (integration_id, external_id, match_sku, product_name, erli_stock, seen_at) VALUES (?, ?, ?, ?, ?, ?)');
-        $upd = $this->pdo->prepare('UPDATE erli_products SET match_sku = ?, product_name = ?, erli_stock = ?, seen_at = ? WHERE id = ?');
+        $ins = $this->pdo->prepare('INSERT INTO erli_products (integration_id, external_id, match_sku, product_name, erli_stock, erli_price, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $upd = $this->pdo->prepare('UPDATE erli_products SET match_sku = ?, product_name = ?, erli_stock = ?, erli_price = ?, seen_at = ? WHERE id = ?');
         for ($page = 0; $page < 200; $page++) {
             $list = $client->searchProducts($after, self::PAGE_SIZE);
             foreach ($list as $p) {
@@ -638,7 +646,8 @@ final class Erli
                     continue;
                 }
                 $sku = trim((string) ($p['sku'] ?? ''));
-                $vals = [$sku !== '' ? $sku : $ext, mb_substr((string) ($p['name'] ?? ''), 0, 255), isset($p['stock']) ? (int) $p['stock'] : null, $seen];
+                $vals = [$sku !== '' ? $sku : $ext, mb_substr((string) ($p['name'] ?? ''), 0, 255), isset($p['stock']) ? (int) $p['stock'] : null,
+                    isset($p['price']) ? (int) $p['price'] : null, $seen];
                 $find->execute([$id, $ext]);
                 $rowId = $find->fetchColumn();
                 if ($rowId !== false) {
@@ -669,32 +678,66 @@ final class Erli
         return $n;
     }
 
-    /** Wysyła stan CRM do produktów ERLI, które go nie mają. @return int liczba przyjętych */
+    /** Cena w groszach do ERLI: cena w magazynie × mnożnik z ustawień konta; null, gdy produkt nie ma ceny. */
+    public static function erliPrice(array $account, mixed $pasePrice): ?int
+    {
+        if ($pasePrice === null || (float) $pasePrice <= 0) {
+            return null;
+        }
+        $mult = (float) str_replace(',', '.', (string) ($account['config']['price_multiplier'] ?? '1'));
+        if ($mult <= 0) {
+            $mult = 1.0;
+        }
+        return (int) round((float) $pasePrice * $mult * 100);
+    }
+
+    /**
+     * Wysyła stan CRM (i cenę, gdy włączona w ustawieniach) do produktów ERLI, które mają inne niż ostatnio wysłane.
+     * @return int liczba przyjętych
+     */
     public function pushStock(array $account, object $client): int
     {
-        if (($account['config']['push_stock'] ?? 'on') === 'off') {
+        $stockOn = ($account['config']['push_stock'] ?? 'on') !== 'off';
+        $priceOn = ($account['config']['push_price'] ?? 'off') === 'on';
+        if (!$stockOn && !$priceOn) {
             return 0;
         }
         $id = (int) $account['id'];
         $this->refreshCatalog($account, $client);
-        $st = $this->pdo->prepare('SELECT e.id, e.external_id, e.match_sku, p.pase_stock
+        $st = $this->pdo->prepare('SELECT e.id, e.external_id, e.match_sku, e.pushed_qty, e.pushed_price, p.pase_stock, p.pase_price
             FROM erli_products e JOIN products p ON p.sku = e.match_sku
-            WHERE e.integration_id = ? AND p.pase_stock IS NOT NULL
-              AND (e.pushed_qty IS NULL OR e.pushed_qty <> (CASE WHEN p.pase_stock < 0 THEN 0 ELSE p.pase_stock END))
-            ORDER BY e.id LIMIT ' . self::STOCK_PUSH_LIMIT);
+            WHERE e.integration_id = ? AND (p.pase_stock IS NOT NULL OR p.pase_price IS NOT NULL)
+            ORDER BY e.id');
         $st->execute([$id]);
-        $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+        $changes = [];
+        $rows = [];
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $fields = [];
+            if ($stockOn && $r['pase_stock'] !== null) {
+                $qty = max(0, (int) $r['pase_stock']);
+                if ($r['pushed_qty'] === null || (int) $r['pushed_qty'] !== $qty) {
+                    $fields['stock'] = $qty;
+                }
+            }
+            $price = $priceOn ? self::erliPrice($account, $r['pase_price']) : null;
+            if ($price !== null && ($r['pushed_price'] === null || (int) $r['pushed_price'] !== $price)) {
+                $fields['price'] = $price;
+            }
+            if ($fields === []) {
+                continue;
+            }
+            $changes[(string) $r['external_id']] = $fields;
+            $rows[] = $r;
+            if (count($rows) >= self::STOCK_PUSH_LIMIT) {
+                break;
+            }
+        }
         if ($rows === []) {
             return 0;
         }
-        $stocks = [];
-        foreach ($rows as $r) {
-            $stocks[(string) $r['external_id']] = max(0, (int) $r['pase_stock']);
-        }
-        $ok = $this->pdo->prepare('UPDATE erli_products SET pushed_qty = ?, erli_stock = ?, pushed_at = ?, error = NULL WHERE id = ?');
         $bad = $this->pdo->prepare('UPDATE erli_products SET error = ? WHERE id = ?');
         try {
-            $errors = $client->updateStocks($stocks);
+            $errors = $client->updateProducts($changes);
         } catch (\Throwable $e) {
             // Całe żądanie odrzucone - błąd przy każdym produkcie, kolejna próba przy następnym przebiegu.
             foreach ($rows as $r) {
@@ -707,10 +750,22 @@ final class Erli
             $ext = (string) $r['external_id'];
             if (isset($errors[$ext])) {
                 $bad->execute([mb_substr($errors[$ext], 0, 500), (int) $r['id']]);
-                Logger::warn('ERLI: stan produktu ' . $ext . ' nie wysłany: ' . $errors[$ext]);
+                Logger::warn('ERLI: produkt ' . $ext . ' nie zaktualizowany: ' . $errors[$ext]);
                 continue;
             }
-            $ok->execute([$stocks[$ext], $stocks[$ext], $this->nowSql(), (int) $r['id']]);
+            $f = $changes[$ext];
+            $set = ['pushed_at = ?', 'error = NULL'];
+            $vals = [$this->nowSql()];
+            if (isset($f['stock'])) {
+                array_push($set, 'pushed_qty = ?', 'erli_stock = ?');
+                array_push($vals, $f['stock'], $f['stock']);
+            }
+            if (isset($f['price'])) {
+                array_push($set, 'pushed_price = ?', 'erli_price = ?');
+                array_push($vals, $f['price'], $f['price']);
+            }
+            $vals[] = (int) $r['id'];
+            $this->pdo->prepare('UPDATE erli_products SET ' . implode(', ', $set) . ' WHERE id = ?')->execute($vals);
             $n++;
         }
         return $n;

@@ -6,7 +6,7 @@ namespace Pase\Repository;
 use PDO;
 
 /**
- * Nazwane szablony OPISU oferty Allegro (tabela allegro_desc_templates).
+ * Nazwane szablony OPISU oferty Allegro (tabela allegro_desc_templates) - i ERLI (erli_desc_templates, ten sam format sekcji).
  *
  * sections to lista sekcji w formacie zgodnym z Allegro:
  *   [ { "items": [ {"type":"TEXT","content":"<p>..</p>"} | {"type":"IMAGE","url":"https://.."} ] }, ... ]
@@ -17,12 +17,22 @@ use PDO;
  */
 final class AllegroDescTemplateRepository
 {
-    public function __construct(private readonly PDO $pdo) {}
+    public const TABLES = ['allegro_desc_templates', 'erli_desc_templates'];
+
+    private readonly string $table;
+
+    public function __construct(private readonly PDO $pdo, string $table = 'allegro_desc_templates')
+    {
+        if (!in_array($table, self::TABLES, true)) {
+            throw new \InvalidArgumentException('Nieznana tabela szablonów opisu: ' . $table);
+        }
+        $this->table = $table;
+    }
 
     /** @return array<int,array<string,mixed>> wszystkie szablony (z odkodowanym JSON) */
     public function all(): array
     {
-        $rows = $this->pdo->query('SELECT * FROM allegro_desc_templates ORDER BY name ASC')
+        $rows = $this->pdo->query('SELECT * FROM ' . $this->table . ' ORDER BY name ASC')
             ->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as &$r) {
             $this->decode($r);
@@ -32,7 +42,7 @@ final class AllegroDescTemplateRepository
 
     public function find(int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM allegro_desc_templates WHERE id = ?');
+        $stmt = $this->pdo->prepare('SELECT * FROM ' . $this->table . ' WHERE id = ?');
         $stmt->execute([$id]);
         $r = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$r) {
@@ -71,7 +81,7 @@ final class AllegroDescTemplateRepository
     public function create(string $name, array $categories, array $sections): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO allegro_desc_templates (name, categories, sections) VALUES (:n, :c, :s)'
+            'INSERT INTO ' . $this->table . ' (name, categories, sections) VALUES (:n, :c, :s)'
         );
         $stmt->execute([
             ':n' => $name,
@@ -84,7 +94,7 @@ final class AllegroDescTemplateRepository
     public function update(int $id, string $name, array $categories, array $sections): void
     {
         $this->pdo->prepare(
-            'UPDATE allegro_desc_templates SET name = :n, categories = :c, sections = :s WHERE id = :id'
+            'UPDATE ' . $this->table . ' SET name = :n, categories = :c, sections = :s WHERE id = :id'
         )->execute([
             ':n' => $name,
             ':c' => json_encode(array_values($categories), JSON_UNESCAPED_UNICODE),
@@ -95,7 +105,7 @@ final class AllegroDescTemplateRepository
 
     public function delete(int $id): void
     {
-        $this->pdo->prepare('DELETE FROM allegro_desc_templates WHERE id = ?')->execute([$id]);
+        $this->pdo->prepare('DELETE FROM ' . $this->table . ' WHERE id = ?')->execute([$id]);
     }
 
     private function decode(array &$r): void

@@ -85,6 +85,10 @@ final class PagePermissions
             'erli' => ['label' => 'Pulpit ERLI (stan synchronizacji)', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli.php']],
             'erli_orders' => ['label' => 'Zamówienia i przesyłki ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_orders.php']],
             'erli_products' => ['label' => 'Produkty i stany ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_products.php']],
+            'erli_listing' => ['label' => 'Wystawianie ofert ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_listing.php']],
+            'erli_templates' => ['label' => 'Szablony opisu ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_templates.php']],
+            'erli_categories' => ['label' => 'Kategorie i parametry ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_categories.php']],
+            'erli_shipping' => ['label' => 'Cenniki wysyłek ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_shipping.php']],
 
             // --- Konfiguracja ---
             'automations' => ['label' => 'Automatyzacje', 'group' => 'Konfiguracja', 'legacy' => 'viewer', 'files' => ['automations.php']],

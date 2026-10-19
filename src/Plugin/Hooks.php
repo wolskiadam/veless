@@ -227,6 +227,30 @@ final class Hooks
         }
     }
 
+    /**
+     * Miejsca w panelu, pod które podpina się boot() rozszerzenia - do opisu uprawnień na stronie Wtyczki.
+     * Uruchamia boot() na próbę: zarejestrowane haki są zbierane i od razu wycofywane, więc działające
+     * rozszerzenia (także to samo, gdy jest włączone) nic nie tracą. Błąd w boot() daje to, co zdążyło się podpiąć.
+     *
+     * @return list<string> nazwy haków, a dla stron/akcji/plików: 'page', 'packing.action', 'asset.admin', 'asset.packing'
+     */
+    public static function probe(string $owner, callable $boot): array
+    {
+        $saved = [self::$filters, self::$actions, self::$pages, self::$packingActions, self::$assets];
+        self::$filters = self::$actions = self::$pages = self::$packingActions = self::$assets = [];
+        try {
+            self::bootAs($owner, $boot);
+        } catch (\Throwable) {
+            // opis uprawnień pokaże to, co zarejestrowano przed błędem
+        }
+        $names = array_merge(array_keys(self::$filters), array_keys(self::$actions));
+        if (self::$pages !== []) { $names[] = 'page'; }
+        if (self::$packingActions !== []) { $names[] = 'packing.action'; }
+        foreach (array_keys(self::$assets) as $where) { $names[] = 'asset.' . $where; }
+        [self::$filters, self::$actions, self::$pages, self::$packingActions, self::$assets] = $saved;
+        return array_values(array_unique($names));
+    }
+
     /** Usuwa wszystkie haki (testy, ponowne ładowanie po zmianie wtyczek). */
     public static function reset(): void
     {

@@ -13,6 +13,8 @@ final class ExtensionManifest
     /**
      * @param string $type    unikalny klucz rozszerzenia = nazwa katalogu w extensions/ ([a-z0-9_])
      * @param array<int,array<string,mixed>> $fields pola ustawień
+     * @param string  $connects zewnętrzna usługa, z którą łączy się rozszerzenie (np. 'KSeF') - pokazywana
+     *                          w uprawnieniach na stronie Wtyczki; puste = działa tylko w CRM
      */
     public function __construct(
         public readonly string $type,
@@ -21,6 +23,7 @@ final class ExtensionManifest
         public readonly string $author = '',
         public readonly string $description = '',
         public readonly string $icon = '🧩',
-        public readonly array $fields = []
+        public readonly array $fields = [],
+        public readonly string $connects = ''
     ) {}
 }

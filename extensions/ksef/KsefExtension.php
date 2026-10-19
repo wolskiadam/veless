@@ -79,7 +79,8 @@ final class KsefExtension extends AbstractExtension
                  'help' => 'Tylko przy zwolnieniu, np. „art. 113 ust. 1 ustawy o VAT”.'],
                 ['key' => 'bank_account', 'label' => 'Numer rachunku (na nieopłaconych fakturach)', 'type' => 'text'],
                 ['key' => 'footer', 'label' => 'Stopka faktury', 'type' => 'textarea'],
-            ]
+            ],
+            connects: 'KSeF (Ministerstwo Finansów)'
         );
     }
 

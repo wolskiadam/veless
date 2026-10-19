@@ -7,6 +7,7 @@ use PDO;
 use Pase\Queue\JobRunner;
 use Pase\Queue\Queue;
 use Pase\Repository\SettingsRepository;
+use Pase\Support\I18n;
 use Pase\Support\Logger;
 
 /**
@@ -42,13 +43,13 @@ final class OrdersSyncNow
         $out = ['ok' => false, 'message' => '', 'queued' => 0, 'imported' => 0, 'failed' => 0, 'waiting' => 0];
 
         if ($this->root !== null && (new Handover($this->pdo, $this->settings, $this->root))->isAway()) {
-            $out['message'] = 'Praca jest przeniesiona na drugą instalację - tam pobierają się zamówienia.';
+            $out['message'] = I18n::t('orders.sync_now.moved');
             return $out;
         }
         $control = new ProcessControl($this->settings);
         foreach (['worker', 'orders'] as $process) {
             if ($control->isPaused($process)) {
-                $out['message'] = 'Pobieranie zamówień jest wstrzymane (System → Obciążenie serwera). Wznów je, żeby pobrać zamówienia.';
+                $out['message'] = I18n::t('orders.sync_now.paused');
                 return $out;
             }
         }
@@ -58,7 +59,7 @@ final class OrdersSyncNow
             $out['queued'] = (new Scheduler($this->pdo, $this->settings, $queue, $this->config))->pullOrdersNow();
         } catch (\Throwable $e) {
             Logger::warn('Pobierz zamówienia teraz: ' . $e->getMessage());
-            $out['message'] = 'Nie udało się pobrać zamówień: ' . $e->getMessage();
+            $out['message'] = I18n::t('orders.sync_now.error', ['error' => $e->getMessage()]);
             return $out;
         }
         $this->settings->setMany(['ERLI_RUN_AT' => '0', 'TIKTOKSHOP_RUN_AT' => '0']);
@@ -100,14 +101,14 @@ final class OrdersSyncNow
     private function summary(array $r): string
     {
         if ($r['queued'] === 0 && $r['imported'] === 0 && $r['waiting'] === 0) {
-            return 'Sprawdzono sklepy i Allegro - brak nowych zamówień.';
+            return I18n::t('orders.sync_now.nothing');
         }
-        $msg = $r['imported'] > 0 ? "Pobrano zamówienia: {$r['imported']}." : 'Sprawdzono sklepy i Allegro.';
+        $msg = $r['imported'] > 0 ? I18n::t('orders.sync_now.imported', ['n' => $r['imported']]) : I18n::t('orders.sync_now.checked');
         if ($r['waiting'] > 0) {
-            $msg .= " Jeszcze {$r['waiting']} w kolejce - dopiszą się w ciągu minuty.";
+            $msg .= ' ' . I18n::t('orders.sync_now.waiting', ['n' => $r['waiting']]);
         }
         if ($r['failed'] > 0) {
-            $msg .= " Nie udało się: {$r['failed']} (ponowienie w tle).";
+            $msg .= ' ' . I18n::t('orders.sync_now.failed', ['n' => $r['failed']]);
         }
         return $msg;
     }

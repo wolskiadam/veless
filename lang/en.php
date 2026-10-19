@@ -299,4 +299,14 @@ return [
     'orders.indicator.shipping_pickup' => 'Local pickup',
     'orders.indicator.shipping_not_needed' => 'Shipping not required',
     'orders.indicator.shipping_needed' => 'To ship — no active shipment',
+
+    // Przycisk „Pobierz teraz” na liście zamówień (Services\OrdersSyncNow)
+    'orders.sync_now.nothing' => 'Checked shops and Allegro - no new orders.',
+    'orders.sync_now.checked' => 'Checked shops and Allegro.',
+    'orders.sync_now.imported' => 'Orders fetched: {n}.',
+    'orders.sync_now.waiting' => '{n} more in the queue - they will appear within a minute.',
+    'orders.sync_now.failed' => 'Failed: {n} (retrying in the background).',
+    'orders.sync_now.moved' => 'Work has moved to the other installation - orders are fetched there.',
+    'orders.sync_now.paused' => 'Order fetching is paused (System → Server load). Resume it to fetch orders.',
+    'orders.sync_now.error' => 'Could not fetch orders: {error}',
 ];

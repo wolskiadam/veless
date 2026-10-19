@@ -7,6 +7,7 @@ if (getenv('CRM_TEST_MYSQL') !== '1') {
     fwrite(STDERR, "NOT RUN: set CRM_TEST_MYSQL=1 and dedicated local test MySQL credentials.\n");
     exit(2);
 }
+if (!defined('PASE_ROOT')) { define('PASE_ROOT', dirname(__DIR__)); } // słowniki lang/ dla komunikatów
 spl_autoload_register(static function (string $class): void {
     if (str_starts_with($class, 'Pase\\')) {
         require dirname(__DIR__) . '/src/' . str_replace('\\', '/', substr($class, 5)) . '.php';

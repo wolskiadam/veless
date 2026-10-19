@@ -299,4 +299,14 @@ return [
     'orders.indicator.shipping_pickup' => 'Odbiór osobisty',
     'orders.indicator.shipping_not_needed' => 'Wysyłka niewymagana',
     'orders.indicator.shipping_needed' => 'Do wysyłki — brak aktywnej przesyłki',
+
+    // Przycisk „Pobierz teraz” na liście zamówień (Services\OrdersSyncNow)
+    'orders.sync_now.nothing' => 'Sprawdzono sklepy i Allegro - brak nowych zamówień.',
+    'orders.sync_now.checked' => 'Sprawdzono sklepy i Allegro.',
+    'orders.sync_now.imported' => 'Pobrano zamówienia: {n}.',
+    'orders.sync_now.waiting' => 'Jeszcze {n} w kolejce - dopiszą się w ciągu minuty.',
+    'orders.sync_now.failed' => 'Nie udało się: {n} (ponowienie w tle).',
+    'orders.sync_now.moved' => 'Praca jest przeniesiona na drugą instalację - tam pobierają się zamówienia.',
+    'orders.sync_now.paused' => 'Pobieranie zamówień jest wstrzymane (System → Obciążenie serwera). Wznów je, żeby pobrać zamówienia.',
+    'orders.sync_now.error' => 'Nie udało się pobrać zamówień: {error}',
 ];

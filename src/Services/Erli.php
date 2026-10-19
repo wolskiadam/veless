@@ -62,7 +62,7 @@ final class Erli
     ];
 
     /** Status sprzedawcy, przy którym ERLI ma już zamówienie za wysłane - numeru nie wysyłamy. */
-    private const SHIPPED_SELLER_STATUSES = ['sent', 'readyToPickup', 'received', 'returned', 'returningToSender'];
+    public const SHIPPED_SELLER_STATUSES = ['sent', 'readyToPickup', 'received', 'returned', 'returningToSender'];
 
     /** Słowa w nazwie kuriera w CRM -> przewoźnik (deliveryTracking.vendor) w ERLI. Kolejność ma znaczenie. */
     private const VENDORS = [

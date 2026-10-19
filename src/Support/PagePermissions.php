@@ -82,7 +82,9 @@ final class PagePermissions
             'allegro_messages' => ['label' => 'Wiadomości', 'group' => 'Allegro', 'legacy' => 'editor', 'files' => ['allegro_messages.php']],
 
             // --- ERLI ---
-            'erli' => ['label' => 'ERLI - stan synchronizacji', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli.php']],
+            'erli' => ['label' => 'Pulpit ERLI (stan synchronizacji)', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli.php']],
+            'erli_orders' => ['label' => 'Zamówienia i przesyłki ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_orders.php']],
+            'erli_products' => ['label' => 'Produkty i stany ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_products.php']],
 
             // --- Konfiguracja ---
             'automations' => ['label' => 'Automatyzacje', 'group' => 'Konfiguracja', 'legacy' => 'viewer', 'files' => ['automations.php']],
@@ -98,7 +100,7 @@ final class PagePermissions
             'statuses' => ['label' => 'Statusy zamówień', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['statuses.php']],
             'printing' => ['label' => 'Drukowanie', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['printing.php', 'agent_download.php', 'agent_app_download.php']],
             'integrations' => ['label' => 'Integracje', 'group' => 'Konfiguracja', 'legacy' => 'editor',
-                'files' => ['integrations.php', 'integration_edit.php', 'tiktokshop_connect.php'],
+                'files' => ['integrations.php', 'integration_edit.php', 'tiktokshop_connect.php', 'erli_settings.php'],
                 'getWrites' => ['integration_edit.php' => ['action'], 'tiktokshop_connect.php' => ['id', 'code', 'state']]],
             'url_migration' => ['label' => 'Adres URL panelu', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['url_migration.php']],
             'plugins' => ['label' => 'Wtyczki', 'group' => 'Konfiguracja', 'legacy' => 'admin', 'files' => ['plugins.php']],

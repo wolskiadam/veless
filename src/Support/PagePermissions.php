@@ -81,6 +81,9 @@ final class PagePermissions
             'allegro_ads' => ['label' => 'Allegro Ads', 'group' => 'Allegro', 'legacy' => 'editor', 'files' => ['allegro_ads.php']],
             'allegro_messages' => ['label' => 'Wiadomości', 'group' => 'Allegro', 'legacy' => 'editor', 'files' => ['allegro_messages.php']],
 
+            // --- ERLI ---
+            'erli' => ['label' => 'ERLI - stan synchronizacji', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli.php']],
+
             // --- Konfiguracja ---
             'automations' => ['label' => 'Automatyzacje', 'group' => 'Konfiguracja', 'legacy' => 'viewer', 'files' => ['automations.php']],
             'templates' => ['label' => 'Szablony', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['templates.php']],

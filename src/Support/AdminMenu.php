@@ -84,7 +84,16 @@ final class AdminMenu
                             ['href' => 'allegro_messages.php',   'label' => t('nav.allegro.messages')],
                         ],
                     ],
-                    ['href' => 'erli.php', 'label' => t('nav.erli'), 'desc' => ''],
+                    [
+                        'key'   => 'erli',
+                        'label' => t('nav.erli'),
+                        'children' => [
+                            ['href' => 'erli.php',          'label' => t('nav.erli.dashboard')],
+                            ['href' => 'erli_orders.php',   'label' => t('nav.erli.orders')],
+                            ['href' => 'erli_products.php', 'label' => t('nav.erli.products')],
+                            ['href' => 'erli_settings.php', 'label' => t('nav.erli.settings')],
+                        ],
+                    ],
                 ],
             ],
             'config' => [
@@ -123,7 +132,7 @@ final class AdminMenu
 
         // ERLI to wtyczka - bez niej (wyłączonej albo usuniętej) zakładka znika z Marketplace.
         if (!\Pase\Services\Erli::available()) {
-            $groups['marketplace']['items'] = array_values(array_filter($groups['marketplace']['items'], static fn(array $i): bool => ($i['href'] ?? '') !== 'erli.php'));
+            $groups['marketplace']['items'] = array_values(array_filter($groups['marketplace']['items'], static fn(array $i): bool => ($i['key'] ?? '') !== 'erli'));
         }
 
         // PayU (wypłaty = prawdziwe pieniądze) - wtyczka i tylko administrator albo konto z nadanym uprawnieniem do strony.

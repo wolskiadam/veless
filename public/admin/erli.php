@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Marketplace → Erli: stan synchronizacji każdego sklepu ERLI w jednym miejscu.
  *  - liczniki zamówień i produktów, ostatnia synchronizacja, błędy stanów i numerów przesyłek (Services\Erli::status),
- *  - skróty do listy zamówień z tego sklepu i do ustawień konta (tam „Synchronizuj teraz” i „Pobierz produkty”).
+ *  - skróty do zamówień i produktów tego sklepu (erli_orders.php, erli_products.php) i do ustawień konta (tam „Synchronizuj teraz” i „Pobierz produkty”).
  * Strona tylko czyta - zapis i ręczna synchronizacja zostają na stronie integracji (integration_edit.php).
  */
 
@@ -14,7 +14,7 @@ require __DIR__ . '/auth.php';
 requireRole(['admin', 'editor']);
 /** @var PDO $pdo */
 
-$PAGE_TITLE = 'Erli';
+$PAGE_TITLE = 'Erli - pulpit';
 $PAGE_KEY   = 'erli';
 
 if (!Erli::available()) {
@@ -70,7 +70,9 @@ require __DIR__ . '/header.php';
         </div>
 
         <p style="margin:14px 0 0;display:flex;gap:8px;flex-wrap:wrap">
-            <a class="btn secondary" href="index.php?source=acc:<?= $accId ?>">Zamówienia z tego sklepu</a>
+            <a class="btn secondary" href="erli_orders.php?acc=<?= $accId ?>">Zamówienia i przesyłki</a>
+            <a class="btn secondary" href="erli_products.php?acc=<?= $accId ?>">Produkty i stany</a>
+            <a class="btn secondary" href="index.php?source=acc:<?= $accId ?>">Na liście zamówień</a>
             <?php if ($canSettings): ?><a class="btn secondary" href="integration_edit.php?id=<?= $accId ?>">Ustawienia i synchronizacja</a><?php endif; ?>
         </p>
 

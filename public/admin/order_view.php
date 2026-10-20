@@ -914,15 +914,17 @@ if (canEdit()) {
 
 $PAGE_TITLE = 'Zamówienie ' . ($row['pase_number'] !== null ? '#' . (int)$row['pase_number'] : ('Woo ' . $wooOrderId));
 $PAGE_KEY   = 'orders';
+// Telefon: „Powrót” jako strzałka przy tytule, żeby rząd przycisków pod tytułem był krótszy.
+$PAGE_TITLE_BEFORE = '<a class="btn secondary order-back-ico" href="index.php" title="Powrót do listy" aria-label="Powrót do listy">←</a>';
 require __DIR__ . '/header.php';
 ?>
 
 <div class="order-actions" style="margin:-6px 0 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <a class="btn secondary" href="index.php">← Powrót</a>
-    <?php if (canEdit()): ?><a class="btn secondary" href="order_history.php?id=<?= (int) $wooOrderId ?>">Historia zmian</a><?php endif; ?>
-    <?php if (usesPagePermissions() ? canViewPage('email_log') : roleCanEdit()): ?><a class="btn secondary" href="email_log.php?period=365d&amp;order=<?= (int) $wooOrderId ?>">Wysłane e-maile</a><?php endif; ?>
+    <a class="btn secondary order-back-btn" href="index.php">← Powrót</a>
+    <?php if (canEdit()): ?><a class="btn secondary" href="order_history.php?id=<?= (int) $wooOrderId ?>" title="Historia zmian" aria-label="Historia zmian"><span class="mob-ico">🕘</span><span class="btn-lbl">Historia zmian</span></a><?php endif; ?>
+    <?php if (usesPagePermissions() ? canViewPage('email_log') : roleCanEdit()): ?><a class="btn secondary" href="email_log.php?period=365d&amp;order=<?= (int) $wooOrderId ?>" title="Wysłane e-maile" aria-label="Wysłane e-maile"><span class="mob-ico">✉️</span><span class="btn-lbl">Wysłane e-maile</span></a><?php endif; ?>
     <?php if ($adminLink): ?>
-        <a class="btn secondary" href="<?= htmlspecialchars($adminLink) ?>" target="_blank" rel="noopener">Otwórz w WooCommerce ↗</a>
+        <a class="btn secondary" href="<?= htmlspecialchars($adminLink) ?>" target="_blank" rel="noopener" title="Otwórz w WooCommerce" aria-label="Otwórz w WooCommerce"><span class="mob-ico">🛒</span><span class="btn-lbl">Otwórz w WooCommerce ↗</span></a>
     <?php endif; ?>
     <?php if (canOpenPage('packing.php')): ?>
         <?php
@@ -2354,14 +2356,20 @@ foreach ($absorbedOrders as $ab) {
     @media (max-width:900px) { .layout-cols { grid-template-columns:minmax(0,1fr); } }
     .soon-menu { position:relative; display:inline-block; }
     .order-print-menu { margin-left:auto; }
+    .order-back-ico, .order-actions .mob-ico { display:none; }
     /* Status: wybór i „Zmień status” zawijają się do nowej linii zamiast wychodzić poza kartę (telefon). */
     .status-form { flex:0 1 auto; min-width:0; max-width:100%; }
     .status-form select { flex:0 1 auto; min-width:0; }
     .status-form .btn { flex:none; white-space:nowrap; }
     /* Telefon: „Pakuj” i „Drukuj / Eksportuj” jako same ikony, obok siebie po prawej. */
     @media (max-width:600px) {
+        /* Strzałka powrotu przy tytule, pozostałe linki jako ikony w jednym rzędzie. */
+        .order-back-ico { display:inline-block; padding:6px 12px; font-size:18px; line-height:1.2; }
+        .order-back-ico + h1 { margin-right:auto !important; }
+        .order-back-btn { display:none !important; }
         .order-actions { gap:6px !important; }
-        .order-actions .btn { padding-left:10px; padding-right:10px; }
+        .order-actions .mob-ico { display:inline; }
+        .order-actions > .btn { min-width:44px; padding-left:10px; padding-right:10px; font-size:18px; line-height:1; text-align:center; }
         .order-actions .btn-lbl { display:none; }
         .order-print-menu > .btn { background:var(--muted-bg); color:var(--ink); }
         .order-print-menu > .btn:hover { background:#e4e6e2; }

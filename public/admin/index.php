@@ -140,8 +140,9 @@ $PAGE_KEY   = 'orders';
 // Kropka na przycisku panelu: lista zawężona czymś innym niż wyszukiwarka (ta jest widoczna na górze).
 $drawerFiltersOn = $fStatus !== '' || $fSource !== '' || $fDateFrom !== '' || $fDateTo !== '' || $fTotalMin !== '' || $fTotalMax !== ''
     || $fUnread || $fIndicators || $fInvoiceIssued !== '' || $fReceiptIssued !== '';
-// Telefon: „Nowe zamówienie” to sam „+”, a filtry, statusy, akcje na zaznaczonych i sortowanie są w panelu
-// wysuwanym z boku (przycisk #ordersDrawerOpen, panel #ordersDrawer niżej) - na górze zostaje wyszukiwarka i lista.
+// Telefon: „Nowe zamówienie” to sam „+”, a filtry, statusy i sortowanie są w panelu wysuwanym z boku
+// (przycisk #ordersDrawerOpen, panel #ordersDrawer niżej) - na górze zostaje wyszukiwarka i lista.
+// Akcje na zaznaczonych wyskakują na dole ekranu dopiero po zaznaczeniu zamówienia.
 $PAGE_TITLE_ACTIONS = (canEdit() && $view === 'active' ? '<a class="btn new-order-btn" href="order_new.php" style="margin-right:8px" aria-label="Nowe zamówienie" title="Nowe zamówienie">'
         . '<span aria-hidden="true">+</span><span class="new-order-label"> Nowe zamówienie</span></a>' : '')
     . '<button type="button" id="ordersFilterToggle" class="filters-toggle" aria-expanded="'
@@ -150,9 +151,8 @@ $PAGE_TITLE_ACTIONS = (canEdit() && $view === 'active' ? '<a class="btn new-orde
     . '<span class="filters-toggle-label">' . htmlspecialchars(t('orders.filters_toggle')) . '</span>'
     . '<svg class="filters-toggle-chevron" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>'
     . '</button>'
-    . '<button type="button" id="ordersDrawerOpen" class="orders-drawer-open" aria-expanded="false" aria-controls="ordersDrawer" aria-label="Filtry, statusy i akcje" title="Filtry, statusy i akcje">'
+    . '<button type="button" id="ordersDrawerOpen" class="orders-drawer-open" aria-expanded="false" aria-controls="ordersDrawer" aria-label="Filtry, statusy i sortowanie" title="Filtry, statusy i sortowanie">'
     . '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>'
-    . '<span class="orders-drawer-badge" id="ordersDrawerBadge" hidden></span>'
     . ($drawerFiltersOn ? '<span class="orders-drawer-dot" title="Włączone filtry"></span>' : '')
     . '</button>';
 // „Pobierz teraz”: nowe zamówienia ze sklepów i z Allegro od razu, bez czekania na cykliczne pobieranie (orders_sync_now.php).
@@ -317,14 +317,23 @@ $PAGE_HEAD = <<<'CSS'
     .actionbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; padding:8px 12px; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm); flex-wrap:wrap; }
     .actionbar .btn { padding:7px 12px; font-size:13px; }
     .actionbar-count { font-size:13px; color:var(--ink-2); margin-left:auto; }
-    /* Telefon: licznik zaznaczonych na górze, „Zmień status” na całą szerokość, pozostałe przyciski
+    .actionbar-mobile { display:none; }
+    /* Telefon: pasek akcji pojawia się na dole ekranu dopiero po zaznaczeniu zamówienia (klasa na body - index.php).
+       U góry licznik, „Zaznacz wszystkie” i „×” (odznacz), „Zmień status” na całą szerokość, pozostałe przyciski
        równo po dwa w rzędzie (nieparzysty ostatni rozciąga się na cały rząd) - także przyciski rozszerzeń. */
     @media (max-width:820px) {
-        .actionbar { gap:8px; padding:10px; }
-        .actionbar-count { order:-1; flex:1 0 100%; margin-left:0; }
+        .actionbar { display:none; position:fixed; left:8px; right:8px; bottom:calc(8px + env(safe-area-inset-bottom, 0px)); z-index:1050;
+            gap:8px; margin:0; padding:10px; background:var(--surface); border-radius:var(--radius);
+            box-shadow:0 -6px 30px rgba(20,18,12,.18), 0 2px 8px rgba(20,18,12,.08); }
+        body.orders-has-selection .actionbar { display:flex; }
+        body.orders-has-selection main { padding-bottom:200px; }
+        .actionbar-count { order:-2; flex:1 1 auto; margin-left:0; font-size:14px; font-weight:600; color:var(--ink); }
+        .actionbar-mobile { order:-2; display:inline-flex; align-items:center; justify-content:center; min-height:34px; padding:0 10px;
+            border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--ink); font:inherit; font-size:13px; cursor:pointer; }
+        .actionbar-clear { width:34px; padding:0; font-size:20px; line-height:1; color:var(--ink-2); }
         .actionbar .flag-menu { flex:1 0 100%; }
         .actionbar .flag-btn { width:100%; justify-content:center; min-height:40px; }
-        .actionbar .flag-dropdown { right:0; }
+        .actionbar .flag-dropdown { top:auto; bottom:100%; left:0; right:0; margin:0 0 6px; max-height:55vh; overflow-y:auto; }
         .actionbar > .btn { flex:1 1 calc(50% - 4px); min-height:40px; justify-content:center; text-align:center; }
     }
     .row-act { padding:6px 9px !important; font-size:13px; margin-left:2px; display:inline-flex; align-items:center; }
@@ -375,11 +384,7 @@ $PAGE_HEAD = <<<'CSS'
         .orders-drawer-open { display:inline-flex; align-items:center; justify-content:center; position:relative; width:44px; height:44px; flex:none;
             border:1px solid var(--line); border-radius:50%; background:var(--surface); color:var(--ink); cursor:pointer; }
         .orders-drawer-open:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-        .orders-drawer-badge { position:absolute; top:-4px; right:-4px; min-width:20px; height:20px; padding:0 5px; box-sizing:border-box;
-            border-radius:999px; background:var(--accent); color:#fff; font-size:11px; font-weight:700; line-height:20px; text-align:center; }
-        .orders-drawer-badge[hidden] { display:none; }
         .orders-drawer-dot { position:absolute; top:2px; right:2px; width:10px; height:10px; border-radius:50%; background:var(--accent); border:2px solid var(--surface); }
-        .orders-drawer-badge:not([hidden]) + .orders-drawer-dot { display:none; }
         .sync-now-form { order:0; margin:0 auto 0 -2px; }
         #ordersFilterToggle { display:none; }
 
@@ -406,8 +411,6 @@ $PAGE_HEAD = <<<'CSS'
         .orders-drawer-section[hidden] { display:none; }
         .orders-drawer-section h3 { margin:0 0 8px; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-2); }
         .orders-drawer .orders-mobile-selall { display:flex; padding:0 2px 10px; font-size:14px; color:var(--ink); }
-        .orders-drawer .actionbar { margin:0; }
-        .orders-drawer .flag-dropdown { position:static; margin-top:6px; box-shadow:none; border:1px solid var(--line); }
         .orders-drawer .orders-mobile-sort { display:flex; width:100%; margin:0; }
         .orders-drawer .orders-mobile-sort > span { display:none; }
         .orders-drawer .orders-mobile-sort select { flex:1; max-width:none; padding:10px; font-size:15px; }
@@ -712,15 +715,15 @@ unset($searchHidden['q'], $searchHidden['p']);
 </div><!-- /orders-main -->
 </div><!-- /orders-layout -->
 
-<?php // Telefon: skrypt niżej przenosi tu statusy, filtry, akcje na zaznaczonych i sortowanie (komputer - bez zmian). ?>
+<?php // Telefon: skrypt niżej przenosi tu „Zaznacz wszystkie”, sortowanie, filtry i statusy (komputer - bez zmian). ?>
 <div class="orders-drawer-backdrop" id="ordersDrawerBackdrop" data-no-pull-refresh></div>
-<aside class="orders-drawer" id="ordersDrawer" aria-label="Filtry, statusy i akcje" aria-hidden="true" data-no-pull-refresh>
+<aside class="orders-drawer" id="ordersDrawer" aria-label="Filtry, statusy i sortowanie" aria-hidden="true" data-no-pull-refresh>
     <div class="orders-drawer-head">
         <strong><?= htmlspecialchars($PAGE_TITLE) ?></strong>
         <button type="button" class="orders-drawer-close" id="ordersDrawerClose" aria-label="Zamknij">×</button>
     </div>
     <div class="orders-drawer-body">
-        <section class="orders-drawer-section" data-drawer-slot="selection"><h3>Zaznaczone</h3></section>
+        <section class="orders-drawer-section" data-drawer-slot="selection"><h3>Zaznaczanie</h3></section>
         <section class="orders-drawer-section" data-drawer-slot="sort"><h3><?= htmlspecialchars(t('orders.sort.label')) ?></h3></section>
         <section class="orders-drawer-section" data-drawer-slot="filters"><h3>Filtry</h3></section>
         <section class="orders-drawer-section" data-drawer-slot="status"><h3><?= htmlspecialchars(t('orders.side.status')) ?></h3></section>
@@ -970,20 +973,19 @@ unset($searchHidden['q'], $searchHidden['p']);
         var n = document.querySelectorAll('.rowcheck:checked').length;
         var el = document.getElementById('selCount');
         if (el) el.textContent = n;
-        var badge = document.getElementById('ordersDrawerBadge');
-        if (badge) { badge.textContent = n; badge.hidden = n === 0; }
+        document.body.classList.toggle('orders-has-selection', n > 0);   // telefon: pasek akcji na dole ekranu
     }
 
     // ===== Panel wysuwany z boku (telefon) =====
-    // Do 820 px statusy, filtry, pasek akcji, „Zaznacz wszystkie” i sortowanie są przenoszone do panelu, a na górze
-    // zostaje wyszukiwarka i lista. Szerzej wracają na swoje miejsca (komentarz-znacznik w miejscu, skąd je wzięto).
-    // Pasek akcji jest poza #bulkForm - jego pola dostają atrybut form, więc dalej wysyłają ten sam formularz.
+    // Do 820 px statusy, filtry, „Zaznacz wszystkie” i sortowanie są przenoszone do panelu, a na górze zostaje
+    // wyszukiwarka i lista. Szerzej wracają na swoje miejsca (komentarz-znacznik w miejscu, skąd je wzięto).
+    // Pasek akcji zostaje w #bulkForm - na telefonie CSS pokazuje go na dole ekranu, gdy coś jest zaznaczone.
     var drawer = document.getElementById('ordersDrawer');
     var drawerBackdrop = document.getElementById('ordersDrawerBackdrop');
     var drawerOpenBtn = document.getElementById('ordersDrawerOpen');
     var phone = window.matchMedia('(max-width:820px)');
     var drawerPieces = {
-        selection: ['#ordersListRegion .orders-mobile-selall', '#ordersListRegion .actionbar'],
+        selection: ['#ordersListRegion .orders-mobile-selall'],
         sort: ['#ordersListRegion .orders-mobile-sort'],
         filters: ['#ordersFilterToggle', '#ordersFilterBar'],
         status: ['#ordersSideNav']
@@ -1001,11 +1003,6 @@ unset($searchHidden['q'], $searchHidden['p']);
                 node.__drawerHome = mark;
                 box.appendChild(node);
                 moved.push(node);
-                if (node.classList.contains('actionbar')) {
-                    node.querySelectorAll('button, input, select, textarea').forEach(function (f) {
-                        if (!f.hasAttribute('form')) { f.setAttribute('form', 'bulkForm'); f.setAttribute('data-drawer-form', ''); }
-                    });
-                }
             });
             box.hidden = box.children.length < 2;   // sam nagłówek - np. podgląd bez akcji
         });
@@ -1015,7 +1012,6 @@ unset($searchHidden['q'], $searchHidden['p']);
             var mark = node.__drawerHome;
             if (mark && mark.isConnected) {
                 mark.parentNode.replaceChild(node, mark);
-                node.querySelectorAll('[data-drawer-form]').forEach(function (f) { f.removeAttribute('form'); f.removeAttribute('data-drawer-form'); });
             } else {
                 node.remove();   // stara lista po wyszukiwaniu na żywo - jej miejsca już nie ma
             }
@@ -1060,7 +1056,7 @@ unset($searchHidden['q'], $searchHidden['p']);
     document.addEventListener('click', function (e) {
         var actSel = e.target.closest('.act-sel');
         if (actSel) {
-            var form1 = actSel.form || actSel.closest('form');
+            var form1 = actSel.closest('form');
             if (document.querySelectorAll('.rowcheck:checked').length === 0) {
                 e.preventDefault();
                 alert('Zaznacz przynajmniej jedno zamówienie.');
@@ -1103,7 +1099,7 @@ unset($searchHidden['q'], $searchHidden['p']);
             .then(function (data) {
                 if (requestId !== latestRequestId) { return; } // spóźniona odpowiedź - ignoruj
                 listRegion.innerHTML = data.html;
-                placeDrawer();   // nowy pasek akcji i sortowanie trafiają do panelu (telefon)
+                placeDrawer();   // nowe „Zaznacz wszystkie” i sortowanie trafiają do panelu (telefon)
                 refreshCount();
                 if (foundText) { foundText.textContent = data.found; }
                 if (filterFormQ) { filterFormQ.value = qValue; }

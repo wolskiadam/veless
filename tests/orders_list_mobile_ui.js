@@ -25,7 +25,7 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         }
 
         // Na górze tylko tytuł, „Pobierz teraz”, „+”, przycisk panelu, wyszukiwarka i zamówienia.
-        // Filtry, statusy, akcje na zaznaczonych i sortowanie są w zamkniętym panelu z boku.
+        // Filtry, statusy i sortowanie są w zamkniętym panelu z boku, a akcji na zaznaczonych nie widać, dopóki nic nie zaznaczono.
         const top = await page.evaluate(() => {
             const box = (sel) => document.querySelector(sel).getBoundingClientRect();
             const inDrawer = (sel) => !!document.querySelector('#ordersDrawer ' + sel);
@@ -34,12 +34,14 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
                 title: box('.page-title-row h1'), sync: box('#ordersSyncNow button'), plus: newBtn.getBoundingClientRect(),
                 plusText: newBtn.innerText.trim(), open: box('#ordersDrawerOpen'), search: box('#ordersSearchInput'),
                 firstCard: box('.orders-table tr:not(.orders-head)'), vw: document.documentElement.clientWidth,
-                pieces: ['.actionbar', '.orders-mobile-selall', '.orders-mobile-sort', '#ordersFilterToggle', '#ordersFilterBar', '#ordersSideNav'].filter((s) => !inDrawer(s)),
+                pieces: ['.orders-mobile-selall', '.orders-mobile-sort', '#ordersFilterToggle', '#ordersFilterBar', '#ordersSideNav'].filter((s) => !inDrawer(s)),
                 drawer: getComputedStyle(document.getElementById('ordersDrawer')).visibility,
+                bar: getComputedStyle(document.querySelector('.actionbar')).display, barInForm: !!document.querySelector('#bulkForm .actionbar'),
             };
         });
         if (top.pieces.length) fail('not moved to the side panel: ' + top.pieces.join(', '));
         if (top.drawer !== 'hidden') fail('side panel is open on page load');
+        if (top.bar !== 'none' || !top.barInForm) fail('action bar is shown before anything is selected: ' + top.bar);
         if (top.plusText !== '+' || top.plus.width > 48) fail('"Nowe zamówienie" is not a plain "+" button: ' + JSON.stringify([top.plusText, top.plus.width]));
         const row = (r) => (r.top + r.bottom) / 2;
         if ([top.sync, top.plus, top.open].some((r) => Math.abs(row(r) - row(top.title)) > 6 || r.right > top.vw)) fail('title row is not one line that fits: ' + JSON.stringify(top));
@@ -86,11 +88,20 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         if (Math.abs(pos.amount.top - pos.act.top) > 2 || pos.act.left < pos.amount.right - 1) fail('amount and actions are not on the bottom row ' + JSON.stringify([pos.amount, pos.act]));
         pass('number + status, client, source, icons, amount + actions are laid out on the card');
 
-        // Zaznaczanie działa jak w tabeli (licznik na pasku akcji), a liczba zaznaczonych jest też na przycisku panelu.
+        // Po zaznaczeniu karty pasek akcji wyskakuje na dole ekranu (licznik, status, Pakuj, Scal, Archiwizuj, Do kosza).
         await page.locator('.orders-table tr:not(.orders-head) .rowcheck').first().check();
         if ((await page.locator('#selCount').textContent()).trim() !== '1') fail('selecting a card does not update the counter');
-        if ((await page.locator('#ordersDrawerBadge').textContent()).trim() !== '1' || !(await page.locator('#ordersDrawerBadge').isVisible())) fail('panel button does not show the selected count');
-        pass('selecting a card updates the counter and the badge on the panel button');
+        const shown = await page.evaluate(() => {
+            const b = document.querySelector('.actionbar').getBoundingClientRect();
+            return { b, vw: document.documentElement.clientWidth, vh: window.innerHeight, pos: getComputedStyle(document.querySelector('.actionbar')).position };
+        });
+        if (shown.pos !== 'fixed' || Math.abs(shown.b.bottom - (shown.vh - 8)) > 2 || shown.b.left < 0 || shown.b.right > shown.vw || shown.b.height > 220) fail('action bar does not pop up at the bottom of the screen: ' + JSON.stringify(shown));
+        if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + '/mobile-selected.png' });
+        pass('selecting a card pops the action bar up at the bottom of the screen');
+        await page.locator('.actionbar-clear').click();
+        if ((await page.locator('.orders-table .rowcheck:checked').count()) !== 0 || await page.locator('.actionbar').isVisible()) fail('"×" does not clear the selection and hide the bar');
+        await page.locator('.orders-table tr:not(.orders-head) .rowcheck').first().check();
+        pass('"×" clears the selection and hides the bar');
 
         // Panel wysuwa się z prawej i mieści w ekranie; tło i krzyżyk go zamykają.
         await page.click('#ordersDrawerOpen');
@@ -100,9 +111,11 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
             return { d, vw: document.documentElement.clientWidth, vh: window.innerHeight, h: [...document.querySelectorAll('#ordersDrawer h3')].map((h) => h.textContent) };
         });
         if (Math.abs(dr.d.right - dr.vw) > 1 || dr.d.left < 0 || dr.d.top !== 0 || Math.abs(dr.d.height - dr.vh) > 1) fail('side panel is not on the right edge: ' + JSON.stringify(dr));
-        if (dr.h.join() !== 'Zaznaczone,Sortuj,Filtry,Status') fail('panel sections: ' + dr.h.join());
+        if (dr.h.join() !== 'Zaznaczanie,Sortuj,Filtry,Status') fail('panel sections: ' + dr.h.join());
         if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + '/mobile-drawer.png' });
-        pass('side panel slides in from the right with selected, sort, filters and status');
+        pass('side panel slides in from the right with select all, sort, filters and status');
+        await page.click('#ordersDrawerClose');
+        await page.waitForTimeout(300);
 
         // Pasek akcji: licznik na górze, „Zmień status” na całą szerokość, przyciski równo po dwa w rzędzie.
         const ab = await page.evaluate(() => {
@@ -120,9 +133,20 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         }
         if (ab.btns.some((r) => r.right > ab.bar.right)) fail('an action button sticks out of the bar');
         pass('action bar: counter on top, status full width, buttons in even pairs');
-        await page.locator('.orders-mobile-selall input').check();
-        if ((await page.locator('#selCount').textContent()).trim() !== '3') fail('select all does not select every card');
-        pass('select all selects every card');
+        await page.locator('.actionbar .flag-btn').click();
+        const dd = await page.evaluate(() => { const r = document.querySelector('.actionbar .flag-dropdown').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, h: r.height, vh: window.innerHeight }; });
+        if (!dd.h || dd.top < 0 || dd.bottom > dd.vh) fail('"Zmień status" list does not fit on the screen: ' + JSON.stringify(dd));
+        if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + '/mobile-status.png' });
+        await page.locator('.actionbar .flag-btn').click();
+        pass('"Zmień status" list opens upwards and fits the screen');
+        await page.locator('.actionbar-all').click();
+        if ((await page.locator('#selCount').textContent()).trim() !== '3') fail('"Zaznacz wszystkie" on the bar does not select every card');
+        await page.locator('.actionbar-clear').click();
+        await page.click('#ordersDrawerOpen');
+        await page.waitForTimeout(300);
+        await page.locator('#ordersDrawer .orders-mobile-selall input').check();
+        if ((await page.locator('#selCount').textContent()).trim() !== '3') fail('select all in the side panel does not select every card');
+        pass('select all (on the bar and in the side panel) selects every card');
 
         // Filtry w panelu: zwinięte pod przyciskiem, po kliknięciu się rozwijają; statusy od razu widoczne.
         await page.click('#ordersDrawer #ordersFilterToggle');
@@ -148,30 +172,27 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         if (await page.locator('#ordersSyncNow').getAttribute('action') !== 'orders_sync_now.php' || !(await page.locator('#ordersSyncNow button').isVisible())) fail('"Pobierz teraz" button is missing');
         pass('"Pobierz teraz" is next to the title');
 
-        // Wyszukiwanie na żywo podmienia listę - pasek akcji z nowej listy trafia do panelu (jeden, nie dwa).
+        // Wyszukiwanie na żywo podmienia listę - „Zaznacz wszystkie” z nowej listy trafia do panelu (jedno, nie dwa), pasek akcji znika.
         await page.fill('#ordersSearchInput', 'Wiktoria');
         await page.waitForFunction(() => document.querySelectorAll('.orders-table tr:not(.orders-head)').length === 1);
         await page.waitForTimeout(50);
         const afterSearch = await page.evaluate(() => ({ bars: document.querySelectorAll('.actionbar').length,
-            inDrawer: !!document.querySelector('#ordersDrawer .actionbar'), sel: document.querySelectorAll('.orders-mobile-selall').length }));
-        if (afterSearch.bars !== 1 || !afterSearch.inDrawer || afterSearch.sel !== 1) fail('after live search the action bar is not (only) in the side panel: ' + JSON.stringify(afterSearch));
-        pass('live search keeps a single action bar in the side panel');
+            shown: getComputedStyle(document.querySelector('.actionbar')).display !== 'none',
+            sel: document.querySelectorAll('.orders-mobile-selall').length, selInDrawer: !!document.querySelector('#ordersDrawer .orders-mobile-selall') }));
+        if (afterSearch.bars !== 1 || afterSearch.shown || afterSearch.sel !== 1 || !afterSearch.selInDrawer) fail('after live search: ' + JSON.stringify(afterSearch));
+        pass('live search: one select all in the side panel, action bar hidden until something is selected');
 
-        // Akcja z panelu (pasek akcji jest poza formularzem listy) wysyła zaznaczone zamówienia: archiwizacja.
+        // Akcja z paska na dole wysyła zaznaczone zamówienia: archiwizacja i przywrócenie.
         await page.goto(BASE + 'admin/index.php');
         await page.locator('.orders-table tr:not(.orders-head) .rowcheck').first().check();
-        await page.click('#ordersDrawerOpen');
-        await page.waitForTimeout(300);
-        await Promise.all([page.waitForNavigation(), page.locator('#ordersDrawer .act-sel[data-action="archive"]').click()]);
+        await Promise.all([page.waitForNavigation(), page.locator('.actionbar .act-sel[data-action="archive"]').click()]);
         if ((await page.locator('.orders-table tr:not(.orders-head)').count()) !== 2) fail('archiving from the side panel did not archive the selected order');
         await page.goto(BASE + 'admin/index.php?view=archived');
         await page.locator('.orders-table tr:not(.orders-head) .rowcheck').first().check();
-        await page.click('#ordersDrawerOpen');
-        await page.waitForTimeout(300);
-        await Promise.all([page.waitForNavigation(), page.locator('#ordersDrawer .act-sel[data-action="restore"]').click()]);
+        await Promise.all([page.waitForNavigation(), page.locator('.actionbar .act-sel[data-action="restore"]').click()]);
         await page.goto(BASE + 'admin/index.php');
-        if ((await page.locator('.orders-table tr:not(.orders-head)').count()) !== 3) fail('restoring from the side panel did not work');
-        pass('bulk actions in the side panel submit the selected orders');
+        if ((await page.locator('.orders-table tr:not(.orders-head)').count()) !== 3) fail('restoring from the bottom bar did not work');
+        pass('bulk actions on the bottom bar submit the selected orders');
 
         // Przeciągnij w dół na górze strony: wskaźnik rośnie, a po puszczeniu strona się odświeża (zwykły GET tego adresu).
         // Nowa karta: zrzut całej strony (SHOTS) potrafi wyłączyć emulację dotyku w bieżącej.
@@ -218,9 +239,11 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
             bar: !!document.querySelector('#bulkForm > .actionbar'), toggle: !!document.querySelector('.page-title-row #ordersFilterToggle'),
             nav: !!document.querySelector('.orders-side #ordersSideNav'), filters: !!document.querySelector('.orders-main > #ordersFilterBar'),
             drawer: getComputedStyle(document.getElementById('ordersDrawer')).display, open: getComputedStyle(document.getElementById('ordersDrawerOpen')).display,
-            plus: document.querySelector('.page-title-row .new-order-btn').innerText.trim(), form: document.querySelectorAll('.actionbar [form]').length,
+            plus: document.querySelector('.page-title-row .new-order-btn').innerText.trim(), form: document.querySelectorAll('.actionbar-mobile:not([hidden])').length
+                - [...document.querySelectorAll('.actionbar-mobile')].filter((b) => getComputedStyle(b).display === 'none').length,
+            barShown: getComputedStyle(document.querySelector('.actionbar')).position !== 'fixed' && document.querySelector('.actionbar').offsetHeight > 0,
         }));
-        if (!desk.bar || !desk.toggle || !desk.nav || !desk.filters || desk.drawer !== 'none' || desk.open !== 'none' || desk.form) fail('desktop layout changed: ' + JSON.stringify(desk));
+        if (!desk.bar || !desk.barShown || !desk.toggle || !desk.nav || !desk.filters || desk.drawer !== 'none' || desk.open !== 'none' || desk.form) fail('desktop layout changed: ' + JSON.stringify(desk));
         if (desk.plus !== '+ Nowe zamówienie') fail('desktop "Nowe zamówienie" button lost its label: ' + desk.plus);
         pass('desktop keeps the table, filters, statuses and action bar in place');
         const side = await page.evaluate(() => {

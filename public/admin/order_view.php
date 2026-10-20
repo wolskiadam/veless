@@ -1789,9 +1789,9 @@ foreach ($absorbedOrders as $ab) {
                                         <option value="ZPL" <?= $defaultLabelFmt === 'ZPL' ? 'selected' : '' ?>>ZPL (Zebra)</option>
                                         <option value="EPL" <?= $defaultLabelFmt === 'EPL' ? 'selected' : '' ?>>EPL (Zebra)</option>
                                     </select>
-                                    <a class="lbl-item lbl-print" data-ship="<?= (int)$sh['id'] ?>" href="#">🖨 Drukuj</a>
-                                    <a class="lbl-item lbl-agent" data-ship="<?= (int)$sh['id'] ?>" href="#" title="ZPL/EPL idą surowo, PDF agent zamieni na obraz">📠 Wyślij na drukarkę (agent druku)</a>
-                                    <a class="lbl-item lbl-open" data-ship="<?= (int)$sh['id'] ?>" href="#">⬇ Pobierz / otwórz plik</a>
+                                    <a class="lbl-item lbl-agent" data-ship="<?= (int)$sh['id'] ?>" href="#" title="Wysyła etykietę do agenta druku (ZPL/EPL idą surowo, PDF agent zamieni na obraz)">📠 Drukuj (agent)</a>
+                                    <a class="lbl-item lbl-print" data-ship="<?= (int)$sh['id'] ?>" href="#" title="Otwiera okno druku przeglądarki z wyborem drukarki">🖨 Drukuj (Wybór)</a>
+                                    <a class="lbl-item lbl-open" data-ship="<?= (int)$sh['id'] ?>" href="#">⬇ Pobierz</a>
                                 </div>
                             </div>
                         <?php elseif (!empty($sh['label_link'])): ?>

@@ -113,6 +113,8 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
         <?php require __DIR__ . '/nav.php'; ?>
         <main>
             <div class="page-title-row">
+                <?php // Opcjonalnie coś przed tytułem (np. strzałka powrotu na telefonie na stronie zamówienia). ?>
+                <?= $PAGE_TITLE_BEFORE ?? '' ?>
                 <h1><?= htmlspecialchars($pageTitle) ?></h1>
                 <?php // Mały przycisk tuż przy tytule (np. „Pobierz teraz” na liście zamówień). ?>
                 <?= $PAGE_TITLE_SIDE ?? '' ?>

@@ -517,6 +517,8 @@ if (!empty($row['integration_id'])) {
 $blInteg = $intRepo->firstActive('blpaczka');
 $hasBlpaczka = $blInteg !== null;
 $wfirmaInteg = $intRepo->firstActive('wfirma');
+// Linki „wystawione w BaseLinker? Powiąż z wFirma” tylko po włączeniu w Konfiguracja → Firma.
+$showBaselinkerLinks = $wfirmaInteg !== null && \Pase\Services\CompanySettings::showBaselinkerLinks($pdo);
 $orderDocuments = (new OrderDocumentRepository($pdo))->forOrder($wooOrderId);
 // Scalone zamówienie: dokument (faktura / paragon) wystawia się na zamówieniu głównym dla całej paczki,
 // więc dołączone pokazuje dokumenty głównego (chyba że miało własny dokument sprzed scalenia).
@@ -1011,7 +1013,7 @@ require __DIR__ . '/header.php';
     <div style="flex:1;min-width:220px">
         <strong>Trzeba wystawić fakturę</strong>
         <div><?= $invoiceIndicator['label'] === 'orders.indicator.invoice_required' ? 'Klient zaznaczył, że chce fakturę' : 'Klient podał NIP' ?><?= $invoiceNip !== '' ? ' (NIP ' . htmlspecialchars($invoiceNip) . ')' : '' ?>. Nie wystawiaj paragonu — to zamówienie idzie na fakturę.</div>
-        <?php if ($wfirmaInteg !== null && canOpenPage('wfirma_receipts.php')): ?>
+        <?php if ($showBaselinkerLinks && $wfirmaInteg !== null && canOpenPage('wfirma_receipts.php')): ?>
             <div><a href="wfirma_receipts.php?<?= htmlspecialchars(http_build_query(['check' => 1,
                 'from' => substr((string) ($row['date_created'] ?? ''), 0, 10), 'to' => date('Y-m-d', strtotime(substr((string) ($row['date_created'] ?? 'now'), 0, 10) . ' +30 days'))])) ?>" style="color:inherit">Faktura wystawiona w BaseLinker? Powiąż z wFirma</a></div>
         <?php endif; ?>
@@ -1129,7 +1131,7 @@ foreach ($absorbedOrders as $ab) {
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l2 2 2-2 3 2 3-2 2 2 2-2v18l-2-2-2 2-3-2-3 2-2-2-2 2V3Z"/><path d="M8 9h8M8 13h8M8 17h4"/></svg>
             <?= $receiptIndicator['state'] === 'ok' ? 'Paragon wystawiony' . ($receiptDoc !== null ? ' — otwórz w wFirma ↗' : '') : 'Brak paragonu — do wystawienia' ?>
         </<?= $receiptTag ?>>
-        <?php if ($receiptIndicator['state'] === 'warn' && $wfirmaInteg !== null && canOpenPage('wfirma_receipts.php')): ?>
+        <?php if ($showBaselinkerLinks && $receiptIndicator['state'] === 'warn' && $wfirmaInteg !== null && canOpenPage('wfirma_receipts.php')): ?>
             <a class="receipt-link" href="wfirma_receipts.php?<?= htmlspecialchars(http_build_query(['check' => 1,
                 'from' => substr((string) ($row['date_created'] ?? ''), 0, 10), 'to' => date('Y-m-d', strtotime(substr((string) ($row['date_created'] ?? 'now'), 0, 10) . ' +30 days'))])) ?>">Paragon lub faktura wystawione w BaseLinker? Powiąż z wFirma</a>
         <?php endif; ?>

@@ -2330,6 +2330,8 @@ foreach ($absorbedOrders as $ab) {
         .order-actions { gap:6px !important; }
         .order-actions .btn { padding-left:10px; padding-right:10px; }
         .order-actions .btn-lbl { display:none; }
+        .order-print-menu > .btn { background:var(--muted-bg); color:var(--ink); }
+        .order-print-menu > .btn:hover { background:#e4e6e2; }
         .order-pack-btn { margin-left:auto; }
         .order-pack-btn + .order-print-menu, .order-pack-btn ~ .order-print-menu { margin-left:0; }
         .order-pack-btn, .order-print-menu > .btn { min-width:44px; padding-left:10px; padding-right:10px; font-size:18px; line-height:1; text-align:center; }

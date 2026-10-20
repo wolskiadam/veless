@@ -918,7 +918,7 @@ require __DIR__ . '/header.php';
 ?>
 
 <div class="order-actions" style="margin:-6px 0 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <a class="btn secondary" href="index.php">← Powrót do listy</a>
+    <a class="btn secondary" href="index.php">← Powrót</a>
     <?php if (canEdit()): ?><a class="btn secondary" href="order_history.php?id=<?= (int) $wooOrderId ?>">Historia zmian</a><?php endif; ?>
     <?php if (usesPagePermissions() ? canViewPage('email_log') : roleCanEdit()): ?><a class="btn secondary" href="email_log.php?period=365d&amp;order=<?= (int) $wooOrderId ?>">Wysłane e-maile</a><?php endif; ?>
     <?php if ($adminLink): ?>
@@ -946,7 +946,7 @@ require __DIR__ . '/header.php';
 
     <!-- Menu Drukuj/Eksportuj -->
     <div class="soon-menu order-print-menu">
-        <button type="button" class="btn" title="Drukuj / Eksportuj" aria-label="Drukuj / Eksportuj" onclick="this.closest('.soon-menu').classList.toggle('open')">🖨<span class="btn-lbl"> Drukuj / Eksportuj ▾</span></button>
+        <button type="button" class="btn" title="Drukuj / Eksportuj" aria-label="Drukuj / Eksportuj" onclick="this.closest('.soon-menu').classList.toggle('open')">🖨️<span class="btn-lbl"> Drukuj / Eksportuj ▾</span></button>
         <div class="soon-dropdown">
             <?php foreach ($printTemplates as $pt): $isZpl = $pt['format'] === 'ZPL'; ?>
                 <?php // Nazwa = podgląd w nowej karcie. Dla ZPL dochodzi drugi przycisk:
@@ -2327,6 +2327,8 @@ foreach ($absorbedOrders as $ab) {
     .status-form .btn { flex:none; white-space:nowrap; }
     /* Telefon: „Pakuj” i „Drukuj / Eksportuj” jako same ikony, obok siebie po prawej. */
     @media (max-width:600px) {
+        .order-actions { gap:6px !important; }
+        .order-actions .btn { padding-left:10px; padding-right:10px; }
         .order-actions .btn-lbl { display:none; }
         .order-pack-btn { margin-left:auto; }
         .order-pack-btn + .order-print-menu, .order-pack-btn ~ .order-print-menu { margin-left:0; }

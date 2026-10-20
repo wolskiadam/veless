@@ -42,7 +42,14 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         if (top.pieces.length) fail('not moved to the side panel: ' + top.pieces.join(', '));
         if (top.drawer !== 'hidden') fail('side panel is open on page load');
         if (top.bar !== 'none' || !top.barInForm) fail('action bar is shown before anything is selected: ' + top.bar);
-        if (top.plusText !== '+' || top.plus.width > 48) fail('"Nowe zamówienie" is not a plain "+" button: ' + JSON.stringify([top.plusText, top.plus.width]));
+        if (top.plusText !== '' || top.plus.width > 48) fail('"Nowe zamówienie" is not a plain "+" button: ' + JSON.stringify([top.plusText, top.plus.width]));
+        const plusMid = await page.evaluate(() => {
+            const b = document.querySelector('.page-title-row .new-order-btn').getBoundingClientRect();
+            const i = document.querySelector('.page-title-row .new-order-icon').getBoundingClientRect();
+            return { dx: Math.abs((b.left + b.right) - (i.left + i.right)) / 2, dy: Math.abs((b.top + b.bottom) - (i.top + i.bottom)) / 2, w: i.width };
+        });
+        if (!plusMid.w || plusMid.dx > 0.5 || plusMid.dy > 0.5) fail('"+" is not centred in its circle: ' + JSON.stringify(plusMid));
+        pass('"+" is centred in its circle');
         const row = (r) => (r.top + r.bottom) / 2;
         if ([top.sync, top.plus, top.open].some((r) => Math.abs(row(r) - row(top.title)) > 6 || r.right > top.vw)) fail('title row is not one line that fits: ' + JSON.stringify(top));
         if (!(top.search.top > top.title.bottom && top.firstCard.top > top.search.bottom && top.firstCard.top - top.search.bottom < 60)) fail('orders do not follow right after the search: ' + JSON.stringify(top));

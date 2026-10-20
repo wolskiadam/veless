@@ -134,7 +134,7 @@ if (!function_exists('sourceBadge')) {
         <?php if (canEdit()): ?>
             <label class="orders-mobile-selall">
                 <input type="checkbox" onclick="var on=this.checked;document.querySelectorAll('.rowcheck').forEach(function(c){c.checked=on;c.dispatchEvent(new Event('change',{bubbles:true}));})">
-                <?= htmlspecialchars(t('orders.select_all')) ?>
+                <span class="selall-long"><?= htmlspecialchars(t('orders.select_all')) ?></span><span class="selall-short" hidden>Wszystkie</span>
             </label>
         <?php endif; ?>
         <label class="orders-mobile-sort">

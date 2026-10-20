@@ -148,7 +148,7 @@ $PAGE_TITLE_ACTIONS = (canEdit() && $view === 'active' ? '<a class="btn new-orde
     . '<button type="button" id="ordersFilterToggle" class="filters-toggle" aria-expanded="'
     . ($hasActiveFilters ? 'true' : 'false') . '" aria-controls="ordersFilterBar">'
     . '<span class="filters-toggle-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7v5l-4 2v-7L4 5z"/></svg></span>'
-    . '<span class="filters-toggle-label">' . htmlspecialchars(t('orders.filters_toggle')) . '</span>'
+    . '<span class="filters-toggle-label">' . htmlspecialchars(t('orders.filters_toggle')) . '</span><span class="filters-toggle-short" hidden>Filtry</span>'
     . '<svg class="filters-toggle-chevron" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>'
     . '</button>'
     . '<button type="button" id="ordersDrawerOpen" class="orders-drawer-open" aria-expanded="false" aria-controls="ordersDrawer" aria-label="Filtry, statusy i sortowanie" title="Filtry, statusy i sortowanie">'
@@ -410,15 +410,25 @@ $PAGE_HEAD = <<<'CSS'
         .orders-drawer-section { margin-bottom:18px; }
         .orders-drawer-section[hidden] { display:none; }
         .orders-drawer-section h3 { margin:0 0 8px; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-2); }
-        .orders-drawer .orders-mobile-selall { display:flex; padding:0 2px 10px; font-size:14px; color:var(--ink); }
-        .orders-drawer .orders-mobile-sort { display:flex; width:100%; margin:0; }
+        /* Jeden rząd: „☐ Wszystkie”, sortowanie, „Filtry” (rozwinięte filtry pod rzędem). */
+        .orders-drawer-row { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+        .orders-drawer-row[hidden] { display:none; }
+        .orders-drawer-row > * { height:40px; box-sizing:border-box; }
+        .orders-drawer .orders-mobile-selall { display:inline-flex; align-items:center; gap:7px; flex:none; padding:0 11px 0 9px; margin:0;
+            border:1px solid var(--line); border-radius:999px; background:var(--surface); font-size:14px; font-weight:600; color:var(--ink); }
+        .orders-drawer .orders-mobile-selall input { width:18px; height:18px; }
+        .orders-drawer .selall-long { display:none; }
+        .orders-drawer .selall-short { display:inline; }
+        .orders-drawer .orders-mobile-sort { display:flex; flex:1 1 auto; min-width:0; margin:0; }
         .orders-drawer .orders-mobile-sort > span { display:none; }
-        .orders-drawer .orders-mobile-sort select { flex:1; max-width:none; padding:10px; font-size:15px; }
+        .orders-drawer .orders-mobile-sort select { flex:1; min-width:0; max-width:none; height:40px; padding:0 8px 0 12px; border-radius:999px; font-size:14px; }
+        .orders-drawer-section-flat { margin-bottom:12px; }
         .orders-drawer .side-nav { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:6px; }
         .orders-drawer .side-nav > .side-sep:first-child { display:none; }
-        .orders-drawer #ordersFilterToggle { display:flex; width:100%; justify-content:flex-start; }
-        .orders-drawer #ordersFilterToggle .filters-toggle-chevron { margin-left:auto; }
-        .orders-drawer #ordersFilterBar { margin:10px 0 0; }
+        .orders-drawer #ordersFilterToggle { display:inline-flex; flex:none; gap:6px; padding:0 10px 0 6px; }
+        .orders-drawer #ordersFilterToggle .filters-toggle-label { display:none; }
+        .orders-drawer #ordersFilterToggle .filters-toggle-short { display:inline; }
+        .orders-drawer #ordersFilterBar { margin:0; }
         body.orders-drawer-lock { overflow:hidden; }
     }
     /* Okienko „Opis ikon zamówienia” (klik w ikonę $ / FV / PAR / ciężarówkę). */
@@ -723,9 +733,8 @@ unset($searchHidden['q'], $searchHidden['p']);
         <button type="button" class="orders-drawer-close" id="ordersDrawerClose" aria-label="Zamknij">×</button>
     </div>
     <div class="orders-drawer-body">
-        <section class="orders-drawer-section" data-drawer-slot="selection"><h3>Zaznaczanie</h3></section>
-        <section class="orders-drawer-section" data-drawer-slot="sort"><h3><?= htmlspecialchars(t('orders.sort.label')) ?></h3></section>
-        <section class="orders-drawer-section" data-drawer-slot="filters"><h3>Filtry</h3></section>
+        <div class="orders-drawer-row" data-drawer-slot="tools"></div>
+        <div class="orders-drawer-section-flat" data-drawer-slot="filters"></div>
         <section class="orders-drawer-section" data-drawer-slot="status"><h3><?= htmlspecialchars(t('orders.side.status')) ?></h3></section>
     </div>
 </aside>
@@ -985,9 +994,8 @@ unset($searchHidden['q'], $searchHidden['p']);
     var drawerOpenBtn = document.getElementById('ordersDrawerOpen');
     var phone = window.matchMedia('(max-width:820px)');
     var drawerPieces = {
-        selection: ['#ordersListRegion .orders-mobile-selall'],
-        sort: ['#ordersListRegion .orders-mobile-sort'],
-        filters: ['#ordersFilterToggle', '#ordersFilterBar'],
+        tools: ['#ordersListRegion .orders-mobile-selall', '#ordersListRegion .orders-mobile-sort', '#ordersFilterToggle'],
+        filters: ['#ordersFilterBar'],
         status: ['#ordersSideNav']
     };
     var moved = [];
@@ -1004,7 +1012,7 @@ unset($searchHidden['q'], $searchHidden['p']);
                 box.appendChild(node);
                 moved.push(node);
             });
-            box.hidden = box.children.length < 2;   // sam nagłówek - np. podgląd bez akcji
+            box.hidden = box.children.length < (box.querySelector('h3') ? 2 : 1);   // pusta sekcja (sam nagłówek)
         });
     }
     function unmountDrawer() {

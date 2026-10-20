@@ -250,7 +250,7 @@ try {
     ok(abs((float) ($li[0]['total_tax'] ?? 0) - 18.36) < 0.001 && (int) ($li[0]['variation_id'] ?? 0) === 77, 'Shop VAT scaled to new quantity, variant kept');
     $page = request($boss, 'admin/order_view.php?id=502');
     ok(str_contains($page['body'], 'faktura i paragon wystawione z CRM') && !str_contains($page['body'], 'ani na fakturę'), 'Note says edits go on invoices and receipts');
-    ok(str_contains($page['body'], '<td>77</td>'), 'Variant id shown in the ID column');
+    ok(str_contains($page['body'], '<td data-col="id">77</td>'), 'Variant id shown in the ID column');
     request($boss, 'admin/order_view.php?id=502', ['csrf' => csrfOf($page['body']), 'action' => 'save_items', 'qty' => ['2'], 'item_name' => ['']]);
     $li = json_decode((string) $pdo->query('SELECT local_items FROM woo_orders WHERE woo_order_id = 502')->fetchColumn(), true);
     ok(($li[0]['name'] ?? '') === 'Grzane wino 1 l', 'Empty name keeps the current name');

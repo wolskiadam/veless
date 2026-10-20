@@ -1695,8 +1695,8 @@ foreach ($absorbedOrders as $ab) {
     <?php endif; ?>
 
     <?php if ($shipments): ?>
-        <table style="margin-top:10px">
-            <tr><th>Nr listu</th><th>Kurier</th><th>Koszt</th><th>Status</th><th>Etykieta</th><th></th></tr>
+        <table class="ship-table" style="margin-top:10px">
+            <tr class="ship-head"><th>Nr listu</th><th>Kurier</th><th>Koszt</th><th>Status</th><th>Etykieta</th><th></th></tr>
             <?php foreach ($shipments as $sh):
                 $cancelled = ($sh['status'] ?? '') === 'cancelled';
                 $shStatus  = (string) ($sh['status'] ?? 'created');
@@ -1704,17 +1704,17 @@ foreach ($absorbedOrders as $ab) {
                 $pending   = $shStatus === 'pending';
             ?>
                 <tr style="<?= $cancelled ? 'opacity:.55' : '' ?>">
-                    <td><?php $trkUrl = \Pase\Services\ShipmentTracking::trackingUrl($sh); ?>
+                    <td data-col="waybill"><?php $trkUrl = \Pase\Services\ShipmentTracking::trackingUrl($sh); ?>
                         <?php if ($trkUrl !== null && !$cancelled): ?>
                             <a class="waybill-link" href="<?= htmlspecialchars($trkUrl) ?>" target="_blank" rel="noopener noreferrer" title="Śledź na stronie przewoźnika"><strong><?= htmlspecialchars((string) $sh['waybill_no']) ?></strong> ↗</a>
                         <?php else: ?><strong><?= htmlspecialchars($sh['waybill_no'] ?? '—') ?></strong><?php endif; ?></td>
-                    <td><?= htmlspecialchars(trim((string) preg_replace('/\s*\(ręcznie\)\s*$/u', '', (string) ($sh['courier_code'] ?? ''))) ?: '—') ?></td>
-                    <td><?php
+                    <td data-col="courier"><?= htmlspecialchars(trim((string) preg_replace('/\s*\(ręcznie\)\s*$/u', '', (string) ($sh['courier_code'] ?? ''))) ?: '—') ?></td>
+                    <td data-col="cost"><?php
                         $shQuoted = (json_decode((string) ($sh['request_payload'] ?? ''), true) ?: [])['quoted_price'] ?? null;
                         if ($sh['price'] !== null): ?><?= htmlspecialchars(number_format((float) $sh['price'], 2, ',', ' ')) ?> zł
                         <?php elseif ($shQuoted !== null && !$cancelled): ?><span title="Szacunek przed nadaniem — faktyczny koszt pojawi się, gdy przewoźnik go rozliczy" style="color:#888">~<?= htmlspecialchars(number_format((float) $shQuoted, 2, ',', ' ')) ?> zł</span>
                         <?php else: ?>—<?php endif; ?></td>
-                    <td>
+                    <td data-col="status">
                         <?php if ($cancelled): ?><span class="pill bad">anulowana</span>
                         <?php elseif ($failed): ?><span class="pill bad" title="Powód w logach">błąd nadania</span>
                         <?php elseif ($pending): ?><span class="pill muted" title="Numer listu pojawi się po odświeżeniu">przewoźnik tworzy…</span>
@@ -1774,7 +1774,7 @@ foreach ($absorbedOrders as $ab) {
                             <?php endif; ?>
                         <?php endif; ?>
                     </td>
-                    <td>
+                    <td data-col="label">
                         <?php if ($cancelled || $failed || $pending): ?>—
                         <?php elseif (!empty($sh['bl_order_id'])): ?>
                             <div class="lbl-menu">
@@ -1796,7 +1796,7 @@ foreach ($absorbedOrders as $ab) {
                             <a href="<?= htmlspecialchars($sh['label_link']) ?>" target="_blank" rel="noopener">⬇ PDF</a>
                         <?php else: ?>—<?php endif; ?>
                     </td>
-                    <td style="text-align:right">
+                    <td data-col="actions" style="text-align:right">
                         <?php $manualShip = empty($sh['integration_id']); ?>
                         <?php if (!$cancelled && !$pending && canEdit() && ($failed || $manualShip || !empty($sh['bl_order_id']))): ?>
                             <button class="btn danger cancel-ship" data-ship="<?= (int)$sh['id'] ?>" data-failed="<?= ($failed || $manualShip) ? '1' : '0' ?>" type="button" style="padding:4px 10px;font-size:12px"><?= ($failed || $manualShip) ? 'Usuń' : 'Anuluj' ?></button>
@@ -2292,6 +2292,19 @@ foreach ($absorbedOrders as $ab) {
         .items-table td[data-col="price"] { grid-column:3; grid-row:3; color:var(--ink-2); white-space:nowrap; }
         .items-table td[data-col="total"] { grid-column:4; grid-row:3; font-weight:700; text-align:right; white-space:nowrap; }
         .items-table tr.merged-head { display:block; }
+        /* Przesyłki jako karty: nr listu i koszt, kurier i status, etykieta i anulowanie. */
+        .ship-table, .ship-table tbody { display:block; }
+        .ship-table tr.ship-head { display:none !important; }
+        .ship-table tr { display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:10px; row-gap:6px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+        .ship-table tr > td { border:0; padding:0; min-width:0; }
+        .ship-table td[data-col="waybill"] { grid-column:1; grid-row:1; overflow-wrap:anywhere; }
+        .ship-table td[data-col="cost"] { grid-column:2; grid-row:1; text-align:right; white-space:nowrap; font-weight:700; }
+        .ship-table td[data-col="courier"] { grid-column:1; grid-row:2; font-size:12.5px; color:var(--ink-2); overflow-wrap:anywhere; }
+        .ship-table td[data-col="status"] { grid-column:2; grid-row:2; display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:4px; }
+        .ship-table td[data-col="label"] { grid-column:1; grid-row:3; }
+        .ship-table td[data-col="actions"] { grid-column:2; grid-row:3; }
+        .ship-table .trk-pop { left:auto; right:0; max-width:calc(100vw - 48px); }
+        .ship-table .lbl-pop { right:auto; left:0; max-width:calc(100vw - 48px); }
         .items-table tr.merged-head > td { display:block; text-align:left !important; }
     }
     tr.merged-head a { color:inherit; text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:3px; }

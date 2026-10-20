@@ -917,7 +917,7 @@ $PAGE_KEY   = 'orders';
 require __DIR__ . '/header.php';
 ?>
 
-<div style="margin:-6px 0 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+<div class="order-actions" style="margin:-6px 0 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <a class="btn secondary" href="index.php">← Powrót do listy</a>
     <?php if (canEdit()): ?><a class="btn secondary" href="order_history.php?id=<?= (int) $wooOrderId ?>">Historia zmian</a><?php endif; ?>
     <?php if (usesPagePermissions() ? canViewPage('email_log') : roleCanEdit()): ?><a class="btn secondary" href="email_log.php?period=365d&amp;order=<?= (int) $wooOrderId ?>">Wysłane e-maile</a><?php endif; ?>
@@ -934,7 +934,7 @@ require __DIR__ . '/header.php';
             } catch (\Throwable) {
             }
         ?>
-        <a class="btn secondary" href="packing.php?ids=<?= (int) $wooOrderId ?>" title="Asystent pakowania">📦 Pakuj</a>
+        <a class="btn secondary order-pack-btn" href="packing.php?ids=<?= (int) $wooOrderId ?>" title="Asystent pakowania" aria-label="Pakuj">📦<span class="btn-lbl"> Pakuj</span></a>
         <?php if ($packInfo !== null && $packInfo['state'] === 'packed'): ?>
             <span class="pill ok" title="<?= htmlspecialchars((string) $packInfo['packed_by']) ?>">✓ Spakowane<?= $packInfo['photos'] ? ' · 📷 ' . count($packInfo['photos']) : '' ?></span>
         <?php elseif ($packInfo !== null && $packInfo['state'] === 'problem'): ?>
@@ -945,8 +945,8 @@ require __DIR__ . '/header.php';
     <?php endif; ?>
 
     <!-- Menu Drukuj/Eksportuj -->
-    <div class="soon-menu" style="margin-left:auto">
-        <button type="button" class="btn" onclick="this.closest('.soon-menu').classList.toggle('open')">🖨 Drukuj / Eksportuj ▾</button>
+    <div class="soon-menu order-print-menu">
+        <button type="button" class="btn" title="Drukuj / Eksportuj" aria-label="Drukuj / Eksportuj" onclick="this.closest('.soon-menu').classList.toggle('open')">🖨<span class="btn-lbl"> Drukuj / Eksportuj ▾</span></button>
         <div class="soon-dropdown">
             <?php foreach ($printTemplates as $pt): $isZpl = $pt['format'] === 'ZPL'; ?>
                 <?php // Nazwa = podgląd w nowej karcie. Dla ZPL dochodzi drugi przycisk:
@@ -1065,7 +1065,7 @@ foreach ($absorbedOrders as $ab) {
 <div class="card sortable-section" data-section="status">
     <div class="drag-handle">⠿</div>
     <strong>Status zamówienia</strong>
-    <div style="display:flex;align-items:center;gap:14px;margin-top:10px">
+    <div class="status-row" style="display:flex;align-items:center;gap:10px 14px;margin-top:10px;flex-wrap:wrap">
         <?php
             $cur = $statusMap[$row['pase_status'] ?? ''] ?? null;
             $curColor = $cur['color'] ?? '#888888';
@@ -1073,7 +1073,7 @@ foreach ($absorbedOrders as $ab) {
         ?>
         <span style="display:inline-block;padding:4px 12px;border-radius:999px;font-size:14px;font-weight:600;color:#fff;background:<?= htmlspecialchars($curColor) ?>"><?= htmlspecialchars($curLabel) ?></span>
         <?php if (canEdit()): ?>
-        <form method="post" style="display:flex;gap:8px;align-items:center;margin:0">
+        <form method="post" class="status-form" style="display:flex;gap:8px;align-items:center;margin:0">
             <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
             <input type="hidden" name="action" value="set_status">
             <select name="pase_status">
@@ -2320,6 +2320,19 @@ foreach ($absorbedOrders as $ab) {
     .sortable-drag { box-shadow:0 12px 32px rgba(0,0,0,.2); }
     @media (max-width:900px) { .layout-cols { grid-template-columns:minmax(0,1fr); } }
     .soon-menu { position:relative; display:inline-block; }
+    .order-print-menu { margin-left:auto; }
+    /* Status: wybór i „Zmień status” zawijają się do nowej linii zamiast wychodzić poza kartę (telefon). */
+    .status-form { flex:0 1 auto; min-width:0; max-width:100%; }
+    .status-form select { flex:0 1 auto; min-width:0; }
+    .status-form .btn { flex:none; white-space:nowrap; }
+    /* Telefon: „Pakuj” i „Drukuj / Eksportuj” jako same ikony, obok siebie po prawej. */
+    @media (max-width:600px) {
+        .order-actions .btn-lbl { display:none; }
+        .order-pack-btn { margin-left:auto; }
+        .order-pack-btn + .order-print-menu, .order-pack-btn ~ .order-print-menu { margin-left:0; }
+        .order-pack-btn, .order-print-menu > .btn { min-width:44px; padding-left:10px; padding-right:10px; font-size:18px; line-height:1; text-align:center; }
+        .soon-dropdown { min-width:0; width:min(330px, calc(100vw - 32px)); }
+    }
     .soon-dropdown { display:none; position:absolute; top:100%; right:0; margin-top:4px; background:#fff; border-radius:8px; box-shadow:0 8px 28px rgba(0,0,0,.16); padding:6px; min-width:330px; z-index:50; }
     .soon-menu.open .soon-dropdown { display:block; }
     .soon-dropdown .soon-item { display:block; width:100%; text-align:left; background:none; border:0; padding:9px 12px; border-radius:6px; cursor:pointer; font-size:14px; color:#2c3e50; }

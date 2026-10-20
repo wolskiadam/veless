@@ -144,7 +144,9 @@ $drawerFiltersOn = $fStatus !== '' || $fSource !== '' || $fDateFrom !== '' || $f
 // (przycisk #ordersDrawerOpen, panel #ordersDrawer niżej) - na górze zostaje wyszukiwarka i lista.
 // Akcje na zaznaczonych wyskakują na dole ekranu dopiero po zaznaczeniu zamówienia.
 $PAGE_TITLE_ACTIONS = (canEdit() && $view === 'active' ? '<a class="btn new-order-btn" href="order_new.php" style="margin-right:8px" aria-label="Nowe zamówienie" title="Nowe zamówienie">'
-        . '<span aria-hidden="true">+</span><span class="new-order-label"> Nowe zamówienie</span></a>' : '')
+        . '<span class="new-order-plus" aria-hidden="true">+</span>'
+        . '<svg class="new-order-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>'
+        . '<span class="new-order-label"> Nowe zamówienie</span></a>' : '')
     . '<button type="button" id="ordersFilterToggle" class="filters-toggle" aria-expanded="'
     . ($hasActiveFilters ? 'true' : 'false') . '" aria-controls="ordersFilterBar">'
     . '<span class="filters-toggle-icon"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7v5l-4 2v-7L4 5z"/></svg></span>'
@@ -376,11 +378,13 @@ $PAGE_HEAD = <<<'CSS'
     @keyframes sync-now-spin { to { transform:rotate(360deg); } }
     /* Panel wysuwany z boku (tylko telefon): filtry, statusy, akcje na zaznaczonych, sortowanie.
        Na komputerze te elementy zostają na swoich miejscach, a przycisk i panel są ukryte. */
-    .orders-drawer-open, .orders-drawer, .orders-drawer-backdrop { display:none; }
+    .orders-drawer-open, .orders-drawer, .orders-drawer-backdrop, .new-order-icon { display:none; }
     @media (max-width:820px) {
         .page-title-row .new-order-btn { display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px;
             padding:0; margin:0 !important; border-radius:50%; font-size:26px; font-weight:500; line-height:1; flex:none; }
-        .new-order-label { display:none; }
+        /* Telefon: „+” jako ikona SVG - znak z czcionki siedział poniżej środka koła. */
+        .new-order-label, .new-order-plus { display:none; }
+        .page-title-row .new-order-btn .new-order-icon { display:block; }
         .orders-drawer-open { display:inline-flex; align-items:center; justify-content:center; position:relative; width:44px; height:44px; flex:none;
             border:1px solid var(--line); border-radius:50%; background:var(--surface); color:var(--ink); cursor:pointer; }
         .orders-drawer-open:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }

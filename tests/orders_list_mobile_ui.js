@@ -111,9 +111,20 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
             return { d, vw: document.documentElement.clientWidth, vh: window.innerHeight, h: [...document.querySelectorAll('#ordersDrawer h3')].map((h) => h.textContent) };
         });
         if (Math.abs(dr.d.right - dr.vw) > 1 || dr.d.left < 0 || dr.d.top !== 0 || Math.abs(dr.d.height - dr.vh) > 1) fail('side panel is not on the right edge: ' + JSON.stringify(dr));
-        if (dr.h.join() !== 'Zaznaczanie,Sortuj,Filtry,Status') fail('panel sections: ' + dr.h.join());
+        if (dr.h.join() !== 'Status') fail('panel sections: ' + dr.h.join());
+        // „☐ Wszystkie”, sortowanie i „Filtry” w jednym rzędzie, mieszczą się w panelu.
+        const tools = await page.evaluate(() => {
+            const box = (sel) => document.querySelector('#ordersDrawer ' + sel).getBoundingClientRect();
+            const p = box('.orders-drawer-row');
+            const items = [box('.orders-mobile-selall'), box('.orders-mobile-sort select'), box('#ordersFilterToggle')];
+            return { p, items, texts: [document.querySelector('#ordersDrawer .orders-mobile-selall').innerText.trim(), document.querySelector('#ordersDrawer #ordersFilterToggle').innerText.trim()] };
+        });
+        const midY = (r) => (r.top + r.bottom) / 2;
+        if (tools.items.some((r) => Math.abs(midY(r) - midY(tools.items[0])) > 2 || r.left < tools.p.left - 0.5 || r.right > tools.p.right + 0.5)) fail('select all, sort and filters are not one row: ' + JSON.stringify(row));
+        if (tools.items[0].right > tools.items[1].left || tools.items[1].right > tools.items[2].left) fail('row items overlap: ' + JSON.stringify(tools.items));
+        if (tools.texts.join('|') !== 'Wszystkie|Filtry') fail('short labels in the row: ' + tools.texts.join('|'));
         if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + '/mobile-drawer.png' });
-        pass('side panel slides in from the right with select all, sort, filters and status');
+        pass('side panel: select all, sort and filters in one row, statuses below');
         await page.click('#ordersDrawerClose');
         await page.waitForTimeout(300);
 

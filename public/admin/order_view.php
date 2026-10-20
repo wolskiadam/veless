@@ -1401,11 +1401,11 @@ foreach ($absorbedOrders as $ab) {
         <p style="color:#888;font-size:12px;margin:6px 0 0">Zmiany zapisane w CRM — faktura i paragon wystawione z CRM (wFirma) oraz wydruki biorą te pozycje. Do sklepu i Allegro nie są wysyłane.</p>
     <?php endif; ?>
 
-    <table style="margin-top:10px">
-        <tr><th></th><th>ID</th><th>Nazwa produktu</th><th>SKU</th><th>Ilość</th><th>Cena</th><th>Suma</th></tr>
+    <table class="items-table" style="margin-top:10px">
+        <tr class="items-head"><th></th><th>ID</th><th>Nazwa produktu</th><th>SKU</th><th>Ilość</th><th>Cena</th><th>Suma</th></tr>
         <?php foreach ($items as $itIdx => $it): $thumb = $itemThumbs[$itIdx] ?? null; $pThumb = $itemParentThumbs[$itIdx] ?? null; ?>
             <tr>
-                <td style="width:56px">
+                <td data-col="thumb" style="width:56px">
                     <?php if ($thumb): ?>
                         <div style="position:relative;width:48px">
                         <a href="<?= htmlspecialchars($thumb) ?>" class="item-thumb" data-caption="<?= htmlspecialchars((string) ($it['name'] ?? '')) ?>" target="_blank" rel="noopener"><img src="<?= htmlspecialchars($thumb) ?>" alt="" loading="lazy" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;display:block"></a>
@@ -1417,16 +1417,16 @@ foreach ($absorbedOrders as $ab) {
                         <span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:6px;background:#f1f3f4;color:#bbb;font-size:16px">—</span>
                     <?php endif; ?>
                 </td>
-                <td><?= (int) ($it['variation_id'] ?? 0) ?: ((int) ($it['product_id'] ?? 0) ?: '—') ?></td>
-                <td><strong><?= $productLink($itemProductIds[$itIdx] ?? null, $g($it, 'name')) ?></strong>
+                <td data-col="id"><?= (int) ($it['variation_id'] ?? 0) ?: ((int) ($it['product_id'] ?? 0) ?: '—') ?></td>
+                <td data-col="name"><strong><?= $productLink($itemProductIds[$itIdx] ?? null, $g($it, 'name')) ?></strong>
                     <?php if (($it['in_warehouse'] ?? true) === false): ?>
                         <br><span style="color:#a3341f;font-size:12px">spoza magazynu CRM<?= !empty($it['allegro_offer_id']) ? ' · oferta Allegro ' . htmlspecialchars((string) $it['allegro_offer_id']) : '' ?></span>
                     <?php endif; ?>
                 </td>
-                <td><?= $productLink($itemProductIds[$itIdx] ?? null, $g($it, 'sku', '—')) ?></td>
-                <td><?= (int)($it['quantity'] ?? 0) ?></td>
-                <td><?= htmlspecialchars(number_format((float)($it['price'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
-                <td><?= htmlspecialchars(number_format((float)($it['total'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
+                <td data-col="sku"><?= $productLink($itemProductIds[$itIdx] ?? null, $g($it, 'sku', '—')) ?></td>
+                <td data-col="qty"><?= (int)($it['quantity'] ?? 0) ?></td>
+                <td data-col="price"><?= htmlspecialchars(number_format((float)($it['price'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
+                <td data-col="total"><?= htmlspecialchars(number_format((float)($it['total'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
             </tr>
         <?php endforeach; ?>
         <?php if ($items === []): ?><tr><td colspan="7" style="color:#888">Brak pozycji.</td></tr><?php endif; ?>
@@ -1447,7 +1447,7 @@ foreach ($absorbedOrders as $ab) {
             </td></tr>
             <?php foreach ($mergedExtraItems as $mIdx => $it): if ((int) $it['merged_from'] !== $abId) { continue; } $thumb = $mergedThumbs[$mIdx] ?? null; $pThumb = $mergedParentThumbs[$mIdx] ?? null; ?>
             <tr class="merged-item">
-                <td style="width:56px">
+                <td data-col="thumb" style="width:56px">
                     <?php if ($thumb): ?>
                         <div style="position:relative;width:48px">
                         <a href="<?= htmlspecialchars($thumb) ?>" class="item-thumb" data-caption="<?= htmlspecialchars((string) ($it['name'] ?? '')) ?>" target="_blank" rel="noopener"><img src="<?= htmlspecialchars($thumb) ?>" alt="" loading="lazy" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;display:block"></a>
@@ -1459,12 +1459,12 @@ foreach ($absorbedOrders as $ab) {
                         <span style="display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:6px;background:#f1f3f4;color:#bbb;font-size:16px">—</span>
                     <?php endif; ?>
                 </td>
-                <td><?= (int) ($it['variation_id'] ?? 0) ?: ((int) ($it['product_id'] ?? 0) ?: '—') ?></td>
-                <td><strong><?= $productLink($mergedProductIds[$mIdx] ?? null, $g($it, 'name')) ?></strong></td>
-                <td><?= $productLink($mergedProductIds[$mIdx] ?? null, $g($it, 'sku', '—')) ?></td>
-                <td><?= (int)($it['quantity'] ?? 0) ?></td>
-                <td><?= htmlspecialchars(number_format((float)($it['price'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
-                <td><?= htmlspecialchars(number_format((float)($it['total'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
+                <td data-col="id"><?= (int) ($it['variation_id'] ?? 0) ?: ((int) ($it['product_id'] ?? 0) ?: '—') ?></td>
+                <td data-col="name"><strong><?= $productLink($mergedProductIds[$mIdx] ?? null, $g($it, 'name')) ?></strong></td>
+                <td data-col="sku"><?= $productLink($mergedProductIds[$mIdx] ?? null, $g($it, 'sku', '—')) ?></td>
+                <td data-col="qty"><?= (int)($it['quantity'] ?? 0) ?></td>
+                <td data-col="price"><?= htmlspecialchars(number_format((float)($it['price'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
+                <td data-col="total"><?= htmlspecialchars(number_format((float)($it['total'] ?? 0), 2)) ?> <?= htmlspecialchars($currency) ?></td>
             </tr>
             <?php endforeach; ?>
         <?php endforeach; ?>
@@ -2274,6 +2274,26 @@ foreach ($absorbedOrders as $ab) {
     .merge-alert a { color:inherit; text-decoration:underline; text-underline-offset:3px; }
     .merge-alert a:hover { color:var(--accent); }
     tr.merged-head td { background:var(--surface-2); font-size:13px; }
+    /* Telefon: każdy produkt jako karta (zdjęcie po lewej, nazwa, SKU i ID, ilość × cena = suma), bez przewijania w bok. */
+    @media (max-width:600px) {
+        .items-table, .items-table tbody { display:block; }
+        .items-table tr.items-head { display:none !important; }
+        .items-table tr:not(.merged-head) { display:grid; grid-template-columns:60px auto 1fr auto; column-gap:8px; row-gap:3px; align-items:baseline; padding:12px 0; border-bottom:1px solid var(--line); }
+        .items-table tr:not(.merged-head) > td { border:0; padding:0; min-width:0; }
+        .items-table tr:not(.merged-head) > td[colspan] { grid-column:1 / -1; }
+        .items-table td[data-col="thumb"] { grid-column:1; grid-row:1 / span 3; width:auto !important; align-self:start; }
+        .items-table td[data-col="name"] { grid-column:2 / -1; grid-row:1; overflow-wrap:anywhere; }
+        .items-table td[data-col="sku"] { grid-column:2 / 4; grid-row:2; font-size:12.5px; color:var(--ink-2); overflow-wrap:anywhere; }
+        .items-table td[data-col="sku"]::before { content:"SKU "; font-weight:700; }
+        .items-table td[data-col="id"] { grid-column:4; grid-row:2; font-size:12.5px; color:var(--ink-2); text-align:right; white-space:nowrap; }
+        .items-table td[data-col="id"]::before { content:"ID "; font-weight:700; }
+        .items-table td[data-col="qty"] { grid-column:2; grid-row:3; white-space:nowrap; }
+        .items-table td[data-col="qty"]::after { content:" ×"; color:var(--ink-2); }
+        .items-table td[data-col="price"] { grid-column:3; grid-row:3; color:var(--ink-2); white-space:nowrap; }
+        .items-table td[data-col="total"] { grid-column:4; grid-row:3; font-weight:700; text-align:right; white-space:nowrap; }
+        .items-table tr.merged-head { display:block; }
+        .items-table tr.merged-head > td { display:block; text-align:left !important; }
+    }
     tr.merged-head a { color:inherit; text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:3px; }
     tr.merged-head a:hover { color:var(--accent); }
     .receipt-state { display:inline-flex; align-items:center; gap:6px; margin-left:10px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; vertical-align:middle; }

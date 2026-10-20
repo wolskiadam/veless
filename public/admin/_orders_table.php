@@ -65,7 +65,7 @@ if (!function_exists('sourceBadge')) {
 
     <?php if (canEdit()): ?>
     <!-- Pasek akcji: zmiana statusu + akcje cyklu życia (zależne od widoku) -->
-    <div class="actionbar">
+    <div class="actionbar" data-no-pull-refresh>
         <?php if ($view === 'active'): ?>
         <div class="flag-menu">
             <button type="button" class="flag-btn" onclick="this.closest('.flag-menu').classList.toggle('open')" title="<?= htmlspecialchars(t('orders.bulk.status')) ?>">
@@ -112,6 +112,11 @@ if (!function_exists('sourceBadge')) {
         <?= \Pase\Plugin\Hooks::render('orders.actionbar', $view) ?>
 
         <span class="actionbar-count"><?= str_replace('{n}', '<span id="selCount">0</span>', htmlspecialchars(t('orders.selected'), ENT_QUOTES)) ?></span>
+        <?php // Telefon: pasek wyskakuje na dole ekranu po zaznaczeniu - stąd można zaznaczyć resztę albo odznaczyć wszystko. ?>
+        <button type="button" class="actionbar-mobile actionbar-all"
+            onclick="document.querySelectorAll('.rowcheck').forEach(function(c){c.checked=true;c.dispatchEvent(new Event('change',{bubbles:true}));})"><?= htmlspecialchars(t('orders.select_all')) ?></button>
+        <button type="button" class="actionbar-mobile actionbar-clear" title="Odznacz wszystkie" aria-label="Odznacz wszystkie"
+            onclick="document.querySelectorAll('.rowcheck:checked, .orders-mobile-selall input:checked').forEach(function(c){c.checked=false;c.dispatchEvent(new Event('change',{bubbles:true}));})">×</button>
     </div>
     <?php endif; ?>
 

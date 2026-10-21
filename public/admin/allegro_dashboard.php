@@ -194,7 +194,7 @@ require __DIR__ . '/header.php';
                 <small class="<?= $s['met'] ? 'ad-ok' : 'ad-muted' ?>"><?= $s['met'] ? '✓ Spełniasz ten warunek.' : 'Nie spełniasz tego warunku.' ?></small>
             </div>
         <?php endforeach; ?>
-        <p class="ad-muted" style="font-size:12px">Liczone w CRM z historii poziomów (dni z rzędu). Allegro nie udostępnia statusu programu przez API, więc sam tytuł sprawdzisz na <a href="<?= $e(AllegroDashboard::QUALITY_URL) ?>" target="_blank" rel="noopener">stronie jakości sprzedaży ↗</a>.</p>
+        <p class="ad-muted" style="font-size:12px">Liczone w CRM jak w Allegro: dni na wymaganym poziomie z ostatnich 14 lub 30 dni. Allegro nie udostępnia statusu programu przez API, więc sam tytuł sprawdzisz na <a href="<?= $e(AllegroDashboard::QUALITY_URL) ?>" target="_blank" rel="noopener">stronie jakości sprzedaży ↗</a>.</p>
     </div>
 </div>
 

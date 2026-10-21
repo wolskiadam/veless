@@ -47,9 +47,20 @@ check($q['metrics'][2]['value'] === '100%' && $q['metrics'][1]['value'] === '', 
 check(D::currentQuality([])['day'] === null, 'empty history');
 
 $ss = D::superSellerProgress($h);
-check($ss['good']['days'] === 2 && !$ss['good']['met'] && $ss['super']['days'] === 0, 'Super Seller streaks like the Allegro panel (2 days Good)');
+check($ss['good']['days'] === 2 && !$ss['good']['met'] && $ss['super']['days'] === 0, 'Super Seller progress (2 days Good)');
 $gap = [['day' => '2026-09-20', 'level' => 'SUPER'], ['day' => '2026-09-22', 'level' => 'SUPER'], ['day' => '2026-09-23', 'level' => 'SUPER']];
-check(D::superSellerProgress($gap)['super']['days'] === 2, 'missing day breaks the streak');
+check(D::superSellerProgress($gap)['super']['days'] === 3, 'missing day does not count, but days before it do');
+// Panel Allegro 21.10.2026: Neutralny 22–24.09, Dobry 25.09–06.10, Neutralny 07–16.10, Dobry 17–21.10 → 17 dni z 30.
+$al = [];
+for ($t = strtotime('2026-09-22'); $t <= strtotime('2026-10-21'); $t += 86400) {
+    $day = date('Y-m-d', $t);
+    $al[] = ['day' => $day, 'level' => ($day >= '2026-09-25' && $day <= '2026-10-06') || $day >= '2026-10-17' ? 'GOOD' : 'NEUTRAL'];
+}
+$ss = D::superSellerProgress($al);
+check($ss['good']['days'] === 17 && !$ss['good']['met'] && $ss['super']['days'] === 0, 'days at level in the last 30, not in a row (Allegro shows 17)');
+$all = array_map(static fn($h) => ['day' => $h['day'], 'level' => 'SUPER'], $al);
+$ss = D::superSellerProgress($all);
+check($ss['good']['met'] && $ss['good']['days'] === 30 && $ss['super']['met'] && $ss['super']['days'] === 14, 'whole window at level meets the goal');
 
 // Opłaty: screenshot Centrum Finansów (obowiązkowe −30,45, dostawa −6,38, reklama 0, saldo −3,19).
 check(D::feeGroup('SUC', 'Prowizja od sprzedaży') === 'mandatory', 'commission is mandatory');

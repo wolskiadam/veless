@@ -36,7 +36,7 @@ final class AllegroDashboard
 
     public const LEVEL_LABELS = ['SUPER' => 'Super', 'GOOD' => 'Dobry', 'NEUTRAL' => 'Neutralny', 'NEEDS_IMPROVEMENT' => 'Wymaga poprawy'];
 
-    /** Warunki programu Super Sprzedawca widoczne w panelu Allegro: dni z rzędu na danym poziomie. */
+    /** Warunki programu Super Sprzedawca widoczne w panelu Allegro: dni na danym poziomie w oknie ostatnich N dni. */
     public const SUPER_SELLER_GOALS = [
         'super' => ['label' => 'Poziom Super przez 14 dni', 'days' => 14, 'levels' => ['SUPER']],
         'good'  => ['label' => 'Poziom Dobry lub wyższy przez 30 dni', 'days' => 30, 'levels' => ['SUPER', 'GOOD']],
@@ -193,24 +193,28 @@ final class AllegroDashboard
     }
 
     /**
-     * Postęp warunków Super Sprzedawcy: ile kolejnych dni (licząc wstecz od ostatniego wyniku) konto
-     * ma wymagany poziom. Przerwa w historii przerywa serię.
+     * Postęp warunków Super Sprzedawcy tak jak w panelu Allegro: ile dni z ostatnich N (14 dla Super,
+     * 30 dla Dobry lub wyższy, licząc do ostatniego wyniku) konto miało wymagany poziom. Dni nie muszą
+     * być kolejne — warunek jest spełniony, gdy wszystkie N dni mają ten poziom. Brak dnia w historii
+     * liczymy jak dzień bez poziomu.
      * @param array<int,array<string,mixed>> $history
      * @return array<string,array{label:string,days:int,goal:int,met:bool}>
      */
     public static function superSellerProgress(array $history): array
     {
+        $levels = [];
+        foreach ($history as $h) {
+            $levels[(string) $h['day']] = (string) $h['level'];
+        }
+        $last = $history[count($history) - 1]['day'] ?? null;
         $out = [];
         foreach (self::SUPER_SELLER_GOALS as $key => $goal) {
             $streak = 0;
-            $expected = null;
-            for ($i = count($history) - 1; $i >= 0; $i--) {
-                $h = $history[$i];
-                if (($expected !== null && $h['day'] !== $expected) || !in_array($h['level'], $goal['levels'], true)) {
-                    break;
+            for ($i = 0; $last !== null && $i < $goal['days']; $i++) {
+                $day = date('Y-m-d', strtotime($last . ' -' . $i . ' day'));
+                if (in_array($levels[$day] ?? '', $goal['levels'], true)) {
+                    $streak++;
                 }
-                $streak++;
-                $expected = date('Y-m-d', strtotime($h['day'] . ' -1 day'));
             }
             $out[$key] = ['label' => $goal['label'], 'days' => $streak, 'goal' => $goal['days'], 'met' => $streak >= $goal['days']];
         }

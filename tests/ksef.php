@@ -580,6 +580,36 @@ try {
         && str_starts_with($salePdf, '%PDF-1.4'), 'Sales list, invoice preview with our NIP in the KSeF link, and PDF');
     $_GET = [];
 
+    // Automatyczne pobieranie z crona (hak cron.tick): interwał z ustawień, oba rodzaje list, błąd zapisany i bez pętli co minutę
+    $store = new SettingsRepository($pdo);
+    $autoSettings = $buyerSettings + ['do_sales_list' => '1', 'auto_every' => '60'];
+    $auto = new KsefService($pdo, $autoSettings, 'token-testowy', $factory, $noSleep);
+    $receive('7740001454-20261014-AAAAAAAAAAAA-08', '2026-10-14T12:10:00.000+00:00', 'FV 9/10/2026');
+    $ksef->hwm = '2026-10-14T13:00:00.000+00:00';
+    $t0 = $clock->modify('+2 hours');
+    $a = $auto->autoSync($store, $t0);
+    check($a !== null && $a['new'][Purchases::PURCHASE] === 1 && array_key_exists(Purchases::SALE, $a['new']) && $a['errors'] === []
+        && (int) $store->get(KsefService::AUTO_AT_KEY) === $t0->getTimestamp() && json_decode((string) $store->get(KsefService::AUTO_LAST_KEY), true)['new'][Purchases::PURCHASE] === 1,
+        'Auto fetch pulls new sales and purchase invoices and remembers when it ran');
+    check($auto->autoSync($store, $t0->modify('+30 minutes')) === null && $auto->autoSync($store, $t0->modify('+60 minutes')) !== null, 'Auto fetch waits for the interval from the settings');
+    check((new KsefService($pdo, ['auto_every' => '0'] + $autoSettings, 'token-testowy', $factory, $noSleep))->autoSync($store, $t0->modify('+1 day')) === null
+        && (new KsefService($pdo, $autoSettings, '', $factory, $noSleep))->autoSync($store, $t0->modify('+1 day')) === null
+        && (new KsefService($pdo, ['do_sales_list' => '0', 'do_purchases' => '0'] + $autoSettings, 'token-testowy', $factory, $noSleep))->autoSync($store, $t0->modify('+1 day')) === null
+        && (new KsefService($pdo, $buyerSettings, 'token-testowy', $factory))->autoEvery() === 1440, 'Auto fetch is off when disabled, without a token or lists; once a day by default');
+    $t1 = $t0->modify('+1 day');
+    $bad = (new KsefService($pdo, $autoSettings, 'token-testowy', $down, $noSleep))->autoSync($store, $t1);
+    check($bad !== null && count($bad['errors']) === 2 && str_contains($bad['errors'][0], 'brak połączenia z KSeF') && (int) $store->get(KsefService::AUTO_AT_KEY) === $t1->getTimestamp()
+        && (new KsefService($pdo, $autoSettings, 'token-testowy', $down, $noSleep))->autoSync($store, $t1->modify('+1 minute')) === null, 'KSeF error is saved and not retried every minute');
+    ExtensionSettings::save($pdo, $ext->manifest(), $autoSettings);
+    ExtensionRegistry::reset();
+    $_GET = [];
+    $sp = (Hooks::page('ksef.sprzedaz')['render'])($pdo, ['canEdit' => true, 'isAdmin' => true, 'csrf' => 'csrf-test', 'url' => '', 'post' => false]);
+    check(Hooks::hasAction('cron.tick') && str_contains($sp, 'Automatyczne pobieranie: co godzinę.') && str_contains($sp, 'brak połączenia z KSeF'),
+        'Extension hooks into the cron and the list shows the last auto fetch with its error');
+    ExtensionSettings::save($pdo, $ext->manifest(), ['auto_every' => '0'] + $autoSettings);
+    ExtensionRegistry::reset();
+    check(!Hooks::hasAction('cron.tick'), 'No cron hook when auto fetch is off');
+
     echo "\n{$checks} checks passed\n";
 } finally {
     exec('rm -rf ' . escapeshellarg($temp));

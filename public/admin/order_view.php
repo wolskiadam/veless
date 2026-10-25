@@ -2083,10 +2083,10 @@ foreach ($absorbedOrders as $ab) {
             <?php endif; ?>
             <?php $offerHandling = $sourceType === 'allegro' ? \Pase\Services\AllegroOrderHandling::forOrder($pdo, $wooOrderId, $o) : []; ?>
             <?php if ($offerHandling !== []):
-                $handlingSame = count(array_unique(array_map(static fn(array $h): string => $h['handling'] . ($h['current'] ? '*' : ''), $offerHandling))) === 1; ?>
+                $handlingSame = count(array_unique(array_column($offerHandling, 'handling'))) === 1; ?>
             <tr><th title="Czas wysyłki zadeklarowany w ofercie Allegro, który widział kupujący">Czas wysyłki w ofercie</th><td>
                 <?php foreach ($handlingSame ? [$offerHandling[0]] : $offerHandling as $h): ?>
-                <div><?php if (!$handlingSame): ?><span style="color:var(--ink-2)"><?= htmlspecialchars($h['name']) ?>:</span> <?php endif; ?><?= htmlspecialchars($h['handling']) ?><?php if ($h['current']): ?> <span class="pill muted" style="font-size:11px" title="Zamówienie pobrane przed zapisywaniem czasu wysyłki — to obecne ustawienie oferty, mogło się zmienić od zakupu">obecnie w ofercie</span><?php endif; ?></div>
+                <div><?php if (!$handlingSame): ?><span style="color:var(--ink-2)"><?= htmlspecialchars($h['name']) ?>:</span> <?php endif; ?><?= htmlspecialchars($h['handling']) ?></div>
                 <?php endforeach; ?>
             </td></tr>
             <?php endif; ?>

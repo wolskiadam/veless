@@ -12,7 +12,8 @@ use PDO;
  * wysyłki w ofercie się zmienia (np. harmonogram AllegroHandlingSchedule).
  *
  * Zapisujemy tylko dla świeżych zamówień - przy imporcie historycznym oferta ma już dzisiejszy czas wysyłki,
- * nie ten z dnia zakupu. Takie zamówienia pokazują wtedy obecny czas z oferty (allegro_offer_details) z dopiskiem.
+ * nie ten z dnia zakupu, a Allegro nie udostępnia czasu z dnia zakupu w API. Takie zamówienia nie pokazują
+ * czasu wysyłki wcale - obecny czas z oferty wprowadzał w błąd.
  */
 final class AllegroOrderHandling
 {
@@ -59,8 +60,8 @@ final class AllegroOrderHandling
     }
 
     /**
-     * Czas wysyłki dla pozycji zamówienia: zapisany przy pobraniu, a bez zapisu obecny z oferty.
-     * @return array<int,array{name:string,handling:string,current:bool}> current = obecny czas z oferty, nie z dnia zakupu
+     * Czas wysyłki dla pozycji zamówienia zapisany przy pobraniu (bez zapisu - pusto).
+     * @return array<int,array{name:string,handling:string}>
      */
     public static function forOrder(PDO $pdo, int $wooOrderId, array $payload): array
     {
@@ -68,20 +69,12 @@ final class AllegroOrderHandling
         if ($ids === []) {
             return [];
         }
-        $saved = $current = [];
+        $saved = [];
         try {
             $st = $pdo->prepare('SELECT offer_id, handling_time FROM allegro_order_handling WHERE woo_order_id = ?');
             $st->execute([$wooOrderId]);
             foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
                 $saved[(string) $r['offer_id']] = $r['handling_time'];
-            }
-            $missing = array_values(array_diff($ids, array_keys($saved)));
-            if ($missing !== []) {
-                $st = $pdo->prepare('SELECT offer_id, handling_time FROM allegro_offer_details WHERE offer_id IN (' . implode(',', array_fill(0, count($missing), '?')) . ')');
-                $st->execute($missing);
-                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
-                    $current[(string) $r['offer_id']] = $r['handling_time'];
-                }
             }
         } catch (\Throwable $e) {
             return [];   // brak tabel (przed migracją)
@@ -95,10 +88,9 @@ final class AllegroOrderHandling
         }
         $out = [];
         foreach ($ids as $id) {
-            $h = $saved[$id] ?? $current[$id] ?? null;
-            $label = AllegroOfferOperations::handlingLabel($h);
+            $label = AllegroOfferOperations::handlingLabel($saved[$id] ?? null);
             if ($label !== '') {
-                $out[] = ['name' => $names[$id] ?? $id, 'handling' => $label, 'current' => !array_key_exists($id, $saved)];
+                $out[] = ['name' => $names[$id] ?? $id, 'handling' => $label];
             }
         }
         return $out;

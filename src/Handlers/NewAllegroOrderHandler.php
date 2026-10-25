@@ -46,7 +46,9 @@ final class NewAllegroOrderHandler
         private readonly WooOrderRepository $wooOrders,
         private readonly IntegrationAccountRepository $integrations,
         private readonly Queue $queue,
-        private readonly ?RuleEngine $ruleEngine = null
+        private readonly ?RuleEngine $ruleEngine = null,
+        /** @var (\Closure(string):?array)|null id oferty => GET /sale/product-offers/{id} (czas wysyłki z oferty) */
+        private readonly ?\Closure $fetchOffer = null
     ) {}
 
     public function handle(array $payload): void
@@ -149,6 +151,14 @@ final class NewAllegroOrderHandler
                 'date_created'   => $dateCreated,
             ], $payload);
             $this->wooOrders->assignNumberIfMissing($syntheticOrderId);
+            // Czas wysyłki z oferty w chwili zakupu (Services\AllegroOrderHandling). Błąd nie wstrzymuje importu.
+            if ($this->fetchOffer !== null) {
+                try {
+                    \Pase\Services\AllegroOrderHandling::record($this->wooOrders->pdo(), $syntheticOrderId, $payload, $this->fetchOffer);
+                } catch (\Throwable $e) {
+                    Logger::warn("Order {$sourceOrderId}: nie udało się zapisać czasu wysyłki z oferty - " . $e->getMessage());
+                }
+            }
             // Same produkty wirtualne -> „Zamówienie wirtualne — bez wysyłki”.
             (new \Pase\Services\VirtualProducts($this->wooOrders->pdo()))->applyToOrder($syntheticOrderId, (array) ($payload['line_items'] ?? []));
             // Zapamiętaj, pod jakim ID zamówienie siedzi w CRM - bez tego podgląd

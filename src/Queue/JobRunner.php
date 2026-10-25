@@ -54,7 +54,11 @@ final class JobRunner
         return $this->handlers[$jobType] ??= match ($jobType) {
             // Allegro zapisuje wprost do woo_orders (wspólna lista „Zamówienia”, źródło = Allegro). Patrz NewAllegroOrderHandler.
             'allegro.order.new' => new NewAllegroOrderHandler(new ProductRepository($this->pdo), new OrderLogRepository($this->pdo),
-                new WooOrderRepository($this->pdo), new IntegrationAccountRepository($this->pdo), new Queue($this->pdo), $this->ruleEngine()),
+                new WooOrderRepository($this->pdo), new IntegrationAccountRepository($this->pdo), new Queue($this->pdo), $this->ruleEngine(),
+                function (string $offerId): ?array {
+                    static $client = null;
+                    return ($client ??= AllegroPlugin::makeClient($this->pdo, $this->allegroConfig()))->productOffer($offerId);
+                }),
             'woo.stock.sync' => new StockSyncHandler(new ProductMappingRepository($this->pdo),
                 AllegroPlugin::makeClient($this->pdo, $this->allegroConfig())),
             'woo.order.import' => new WooOrderImportHandler(new WooOrderRepository($this->pdo), $this->ruleEngine(),

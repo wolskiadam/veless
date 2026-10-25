@@ -76,7 +76,7 @@ final class DemoData
         $ship = [['InPost Paczkomat 24/7', 13.99], ['Kurier DPD', 16.99], ['Kurier InPost', 15.99], ['Odbiór osobisty', 0.0]];
         $statusPool = ['new','new','processing','processing','processing','shipped','shipped','shipped','shipped','cancelled'];
 
-        $pdo->exec('DELETE FROM woo_orders'); $pdo->exec('DELETE FROM shipments');
+        $pdo->exec('DELETE FROM woo_orders'); $pdo->exec('DELETE FROM shipments'); $pdo->exec('DELETE FROM allegro_order_handling');
         $repo = new \Pase\Repository\WooOrderRepository($pdo);
         for ($n = 0; $n < 140; $n++) {
             $isAllegro = $n % 3 === 1;
@@ -116,6 +116,11 @@ final class DemoData
                     'fulfillment' => ['status' => 'NEW'], 'boughtAt' => str_replace(' ', 'T', $date) . 'Z', 'messageToSeller' => $n % 7 === 1 ? 'Proszę o staranne zapakowanie, to prezent :)' : null];
                 $payload = \Pase\Support\AllegroOrderMapper::withWooFields($payload, array_map(static fn($l) => ['sku' => $l['sku'], 'product_id' => $l['product_id']], $lines));
                 $id = 9_000_000_000 + crc32($cf);
+                // Czas wysyłki z oferty w chwili zakupu (AllegroOrderHandling) - jak przy pobraniu z Allegro.
+                $hIns = $pdo->prepare('INSERT INTO allegro_order_handling (woo_order_id, offer_id, handling_time, recorded_at) VALUES (?, ?, ?, ?)');
+                foreach ($payload['lineItems'] as $li) {
+                    $hIns->execute([$id, $li['offer']['id'], 'PT24H', $date]);
+                }
                 $repo->upsert($id, ['integration_id' => 2, 'order_number' => $cf, 'status' => 'NEW', 'pase_status' => $status, 'currency' => 'PLN', 'total' => $total,
                     'customer_name' => "$fn $ln", 'customer_email' => $payload['buyer']['email'], 'date_created' => $date], $payload);
             } else {

@@ -2081,6 +2081,15 @@ foreach ($absorbedOrders as $ab) {
                 <?php elseif ($dispatchUrg === 'soon'): ?> <span class="pill muted" style="font-size:11px">jutro</span><?php endif; ?>
             </td></tr>
             <?php endif; ?>
+            <?php $offerHandling = $sourceType === 'allegro' ? \Pase\Services\AllegroOrderHandling::forOrder($pdo, $wooOrderId, $o) : []; ?>
+            <?php if ($offerHandling !== []):
+                $handlingSame = count(array_unique(array_map(static fn(array $h): string => $h['handling'] . ($h['current'] ? '*' : ''), $offerHandling))) === 1; ?>
+            <tr><th title="Czas wysyłki zadeklarowany w ofercie Allegro, który widział kupujący">Czas wysyłki w ofercie</th><td>
+                <?php foreach ($handlingSame ? [$offerHandling[0]] : $offerHandling as $h): ?>
+                <div><?php if (!$handlingSame): ?><span style="color:var(--ink-2)"><?= htmlspecialchars($h['name']) ?>:</span> <?php endif; ?><?= htmlspecialchars($h['handling']) ?><?php if ($h['current']): ?> <span class="pill muted" style="font-size:11px" title="Zamówienie pobrane przed zapisywaniem czasu wysyłki — to obecne ustawienie oferty, mogło się zmienić od zakupu">obecnie w ofercie</span><?php endif; ?></div>
+                <?php endforeach; ?>
+            </td></tr>
+            <?php endif; ?>
             <?php if ($allegroTimes !== null && \Pase\Support\AllegroDeliveryTime::formatDelivery($allegroTimes) !== ''): ?>
             <tr><th title="Czas dostawy, który kupujący widział w ofercie Allegro">Przewidywana dostawa</th><td>
                 <?= htmlspecialchars(\Pase\Support\AllegroDeliveryTime::formatDelivery($allegroTimes)) ?><?php if ($allegroTimes['guaranteed']): ?> <span class="pill muted" style="font-size:11px" title="Allegro gwarantuje kupującemu ten termin dostawy">gwarantowana</span><?php endif; ?>

@@ -14,6 +14,7 @@ use PDO;
  *            -> sesja -> wysyłka -> zamknięcie sesji -> krótkie czekanie na wynik weryfikacji.
  * refresh(): dopytuje KSeF o fakturę w toku (numer KSeF albo powód odrzucenia) i pobiera UPO.
  * syncPurchases(): pobiera z KSeF listę faktur, w których firma jest nabywcą (faktury zakupowe), od ostatniego pobrania.
+ * autoSync(): to samo co „Pobierz nowe z KSeF”, samo z crona co tyle, ile ustawiono (ustawienie auto_every).
  */
 final class KsefService
 {
@@ -23,6 +24,13 @@ final class KsefService
     private const WINDOW_DAYS = 90;
     /** Ile zapytań o listę faktur w jednym pobieraniu (KSeF ogranicza liczbę zapytań na minutę). */
     private const MAX_REQUESTS = 12;
+
+    /** Automatyczne pobieranie (tabela settings): znacznik ostatniego uruchomienia (unix) i wynik (JSON). */
+    public const AUTO_AT_KEY = 'EXT_KSEF_AUTO_AT';
+    public const AUTO_LAST_KEY = 'EXT_KSEF_AUTO_LAST';
+    /** Co ile minut pobierać automatycznie (ustawienie auto_every); 0 = tylko ręcznie. */
+    public const AUTO_EVERY = ['0' => 'Wyłączone (tylko ręcznie)', '60' => 'Co godzinę', '180' => 'Co 3 godziny', '360' => 'Co 6 godzin',
+        '720' => 'Co 12 godzin', '1440' => 'Raz dziennie'];
 
     private ?string $accessToken = null;
     private ?KsefApi $api = null;
@@ -315,6 +323,53 @@ final class KsefService
             $from = $next;
         }
         return ['new' => $new, 'seen' => $seen, 'more' => false];
+    }
+
+    /** Co ile minut wtyczka sama pobiera nowe faktury (0 = wyłączone). */
+    public function autoEvery(): int
+    {
+        $every = (string) ($this->settings['auto_every'] ?? '1440');
+        return isset(self::AUTO_EVERY[$every]) ? (int) $every : 1440;
+    }
+
+    /**
+     * Automatyczne „Pobierz nowe z KSeF” dla włączonych list (sprzedażowe, zakupowe), wołane z crona co minutę.
+     * Działa, gdy minął interwał z ustawień; bez tokenu albo NIP-u nic nie robi. Gdy limit zapytań KSeF przerwał
+     * pobieranie, dokańcza je za 2 minuty, nie po całym interwale. Błąd jednej listy nie zatrzymuje drugiej.
+     * @return array{new:array<string,int>,errors:list<string>,more:bool}|null null = nie było czego robić
+     */
+    public function autoSync(\Pase\Repository\SettingsRepository $store, ?\DateTimeImmutable $now = null): ?array
+    {
+        $every = $this->autoEvery();
+        $kinds = array_values(array_filter([$this->salesListEnabled() ? Purchases::SALE : null, $this->purchasesEnabled() ? Purchases::PURCHASE : null]));
+        if ($every <= 0 || $kinds === [] || $this->missingConnection() !== []) {
+            return null;
+        }
+        $now ??= new \DateTimeImmutable('now');
+        $ts = $now->getTimestamp();
+        if ($ts - (int) ($store->get(self::AUTO_AT_KEY, '0') ?? '0') < $every * 60) {
+            return null;
+        }
+        // Znacznik przed pobieraniem: błąd KSeF nie może sprawić, że cron będzie pytał co minutę.
+        $store->setMany([self::AUTO_AT_KEY => (string) $ts]);
+        $out = ['new' => [], 'errors' => [], 'more' => false];
+        foreach ($kinds as $kind) {
+            try {
+                $r = $this->syncInvoices($kind, $now);
+                $out['new'][$kind] = $r['new'];
+                $out['more'] = $out['more'] || $r['more'];
+            } catch (\Throwable $e) {
+                $out['errors'][] = ($kind === Purchases::SALE ? 'sprzedażowe' : 'zakupowe') . ': ' . $e->getMessage();
+            }
+        }
+        if ($out['more']) {
+            $store->setMany([self::AUTO_AT_KEY => (string) ($ts - $every * 60 + 120)]);
+        }
+        $store->setMany([self::AUTO_LAST_KEY => (string) json_encode(['at' => $ts] + $out, JSON_UNESCAPED_UNICODE)]);
+        if ($out['errors'] !== []) {
+            Logger::warn('KSeF: automatyczne pobieranie faktur - ' . implode(' | ', $out['errors']));
+        }
+        return $out;
     }
 
     /**

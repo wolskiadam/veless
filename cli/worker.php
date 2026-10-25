@@ -224,6 +224,15 @@ try {
     Logger::warn('ERLI: synchronizacja nie powiodła się: ' . $e->getMessage());
 }
 
+// --- Wtyczki rozszerzające: hak cron.tick co minutę (np. KSeF sam pobiera nowe faktury); każda pilnuje swojego interwału ---
+if (!$control->isPaused('extensions')) {
+    try {
+        \Pase\Plugin\Hooks::doAction('cron.tick', time());
+    } catch (\Throwable $e) {
+        Logger::warn('Rozszerzenia: praca w tle nie powiodła się: ' . $e->getMessage());
+    }
+}
+
 // Limit zadań na przebieg: z panelu (ograniczenie obciążenia) albo z konfiguracji.
 $batchSize          = $control->batchSize((int) $config['worker']['batch_size']);
 if ($control->isPaused('queue')) {

@@ -45,6 +45,7 @@ final class PluginPermissions
             'automation.'     => ['Automatyzacje', 'Dodaje akcje lub zdarzenia do automatyzacji i dostaje każde zdarzenie zamówienia.'],
             'statistics.'     => ['Statystyki', 'Dodaje kafelki do statystyk.'],
             'allegro_offer'   => ['Oferty Allegro', 'Dodaje narzędzia do formularza i listy ofert Allegro.'],
+            'cron.'           => ['Praca w tle', 'Uruchamia własne zadania w tle (cron co minutę), np. pobieranie danych z zewnętrznej usługi.'],
             'page'            => ['Własne strony', 'Dodaje własne strony do panelu (także pozycje w menu).'],
             'admin.menu'      => ['Menu panelu', 'Może dodawać, usuwać i przestawiać pozycje menu.'],
             'admin.'          => ['Kod na każdej stronie panelu', 'Wstawia własne style lub skrypty na wszystkie strony panelu.'],

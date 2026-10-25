@@ -38,6 +38,7 @@ final class ProcessControl
         'allegro_feedback' => ['Dyskusje i oceny Allegro', 'Pobieranie dyskusji, reklamacji i ocen sprzedaży (co 30 minut). Nic nie wysyła do kupujących.'],
         'tiktokshop' => ['TikTok Shop', 'Pobieranie zamówień z TikTok Shop, wysyłanie stanów i numerów przesyłek (co 5 minut).'],
         'erli'     => ['ERLI', 'Pobieranie zamówień z ERLI, wysyłanie stanów i numerów przesyłek (co 5 minut).'],
+        'extensions' => ['Wtyczki rozszerzające', 'Praca w tle wtyczek z katalogu extensions/, np. automatyczne pobieranie faktur z KSeF.'],
         'archive'  => ['Auto-archiwizacja zamówień', 'Przenoszenie starych zamówień do archiwum.'],
         'print'    => ['Agent drukarki (wydruki)', 'Serwer nie wydaje wydruków - czekają i wydrukują się po wznowieniu. Agent pyta wtedy rzadko.'],
         'cleanup'  => ['Czyszczenie kolejki', 'Usuwanie starych wykonanych zadań z kolejki (zadania z błędem zostają).'],

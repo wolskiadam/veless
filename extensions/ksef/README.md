@@ -24,6 +24,12 @@ to zakładki na stronie listy.
 systemem (np. w wFirma albo w Aplikacji Podatnika). Kontrahentem w tabeli jest nabywca; osobna tabela `ext_ksef_sales`
 i osobny punkt „Pobierz nowe”. Wyłączysz ją w ustawieniach wtyczki.
 
+**Automatyczne pobieranie**: ustawienie „pobieraj nowe z KSeF automatycznie” (wyłączone, co godzinę, co 3/6/12 godzin,
+raz dziennie; domyślnie raz dziennie) robi w tle to samo, co przycisk „Pobierz nowe z KSeF”, dla obu włączonych list.
+Działa z crona (`cli/worker.php`, hak `cron.tick`), gdy jest NIP i token. Nad listą widać, kiedy pobrało ostatnio, ile
+było nowych faktur i ewentualny błąd. Gdy limit zapytań KSeF przerwie pobieranie, wtyczka dokończy je za 2 minuty.
+Wstrzymasz je w System → Obciążenie serwera („Wtyczki rozszerzające”).
+
 **Faktury zakupowe** (domyślnie wyłączone):
 
 - **Zamówienia → Faktury zakupowe KSeF**: faktury, w których firma jest nabywcą. Przycisk „Pobierz nowe z KSeF” dociąga
@@ -100,7 +106,6 @@ w ustawieniach jest puste.
 
 - faktury korygujące, zaliczkowe, w walucie obcej (tylko PLN), z mechanizmem podzielonej płatności (MPP),
 - tryb offline (awaria KSeF) i wysyłka wsadowa,
-- automatyczne pobieranie faktur zakupowych w tle (na razie przyciskiem; rdzeń nie ma jeszcze harmonogramu dla rozszerzeń),
 - księgowanie faktur zakupowych (oznaczanie jako zapłacone, przypisanie do kosztów),
 - własna wizualizacja PDF z kodem QR (klient dostaje link weryfikacyjny KSeF, który pokazuje fakturę).
 

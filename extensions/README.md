@@ -263,6 +263,18 @@ Produkt dla oferty z listy: `offer_allegro.php?offer=ID&resolve=1` → `{ok, pro
 Pliki rozszerzenia (np. fonty, grafiki, większe skrypty) podasz własną stroną `'raw' => true`, która odda plik
 z katalogu rozszerzenia z właściwym `Content-Type` (tylko pliki z listy, bez ścieżek z `..`).
 
+### Praca w tle (cron)
+
+| Hak | Rodzaj | Argumenty | Co robi |
+|---|---|---|---|
+| `cron.tick` | akcja | `int $now` (unix) | co minutę z `cli/worker.php`, po harmonogramie rdzenia, przed kolejką zadań |
+
+Hak woła się co minutę, więc rozszerzenie samo pilnuje swojego interwału (znacznik ostatniego uruchomienia w swojej
+tabeli albo w `settings`) i zapisuje go **przed** pracą, żeby błąd usługi nie powtarzał się co minutę. Rób krótkie
+porcje pracy: worker ma jeden przebieg na minutę i wspólny lock. Całą pracę w tle rozszerzeń wstrzymasz w
+System → Obciążenie serwera („Wtyczki rozszerzające”). Przykład: automatyczne pobieranie faktur w `extensions/ksef/`
+(`KsefService::autoSync()`).
+
 ## Własne tabele
 
 Rozszerzenie tworzy swoje tabele samo (`CREATE TABLE IF NOT EXISTS ...`), najlepiej z prefiksem `ext_<nazwa>_`.

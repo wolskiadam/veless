@@ -19,6 +19,7 @@ use PDO;
  * Faktury sprzedażowe (domyślnie włączone) i zakupowe (domyślnie wyłączone):
  *  - Zamówienia → Faktury sprzedażowe KSeF / Faktury zakupowe KSeF: faktury wystawione / otrzymane przez firmę,
  *    pobierane z KSeF (także wystawione poza tym systemem), miesiącami, z podglądem, PDF i XML.
+ *    Nowe faktury pobierają się też same z crona (ustawienie „pobieraj automatycznie”, domyślnie raz dziennie).
  * Zamówienia → Faktury KSeF: stan połączenia, test połączenia i lista wystawionych e-faktur.
  *
  * Domyślnie działa na środowisku testowym KSeF. Token KSeF (osobny dla każdego środowiska) wpisuje się w ustawieniach
@@ -43,7 +44,7 @@ final class KsefExtension extends AbstractExtension
         return new ExtensionManifest(
             type: 'ksef',
             name: 'KSeF - e-faktury',
-            version: '1.4.1',
+            version: '1.5.0',
             author: 'Veless',
             description: 'Połączenie z Krajowym Systemem e-Faktur (API 2.0): wystawianie faktur FA(3) z zamówień (numer KSeF, UPO i link weryfikacyjny w karcie zamówienia) oraz podgląd faktur sprzedażowych i zakupowych firmy pobranych z KSeF (z PDF). W ustawieniach wybierz, co ma robić, i wpisz token KSeF.',
             icon: '🏛️',
@@ -58,6 +59,9 @@ final class KsefExtension extends AbstractExtension
                  'help' => 'Token KSeF musi mieć uprawnienie do przeglądania faktur. Faktury znajdziesz w Zamówienia → Faktury zakupowe KSeF.'],
                 ['key' => 'purchases_days', 'label' => 'Faktury sprzedażowe i zakupowe: przy pierwszym pobraniu sięgnij wstecz', 'type' => 'select', 'default' => '30',
                  'options' => ['30' => '30 dni', '90' => '90 dni', '180' => 'pół roku', '365' => 'rok']],
+                ['key' => 'auto_every', 'label' => 'Faktury sprzedażowe i zakupowe: pobieraj nowe z KSeF automatycznie', 'type' => 'select', 'default' => '1440',
+                 'options' => KsefService::AUTO_EVERY,
+                 'help' => 'CRM sam sprawdza w KSeF nowe faktury (to samo, co przycisk „Pobierz nowe z KSeF”). Przycisk działa dalej.'],
                 ['key' => 'nip', 'label' => 'NIP firmy', 'type' => 'text', 'required' => true],
                 ['key' => 'token_test', 'label' => 'Token KSeF: środowisko testowe', 'type' => 'password', 'secret' => true,
                  'help' => 'Wygeneruj go w Aplikacji Podatnika KSeF danego środowiska, z uprawnieniem do wystawiania faktur (i do przeglądania - dla faktur zakupowych). Zapisywany zaszyfrowany.'],
@@ -116,6 +120,10 @@ final class KsefExtension extends AbstractExtension
         ]));
         foreach ($kinds as $kind) {
             $this->bootKsefInvoices($service, $kind, $kinds);
+        }
+        if ($kinds !== [] && ($cfg['auto_every'] ?? '1440') !== '0') {
+            // Cron co minutę; autoSync() sam pilnuje interwału z ustawień.
+            Hooks::addAction('cron.tick', fn() => $service()->autoSync(new SettingsRepository($this->pdo())));
         }
         if ($kinds !== []) {
             Hooks::addPage('rejestr', ['title' => '🧾 Rejestr faktur KSeF', 'group' => 'orders', 'role' => 'viewer',
@@ -527,6 +535,7 @@ final class KsefExtension extends AbstractExtension
         $html = '<div class="card">' . self::envNote($env)
             . '<p style="margin:0 0 8px">Faktury, w których Twoja firma (NIP ' . self::h($s->nip() ?: '-') . ') jest ' . $k['role'] . '. '
             . ($point !== null ? 'Pobrane z KSeF do: <b>' . self::h(self::when($point)) . '</b>.' : 'Jeszcze nic nie pobrano.') . '</p>';
+        $html .= self::autoNote($s, $ctx);
         if ($missing !== []) {
             $html .= '<p class="flash err">Do połączenia z KSeF brakuje: ' . self::h(implode(', ', $missing)) . '. <a href="' . self::h(Hooks::pageUrl('ksef.faktury')) . '">Faktury KSeF</a></p>';
         } elseif ($ctx['canEdit']) {
@@ -690,6 +699,26 @@ final class KsefExtension extends AbstractExtension
     }
 
     /** Data z KSeF (ISO, UTC) w czasie polskim. */
+    /** Linijka o automatycznym pobieraniu: co ile i jak poszło ostatnio. */
+    private static function autoNote(KsefService $s, array $ctx): string
+    {
+        $every = $s->autoEvery();
+        $settingsLink = !empty($ctx['isAdmin']) ? ' <a href="plugins.php">Zmień w ustawieniach wtyczki</a>' : '';
+        if ($every <= 0) {
+            return '<p style="color:var(--ink-3);font-size:12px;margin:0 0 8px">Automatyczne pobieranie wyłączone - nowe faktury pobierasz przyciskiem.' . $settingsLink . '</p>';
+        }
+        $last = json_decode((string) (new SettingsRepository(\Pase\Support\Runtime::pdo()))->get(KsefService::AUTO_LAST_KEY, ''), true);
+        $text = 'Automatyczne pobieranie: ' . mb_strtolower(KsefService::AUTO_EVERY[(string) $every]) . '.';
+        $err = '';
+        if (is_array($last) && isset($last['at'])) {
+            $text .= ' Ostatnio: ' . self::when('@' . (int) $last['at']) . ', nowych faktur: ' . array_sum((array) ($last['new'] ?? [])) . '.';
+            if (!empty($last['errors'])) {
+                $err = '<br><span style="color:var(--bad,#b42318)">Błąd: ' . self::h(implode(' | ', (array) $last['errors'])) . '</span>';
+            }
+        }
+        return '<p style="color:var(--ink-3);font-size:12px;margin:0 0 8px">' . self::h($text) . $err . $settingsLink . '</p>';
+    }
+
     private static function when(string $iso): string
     {
         try {

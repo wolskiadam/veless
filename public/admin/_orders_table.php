@@ -321,6 +321,16 @@ if (!function_exists('sourceBadge')) {
                     echo \Pase\Services\OrderChannelIcons::deliveryCell(\Pase\Services\OrderChannelIcons::delivery(
                         is_array($payloadForDelivery) ? $payloadForDelivery : [], $shipmentsByOrder[(int)$r['woo_order_id']] ?? []
                     ));
+                    // Allegro: „Wyślij do” (delivery.time.dispatch.to), dopóki zamówienie nie ma przesyłki.
+                    $dispatchTimes = is_array($payloadForDelivery) ? \Pase\Support\AllegroDeliveryTime::fromPayload($payloadForDelivery) : null;
+                    if ($dispatchTimes !== null && $dispatchTimes['dispatch_to'] !== null
+                        && \Pase\Support\AllegroDeliveryTime::awaitingDispatch($payloadForDelivery, $shipmentsByOrder[(int)$r['woo_order_id']] ?? [])) {
+                        $dispatchUrg = \Pase\Support\AllegroDeliveryTime::urgency($dispatchTimes['dispatch_to']);
+                        $dispatchTip = 'Wyślij do: ' . \Pase\Support\AllegroDeliveryTime::formatDateTime($dispatchTimes['dispatch_to'])
+                            . (\Pase\Support\AllegroDeliveryTime::formatDelivery($dispatchTimes) !== '' ? ' · przewidywana dostawa: ' . \Pase\Support\AllegroDeliveryTime::formatDelivery($dispatchTimes) : '');
+                        echo '<div class="dispatch-by ' . $dispatchUrg . '" title="' . htmlspecialchars($dispatchTip) . '">'
+                            . ($dispatchUrg === 'overdue' ? 'po terminie ' : 'wyślij do ') . htmlspecialchars(\Pase\Support\AllegroDeliveryTime::formatShort($dispatchTimes['dispatch_to'])) . '</div>';
+                    }
                 ?></td>
                 <?php $cells['delivery'] = ob_get_clean(); ob_start(); ?>
                 <td style="font-size:12px;font-family:var(--font-num);white-space:nowrap"><?= htmlspecialchars($r['date_created'] ?? '') ?></td>

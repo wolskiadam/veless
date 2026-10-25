@@ -103,7 +103,14 @@ final class DemoData
                         'address' => ['street' => $street, 'city' => $city, 'postCode' => $pc, 'countryCode' => 'PL']],
                     'lineItems' => array_map(static fn($l) => ['id' => uniqid(), 'offer' => ['id' => (string) mt_rand(17000000000, 18999999999), 'name' => $l['name'], 'external' => ['id' => $l['sku']]], 'quantity' => $l['quantity'], 'price' => ['amount' => (string) $l['price'], 'currency' => 'PLN']], $lines),
                     'delivery' => ['method' => ['name' => 'Allegro ' . $shipName], 'cost' => ['amount' => (string) $shipCost, 'currency' => 'PLN'],
-                        'address' => ['firstName' => $fn, 'lastName' => $ln, 'street' => $street, 'city' => $city, 'zipCode' => $pc, 'countryCode' => 'PL']],
+                        'address' => ['firstName' => $fn, 'lastName' => $ln, 'street' => $street, 'city' => $city, 'zipCode' => $pc, 'countryCode' => 'PL'],
+                        // Terminy jak w checkout-form: wysyłka do końca następnego dnia (czasu polskiego), dostawa dzień później.
+                        'time' => (static function (string $date): array {
+                            $pl = (new \DateTimeImmutable($date, new \DateTimeZone('UTC')))->setTimezone(new \DateTimeZone('Europe/Warsaw'));
+                            $utc = static fn(\DateTimeImmutable $d): string => $d->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\\TH:i:s\\Z');
+                            return ['dispatch' => ['from' => $utc($pl), 'to' => $utc($pl->modify('+1 day')->setTime(23, 59, 59))],
+                                'from' => $utc($pl->modify('+2 days')->setTime(8, 0)), 'to' => $utc($pl->modify('+2 days')->setTime(20, 0))];
+                        })($date)],
                     'payment' => ['type' => 'ONLINE', 'provider' => 'P24', 'paidAmount' => ['amount' => (string) $total, 'currency' => 'PLN'], 'finishedAt' => str_replace(' ', 'T', $date) . 'Z'],
                     'summary' => ['totalToPay' => ['amount' => (string) $total, 'currency' => 'PLN']],
                     'fulfillment' => ['status' => 'NEW'], 'boughtAt' => str_replace(' ', 'T', $date) . 'Z', 'messageToSeller' => $n % 7 === 1 ? 'Proszę o staranne zapakowanie, to prezent :)' : null];

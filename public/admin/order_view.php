@@ -2070,6 +2070,22 @@ foreach ($absorbedOrders as $ab) {
             <tr><th>Suma zamówienia</th><td><strong><?= htmlspecialchars(number_format($groupTotal, 2)) ?> <?= htmlspecialchars($currency) ?></strong><?php if ($absorbedOrders !== []): ?> <span class="pill muted" style="font-size:11px" title="To zamówienie <?= htmlspecialchars(number_format($localTotal, 2)) ?> + scalone <?= htmlspecialchars(implode(', ', array_map(static fn(array $ab): string => \Pase\Services\OrderMerge::label($ab) . ' ' . number_format(\Pase\Services\OrderMerge::orderTotal($ab), 2), $absorbedOrders))) ?>">łącznie ze scalonymi</span><?php endif; ?><?php if ($isLocallyEdited): ?> <span class="pill warn" style="font-size:11px">edytowano lokalnie</span><?php endif; ?></td></tr>
 
             <tr><th>Data złożenia</th><td><?= $g($o, 'date_created', $row['date_created'] ?? '—') ?></td></tr>
+            <?php // Terminy Allegro (delivery.time) - jak w panelu sprzedawcy: do kiedy wysłać i kiedy kupujący spodziewa się paczki.
+            $allegroTimes = $sourceType === 'allegro' ? \Pase\Support\AllegroDeliveryTime::fromPayload($o) : null; ?>
+            <?php if ($allegroTimes !== null && $allegroTimes['dispatch_to'] !== null):
+                $dispatchUrg = \Pase\Support\AllegroDeliveryTime::awaitingDispatch($o, $shipments) ? \Pase\Support\AllegroDeliveryTime::urgency($allegroTimes['dispatch_to']) : null; ?>
+            <tr><th title="Szacowany czas, do kiedy należy wysłać zamówienie, aby dotarło do kupującego w przewidywanym czasie dostawy (Allegro)">Wyślij do</th><td>
+                <?= htmlspecialchars(\Pase\Support\AllegroDeliveryTime::formatDateTime($allegroTimes['dispatch_to'])) ?>
+                <?php if ($dispatchUrg === 'overdue'): ?> <span class="pill bad" style="font-size:11px">termin minął</span>
+                <?php elseif ($dispatchUrg === 'today'): ?> <span class="pill warn" style="font-size:11px">dziś</span>
+                <?php elseif ($dispatchUrg === 'soon'): ?> <span class="pill muted" style="font-size:11px">jutro</span><?php endif; ?>
+            </td></tr>
+            <?php endif; ?>
+            <?php if ($allegroTimes !== null && \Pase\Support\AllegroDeliveryTime::formatDelivery($allegroTimes) !== ''): ?>
+            <tr><th title="Czas dostawy, który kupujący widział w ofercie Allegro">Przewidywana dostawa</th><td>
+                <?= htmlspecialchars(\Pase\Support\AllegroDeliveryTime::formatDelivery($allegroTimes)) ?><?php if ($allegroTimes['guaranteed']): ?> <span class="pill muted" style="font-size:11px" title="Allegro gwarantuje kupującemu ten termin dostawy">gwarantowana</span><?php endif; ?>
+            </td></tr>
+            <?php endif; ?>
             <tr><th>Pobrano do CRM (UTC)</th><td><?= $g($row, 'imported_at') ?></td></tr>
         </table>
 

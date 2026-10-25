@@ -190,6 +190,10 @@ $PAGE_HEAD = <<<'CSS'
     .source-logo svg { width:22px; height:22px; display:block; }
     .source-sub { font-size:11px; color:var(--ink-2); margin-left:29px; }
     .col-delivery { white-space:nowrap; }
+    /* Allegro „Wyślij do” pod przewoźnikiem (Support\AllegroDeliveryTime). */
+    .dispatch-by { font-size:11px; color:var(--ink-2); margin-top:3px; font-family:var(--font-num); }
+    .dispatch-by.today { color:var(--warn-ink); font-weight:700; }
+    .dispatch-by.overdue { color:var(--danger-ink); font-weight:700; }
     .carrier-logo { display:inline-flex; vertical-align:middle; }
     .carrier-logo svg { width:46px; height:23px; display:block; }
     .carrier-other { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--ink-2); vertical-align:middle; }

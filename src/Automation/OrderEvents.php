@@ -49,7 +49,7 @@ final class OrderEvents
     {
         $label = OrderIndicators::forOrder($order, $payload, null)['payment']['label'];
         return match (substr($label, strlen('orders.indicator.'))) {
-            'payment_paid', 'payment_paid_manual' => 'paid',
+            'payment_paid', 'payment_paid_manual', 'payment_paid_payu' => 'paid',
             'payment_partial'  => 'partial',
             'payment_unpaid'   => 'unpaid',
             'payment_cod'      => 'cod',

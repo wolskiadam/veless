@@ -75,6 +75,8 @@ $hasMergeColumn = \Pase\Services\LowStock::columnExists($pdo, 'woo_orders', 'mer
 $paidColumns = \Pase\Services\LowStock::columnExists($pdo, 'woo_orders', 'paid_amount') ? ' wo.paid_amount, wo.paid_amount_total,' : '';
 // Zamówienie wirtualne oznaczone w CRM (bez wysyłki) - potrzebne do wskaźnika wysyłki i filtra „Do wysyłki”.
 $paidColumns .= \Pase\Services\LowStock::columnExists($pdo, 'woo_orders', 'no_shipping') ? ' wo.no_shipping,' : '';
+// Opłacona płatność PayU, gdy sklep jeszcze nie potwierdził wpłaty - ten sam stan co na stronie zamówienia.
+$paidColumns .= \Pase\Services\PayuPayments::paidSql($pdo);
 if ($hasMergeColumn) {
     $where[] = 'wo.merged_into IS NULL';
 }

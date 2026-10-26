@@ -286,6 +286,7 @@ return [
     'orders.indicator.payment_cod' => 'Cash on delivery — payment not confirmed',
     'orders.indicator.payment_unpaid' => 'Order unpaid',
     'orders.indicator.payment_paid_manual' => 'Order paid (confirmed manually in CRM)',
+    'orders.indicator.payment_paid_payu' => 'Order paid according to PayU (shop has not confirmed yet)',
     'orders.indicator.payment_failed' => 'Payment failed — order cancelled',
     'orders.indicator.payment_partial' => 'Order partially paid',
     'orders.indicator.invoice_required' => 'Invoice to issue — customer requests an invoice',

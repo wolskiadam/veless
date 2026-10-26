@@ -34,6 +34,7 @@ final class OrderIconDetails
         ['kind' => 'payment', 'state' => 'partial', 'label' => 'orders.indicator.payment_partial'],
         ['kind' => 'payment', 'state' => 'ok', 'label' => 'orders.indicator.payment_paid'],
         ['kind' => 'payment', 'state' => 'ok', 'label' => 'orders.indicator.payment_paid_manual'],
+        ['kind' => 'payment', 'state' => 'ok', 'label' => 'orders.indicator.payment_paid_payu'],
         ['kind' => 'invoice', 'state' => 'ok', 'label' => 'Faktura wystawiona', 'literal' => true],
         ['kind' => 'invoice', 'state' => 'warn', 'label' => 'orders.indicator.invoice_required'],
         ['kind' => 'invoice', 'state' => 'warn', 'label' => 'orders.indicator.invoice_nip'],

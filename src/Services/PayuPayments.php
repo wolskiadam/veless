@@ -99,6 +99,18 @@ final class PayuPayments
         }
     }
 
+    /**
+     * Fragment SELECT z sumą opłaconych płatności PayU zamówienia (grosze) jako payu_paid - do wskaźnika płatności
+     * na liście (OrderIndicators), gdy sklep jeszcze nie potwierdził wpłaty. '' gdy baza nie ma tabeli PayU.
+     */
+    public static function paidSql(PDO $pdo, string $alias = 'wo'): string
+    {
+        if (!LowStock::columnExists($pdo, 'payu_order_payments', 'status')) {
+            return '';
+        }
+        return " (SELECT SUM(pp.amount) FROM payu_order_payments pp WHERE pp.woo_order_id = {$alias}.woo_order_id AND pp.status = '" . self::PAID . "') AS payu_paid,";
+    }
+
     /** Czy zamówienie może mieć płatność PayU sklepu (nie Allegro). */
     public static function eligible(array $order): bool
     {

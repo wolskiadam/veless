@@ -82,4 +82,21 @@ check($failed, 'absorbed order cannot get its own payment');
 $audit = $pdo->query("SELECT before_json, after_json FROM audit_events WHERE order_id = 1 AND action = 'order.payment_set' ORDER BY id")->fetchAll();
 check(count($audit) === 6 && json_decode($audit[0]['after_json'], true) === ['paid_amount' => '34.98'], 'every change is in the order history');
 
+// PayU opłacone, sklep jeszcze „wstrzymane” bez date_paid: lista pokazuje opłacone jak strona zamówienia (Woo #45939).
+Pase\Services\PayuPayments::migrate($pdo);
+$ins->execute([4, 470, '45939', 'on-hold', 'processing', 'PLN', 119.96, json_encode(['status' => 'on-hold', 'payment_method' => 'payu', 'date_paid' => null, 'total' => '119.96'])]);
+$withPayu = static fn(int $id): array => $pdo->query('SELECT wo.*,' . rtrim(Pase\Services\PayuPayments::paidSql($pdo), ',') . " FROM woo_orders wo WHERE wo.woo_order_id = {$id}")->fetch();
+$payuPay = static fn(int $id): array => OrderIndicators::forOrder($withPayu($id), json_decode($withPayu($id)['payload'], true), [])['payment'];
+check($payuPay(4)['label'] === 'orders.indicator.payment_unpaid', 'no PayU payment: shop decides (unpaid)');
+$payuIns = $pdo->prepare("INSERT INTO payu_order_payments (woo_order_id, payu_order_id, status, amount, created_at) VALUES (?,?,?,?,'2026-10-26 08:26:00')");
+$payuIns->execute([4, 'NEWPAYUORDER0000001', 'NEW', 11996]);
+check($payuPay(4)['label'] === 'orders.indicator.payment_unpaid', 'unfinished PayU payment does not count');
+$payuIns->execute([4, 'PAIDPAYUORDER000001', 'COMPLETED', 5000]);
+check($payuPay(4) === ['state' => 'partial', 'label' => 'orders.indicator.payment_partial'], 'PayU paid part of the order');
+$payuIns->execute([4, 'PAIDPAYUORDER000002', 'COMPLETED', 6996]);
+check($payuPay(4) === ['state' => 'ok', 'label' => 'orders.indicator.payment_paid_payu'], 'PayU paid in full while the shop is on-hold: green');
+check(Pase\Automation\OrderEvents::paymentState($withPayu(4), json_decode($withPayu(4)['payload'], true)) === 'paid', 'automation payment state agrees');
+$svc->set(4, 0.0, 'Adam');
+check($payuPay(4)['label'] === 'orders.indicator.payment_unpaid', 'manual entry in CRM still wins over PayU');
+
 echo "\nAll {$checks} order payment checks passed.\n";

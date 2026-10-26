@@ -23,6 +23,12 @@ final class OrderIndicators
                 ? 'payment_cod' : $manual['label']);
         } elseif (!empty($payload['date_paid']) || !empty($payload['date_paid_gmt'])) {
             $payment = self::indicator('ok', 'payment_paid');
+        } elseif ((int) ($order['payu_paid'] ?? 0) > 0) {
+            // Sklep jeszcze nie potwierdził wpłaty (np. zamówienie „wstrzymane”), a przypisana płatność PayU
+            // jest opłacona - jak „Status płatności” na stronie zamówienia (payu_paid w groszach, PayuPayments::paidSql).
+            $payment = OrderPayment::coversTotal(round((int) $order['payu_paid'] / 100, 2), (float) ($payload['total'] ?? $order['total'] ?? 0))
+                ? self::indicator('ok', 'payment_paid_payu')
+                : self::indicator('warn', 'payment_partial');
         } elseif (array_key_exists('date_paid', $payload) || array_key_exists('date_paid_gmt', $payload)) {
             $payment = ($payload['payment_method'] ?? '') === 'cod'
                 ? self::indicator('warn', 'payment_cod')

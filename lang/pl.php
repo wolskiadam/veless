@@ -286,6 +286,7 @@ return [
     'orders.indicator.payment_cod' => 'Za pobraniem — brak potwierdzenia wpłaty',
     'orders.indicator.payment_unpaid' => 'Zamówienie nieopłacone',
     'orders.indicator.payment_paid_manual' => 'Zamówienie opłacone (potwierdzone ręcznie w CRM)',
+    'orders.indicator.payment_paid_payu' => 'Zamówienie opłacone według PayU (sklep jeszcze nie potwierdził)',
     'orders.indicator.payment_failed' => 'Płatność nieudana — zamówienie anulowane',
     'orders.indicator.payment_partial' => 'Zamówienie opłacone częściowo',
     'orders.indicator.invoice_required' => 'Faktura do wystawienia — klient prosi o fakturę',

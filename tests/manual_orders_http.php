@@ -282,6 +282,32 @@ try {
     $trk = request($boss, 'admin/index.php?need_shipping=delivered');
     ok(!str_contains($trk['body'], 'order_view.php?id=502'), 'Delivered filter skips an order still in transit');
 
+    // Nowe zamówienie dla tego samego klienta ze strony zamówienia: kupujący, dostawa i punkt odbioru, bez produktów.
+    $pdo->exec("UPDATE woo_orders SET local_pickup_point = '{\"id\":\"WAW01M\",\"name\":\"Paczkomat WAW01M\",\"street\":\"Polna 3\",\"postcode\":\"00-001\",\"city\":\"Warszawa\"}' WHERE woo_order_id = 502");
+    $page = request($boss, 'admin/order_view.php?id=502');
+    ok(str_contains($page['body'], 'href="order_new.php?from=502"') && str_contains($page['body'], 'Nowe zamówienie dla klienta'), 'Order page offers a new order for the same customer');
+    ok(!str_contains(request($viewer, 'admin/order_view.php?id=502')['body'], 'order_new.php?from='), 'Viewer has no "new order for the customer" button');
+    $f3 = request($boss, 'admin/order_new.php?from=502');
+    ok(str_contains($f3['body'], 'name="billing_last_name" value="Kowalska"') && str_contains($f3['body'], 'name="billing_address_1" value="Polna 2"')
+        && str_contains($f3['body'], 'name="billing_email" value="anna@example.com"') && str_contains($f3['body'], 'name="billing_country" value="PL"'), 'Buyer copied from the old order');
+    ok(str_contains($f3['body'], 'name="shipping_method" list="shipList" value="Kurier"') && str_contains($f3['body'], 'name="shipping_cost" id="shipCost" value=""'), 'Delivery method copied, cost left empty');
+    ok(str_contains($f3['body'], 'name="pp_id" id="ppId" value="WAW01M"') && str_contains($f3['body'], 'Paczkomat WAW01M · Polna 3, 00-001 Warszawa'), 'Pickup point copied');
+    ok(!str_contains($f3['body'], 'value="MULLED WINE') && str_contains($f3['body'], 'name="item_sku[]" list="catalogList" value=""') && str_contains($f3['body'], 'name="item_name[]" value=""'), 'Products are not copied');
+    ok(str_contains($f3['body'], 'skopiowane z zamówienia') && str_contains($f3['body'], 'href="order_view.php?id=502">#12</a>'), 'Form links back to the old order');
+    $before = (string) $pdo->query('SELECT payload FROM woo_orders WHERE woo_order_id = 502')->fetchColumn();
+    $r = request($boss, 'admin/order_new.php', ['csrf' => csrfOf($f3['body']), 'shop_id' => '1',
+        'billing_first_name' => 'Anna', 'billing_last_name' => 'Kowalska', 'billing_email' => 'anna@example.com', 'billing_address_1' => 'Polna 2',
+        'billing_postcode' => '00-001', 'billing_city' => 'Warszawa', 'billing_country' => 'PL',
+        'item_sku' => [''], 'item_name' => ['Świeca na wymianę'], 'item_price' => ['0'], 'item_qty' => ['1'],
+        'shipping_method' => 'Kurier', 'shipping_cost' => '', 'pp_id' => 'waw01m', 'pp_name' => 'Paczkomat WAW01M', 'pp_street' => 'Polna 3', 'pp_postcode' => '00-001', 'pp_city' => 'Warszawa',
+        'payment_method' => 'bacs', 'pase_status' => 'new']);
+    $nid = (int) $pdo->query('SELECT MAX(woo_order_id) FROM woo_orders')->fetchColumn();
+    ok(in_array($r['status'], [302, 303], true) && $nid === 8000000002, 'New order for the customer saved');
+    $pp = json_decode((string) $pdo->query("SELECT local_pickup_point FROM woo_orders WHERE woo_order_id = $nid")->fetchColumn(), true);
+    ok(($pp['id'] ?? '') === 'WAW01M' && ($pp['city'] ?? '') === 'Warszawa', 'New order keeps the pickup point');
+    ok(str_contains(request($boss, 'admin/order_view.php?id=' . $nid)['body'], 'WAW01M'), 'Pickup point shown on the new order');
+    ok((string) $pdo->query('SELECT payload FROM woo_orders WHERE woo_order_id = 502')->fetchColumn() === $before, 'Old order unchanged');
+
     echo "\nAll {$checks} manual order HTTP checks passed.\n";
 } finally {
     if (is_resource($process)) { proc_terminate($process); proc_close($process); }

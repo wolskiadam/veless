@@ -923,6 +923,8 @@ require __DIR__ . '/header.php';
     <a class="btn secondary order-back-btn" href="index.php">← Powrót</a>
     <?php if (canEdit()): ?><a class="btn secondary" href="order_history.php?id=<?= (int) $wooOrderId ?>" title="Historia zmian" aria-label="Historia zmian"><span class="mob-ico">🕘</span><span class="btn-lbl">Historia zmian</span></a><?php endif; ?>
     <?php if (usesPagePermissions() ? canViewPage('email_log') : roleCanEdit()): ?><a class="btn secondary" href="email_log.php?period=365d&amp;order=<?= (int) $wooOrderId ?>" title="Wysłane e-maile" aria-label="Wysłane e-maile"><span class="mob-ico">✉️</span><span class="btn-lbl">Wysłane e-maile</span></a><?php endif; ?>
+    <?php // Nowe zamówienie dla tego samego klienta: dane kupującego i dostawy z tego zamówienia, produkty od nowa. ?>
+    <?php if (canEdit() && canOpenPage('order_new.php')): ?><a class="btn secondary" href="order_new.php?from=<?= (int) $wooOrderId ?>" title="Nowe zamówienie z danymi kupującego i dostawy z tego zamówienia" aria-label="Nowe zamówienie dla tego klienta"><span class="mob-ico">➕</span><span class="btn-lbl">+ Nowe zamówienie dla klienta</span></a><?php endif; ?>
     <?php if ($adminLink): ?>
         <a class="btn secondary" href="<?= htmlspecialchars($adminLink) ?>" target="_blank" rel="noopener" title="Otwórz w WooCommerce" aria-label="Otwórz w WooCommerce"><span class="mob-ico">🛒</span><span class="btn-lbl">Otwórz w WooCommerce ↗</span></a>
     <?php endif; ?>

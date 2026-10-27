@@ -6,7 +6,8 @@ declare(strict_types=1);
  * dostawa, płatność. Zamówienie jest tylko w CRM. Przy płatności „PayU - link” można od razu utworzyć link
  * do płatności (PayuPayments::createLink) - pokaże się na stronie zamówienia do skopiowania.
  *
- * ?from=ID - dane klienta i adresy skopiowane z innego zamówienia (np. z karty klienta).
+ * ?from=ID - dane klienta, adresy, sposób dostawy i punkt odbioru skopiowane z innego zamówienia
+ * (przycisk „Nowe zamówienie dla klienta” na stronie zamówienia, szukanie klienta). Produkty i płatność od nowa.
  */
 
 use Pase\Automation\RuleEngine;
@@ -89,14 +90,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Dane klienta z innego zamówienia (?from=ID).
+$fromOrder = null;
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' && (int) ($_GET['from'] ?? 0) > 0) {
     $src = (new \Pase\Repository\WooOrderRepository($pdo))->find((int) $_GET['from']);
     if ($src !== null) {
+        $fromOrder = $src;
         $p = json_decode((string) $src['payload'], true) ?: [];
         $b = InvoiceData::originalBilling($p);
         foreach (['first_name', 'last_name', 'company', 'address_1', 'postcode', 'city', 'country', 'email', 'phone', 'nip'] as $k) {
             $form['billing_' . $k] = trim((string) ($b[$k] ?? '') . ($k === 'address_1' && !empty($b['address_2']) ? ' ' . $b['address_2'] : ''));
         }
+        $form['billing_country'] = strtoupper($form['billing_country']) ?: 'PL';
         $form['billing_email'] = (string) ($src['local_billing_email'] ?? '') ?: $form['billing_email'];
         $form['billing_phone'] = (string) ($src['local_billing_phone'] ?? '') ?: $form['billing_phone'];
         $sh = is_array($p['shipping'] ?? null) ? $p['shipping'] : [];
@@ -111,11 +115,20 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' && (int) ($_GET['from'] ?? 0) > 0) {
             foreach (['first_name', 'last_name', 'company', 'address_1', 'postcode', 'city', 'country', 'phone'] as $k) {
                 $form['shipping_' . $k] = (string) ($sh[$k] ?? '');
             }
+            $form['shipping_country'] = strtoupper($form['shipping_country']) ?: 'PL';
         }
         if ($form['billing_nip'] !== '') {
             $form['wants_invoice'] = '1';
         }
         $form['shop_id'] = (int) ($src['integration_id'] ?? 0) ?: (int) ($src['manual_shop_id'] ?? 0);
+        // Sposób dostawy (nazwa bez kosztu - koszt wpisuje się do nowego zamówienia) i punkt odbioru (paczkomat...).
+        $form['shipping_method'] = (string) ($p['delivery']['method']['name'] ?? ($p['shipping_lines'][0]['method_title'] ?? ''));
+        $pp = \Pase\Support\PickupPoint::fromOrder($p, json_decode((string) ($src['local_pickup_point'] ?? ''), true) ?: null);
+        if ($pp !== null) {
+            foreach (['id', 'name', 'street', 'postcode', 'city'] as $k) {
+                $form['pp_' . $k] = (string) ($pp[$k] ?? '');
+            }
+        }
     }
 }
 
@@ -207,8 +220,10 @@ require __DIR__ . '/header.php';
                 <span style="color:#888;font-size:12px"> · <?= htmlspecialchars($h['keys']) ?> · zamówień: <?= (int) $h['count'] ?> · użyj danych</span></a>
         <?php endforeach; ?>
         </div>
-    <?php elseif ((int) ($_GET['from'] ?? 0) > 0 && !$posted): ?>
-        <p style="color:#2f7a45;font-size:13px;margin-top:8px">Dane klienta skopiowane z poprzedniego zamówienia - sprawdź je przed zapisaniem.</p>
+    <?php elseif ($fromOrder !== null): ?>
+        <p style="color:#2f7a45;font-size:13px;margin-top:8px">Dane kupującego i dostawy skopiowane z zamówienia
+            <a href="order_view.php?id=<?= (int) $fromOrder['woo_order_id'] ?>"><?= htmlspecialchars($fromOrder['pase_number'] !== null ? '#' . (int) $fromOrder['pase_number'] : (string) $fromOrder['order_number']) ?></a>
+            - sprawdź je, dodaj produkty i zapisz. Stare zamówienie się nie zmienia.</p>
     <?php endif; ?>
 </div>
 
@@ -293,6 +308,10 @@ require __DIR__ . '/header.php';
         <div style="grid-column:span 2"><label>Dostawa</label><input name="shipping_method" list="shipList" value="<?= $v('shipping_method') ?>" placeholder="np. InPost Paczkomat" autocomplete="off">
             <datalist id="shipList"><option value="InPost Paczkomat"><option value="Kurier InPost"><option value="Kurier DPD"><option value="Kurier DHL"><option value="ORLEN Paczka"><option value="Poczta Polska"><option value="Odbiór osobisty"></datalist></div>
         <div><label>Koszt dostawy</label><input name="shipping_cost" id="shipCost" value="<?= $v('shipping_cost') ?>" inputmode="decimal" placeholder="0.00" class="num" autocomplete="off"></div>
+        <div><label>Punkt odbioru (opcjonalnie)</label><input name="pp_id" id="ppId" value="<?= $v('pp_id') ?>" data-orig="<?= $v('pp_id') ?>" placeholder="np. WAW123M" autocomplete="off" style="text-transform:uppercase">
+            <?php foreach (['name', 'street', 'postcode', 'city'] as $k): ?><input type="hidden" name="pp_<?= $k ?>" class="pp-detail" value="<?= $v('pp_' . $k) ?>" data-orig="<?= $v('pp_' . $k) ?>"><?php endforeach; ?>
+            <?php $ppLine = trim(trim((string) ($form['pp_name'] ?? '')) . ' · ' . trim((string) ($form['pp_street'] ?? '') . ', ' . (string) ($form['pp_postcode'] ?? '') . ' ' . (string) ($form['pp_city'] ?? ''), ' ,'), ' ·'); ?>
+            <div class="no-hint" id="ppLine"><?= htmlspecialchars($ppLine) ?></div></div>
     </div>
     <label class="no-check"><input type="checkbox" name="no_shipping" value="1" <?= !empty($form['no_shipping']) ? 'checked' : '' ?>> Wirtualne</label>
     <div class="no-sum"><span>Do zapłaty</span><strong id="orderTotal">0.00 PLN</strong></div>
@@ -381,6 +400,13 @@ require __DIR__ . '/header.php';
         recalc();
     });
     document.getElementById('shipCost').addEventListener('input', recalc);
+    // Inny punkt niż skopiowany: nazwa i adres poprzedniego punktu już nie pasują.
+    const ppId = document.getElementById('ppId');
+    ppId.addEventListener('input', () => {
+        const same = ppId.value.trim().toUpperCase() === ppId.dataset.orig.toUpperCase();
+        document.querySelectorAll('.pp-detail').forEach((i) => { i.value = same ? i.dataset.orig : ''; });
+        document.getElementById('ppLine').hidden = !same;
+    });
     const toggle = (box, id) => { const cb = document.getElementById(id); cb.addEventListener('change', () => { document.getElementById(box).hidden = !cb.checked; }); };
     toggle('invoiceBox', 'wantsInvoice');
     toggle('shipBox', 'shipDifferent');

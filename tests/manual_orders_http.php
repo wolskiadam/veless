@@ -284,16 +284,27 @@ try {
 
     // Nowe zamówienie dla tego samego klienta ze strony zamówienia: kupujący, dostawa i punkt odbioru, bez produktów.
     $pdo->exec("UPDATE woo_orders SET local_pickup_point = '{\"id\":\"WAW01M\",\"name\":\"Paczkomat WAW01M\",\"street\":\"Polna 3\",\"postcode\":\"00-001\",\"city\":\"Warszawa\"}' WHERE woo_order_id = 502");
-    $page = request($boss, 'admin/order_view.php?id=502');
-    ok(str_contains($page['body'], 'href="order_new.php?from=502"') && str_contains($page['body'], 'Nowe zamówienie dla klienta'), 'Order page offers a new order for the same customer');
-    ok(!str_contains(request($viewer, 'admin/order_view.php?id=502')['body'], 'order_new.php?from='), 'Viewer has no "new order for the customer" button');
-    $f3 = request($boss, 'admin/order_new.php?from=502');
+    ok(!str_contains(request($boss, 'admin/order_view.php?id=502')['body'], 'order_new.php?from='), 'No copy button on the order page (copy is chosen in "Nowe zamówienie")');
+    $sr = request($boss, 'admin/order_new.php?q=' . urlencode('anna@example.com'));
+    ok(str_contains($sr['body'], 'name="from" value="502"') && str_contains($sr['body'], 'name="from" value="501"'), 'Search lists the customer orders to copy from');
+    ok(str_contains($sr['body'], 'name="copy[]" value="buyer" checked') && str_contains($sr['body'], 'name="copy[]" value="delivery" checked')
+        && str_contains($sr['body'], 'name="copy[]" value="items" >'), 'Copy options: buyer and delivery on, products off');
+    $f3 = request($boss, 'admin/order_new.php?copy[]=&copy[]=buyer&copy[]=delivery&from=502');
     ok(str_contains($f3['body'], 'name="billing_last_name" value="Kowalska"') && str_contains($f3['body'], 'name="billing_address_1" value="Polna 2"')
         && str_contains($f3['body'], 'name="billing_email" value="anna@example.com"') && str_contains($f3['body'], 'name="billing_country" value="PL"'), 'Buyer copied from the old order');
     ok(str_contains($f3['body'], 'name="shipping_method" list="shipList" value="Kurier"') && str_contains($f3['body'], 'name="shipping_cost" id="shipCost" value=""'), 'Delivery method copied, cost left empty');
     ok(str_contains($f3['body'], 'name="pp_id" id="ppId" value="WAW01M"') && str_contains($f3['body'], 'Paczkomat WAW01M · Polna 3, 00-001 Warszawa'), 'Pickup point copied');
     ok(!str_contains($f3['body'], 'value="MULLED WINE') && str_contains($f3['body'], 'name="item_sku[]" list="catalogList" value=""') && str_contains($f3['body'], 'name="item_name[]" value=""'), 'Products are not copied');
-    ok(str_contains($f3['body'], 'skopiowane z zamówienia') && str_contains($f3['body'], 'href="order_view.php?id=502">#12</a>'), 'Form links back to the old order');
+    ok(str_contains($f3['body'], 'Dane kupującego, Adres i sposób dostawy, paczkomat skopiowane z zamówienia') && str_contains($f3['body'], 'href="order_view.php?id=502">#12</a>'), 'Form links back to the old order');
+    $f4 = request($boss, 'admin/order_new.php?copy[]=&copy[]=items&from=502');
+    ok(str_contains($f4['body'], 'name="item_sku[]" list="catalogList" value="MW-1L"') && str_contains($f4['body'], 'name="item_name[]" value="Grzane wino 1 l"')
+        && str_contains($f4['body'], 'name="item_price[]" value="49.08"') && str_contains($f4['body'], 'value="2" class="item-qty num"'), 'Products copied as edited in CRM, gross unit price');
+    ok(str_contains($f4['body'], 'name="billing_last_name" value=""') && str_contains($f4['body'], 'name="pp_id" id="ppId" value=""'), 'Only the chosen parts are copied');
+    $f5 = request($boss, 'admin/order_new.php?copy[]=&copy[]=delivery&from=502');
+    ok(str_contains($f5['body'], 'name="billing_last_name" value=""') && str_contains($f5['body'], 'name="shipping_address_1" value="Polna 2"')
+        && str_contains($f5['body'], 'id="shipDifferent" checked'), 'Delivery alone goes to "Inny adres dostawy"');
+    $f6 = request($boss, 'admin/order_new.php?copy[]=&from=502');
+    ok(!str_contains($f6['body'], 'skopiowane z zamówienia') && str_contains($f6['body'], 'name="billing_last_name" value=""'), 'Nothing ticked - nothing copied');
     $before = (string) $pdo->query('SELECT payload FROM woo_orders WHERE woo_order_id = 502')->fetchColumn();
     $r = request($boss, 'admin/order_new.php', ['csrf' => csrfOf($f3['body']), 'shop_id' => '1',
         'billing_first_name' => 'Anna', 'billing_last_name' => 'Kowalska', 'billing_email' => 'anna@example.com', 'billing_address_1' => 'Polna 2',

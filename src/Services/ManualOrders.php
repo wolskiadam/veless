@@ -218,6 +218,10 @@ final class ManualOrders
             $shipCost = 0.0;
         }
         $shipMethod = $str('shipping_method', 120);
+        // Punkt odbioru (paczkomat...) - zapisujemy jak ręczną poprawkę punktu na stronie zamówienia (local_pickup_point).
+        $ppId = strtoupper($str('pp_id', 40));
+        $pickupPoint = $ppId === '' ? null : ['id' => $ppId, 'name' => $str('pp_name', 120), 'street' => $str('pp_street', 160),
+            'postcode' => $str('pp_postcode', 12), 'city' => $str('pp_city', 80)];
 
         $method = (string) ($post['payment_method'] ?? 'bacs');
         if (!isset(self::PAYMENT_METHODS[$method])) {
@@ -248,6 +252,7 @@ final class ManualOrders
             'items'     => $items,
             'shipping_method' => $shipMethod,
             'shipping_cost' => $shipCost,
+            'pickup_point' => $pickupPoint,
             'total'     => round($itemsSum + $shipCost, 2),
             'payment_method' => $method,
             'payment_method_title' => $methodTitle,
@@ -312,6 +317,10 @@ final class ManualOrders
         if (!empty($order['shop_id'])) {
             self::migrate($this->pdo);
             $this->pdo->prepare('UPDATE woo_orders SET manual_shop_id = ? WHERE woo_order_id = ?')->execute([(int) $order['shop_id'], $id]);
+        }
+        if (!empty($order['pickup_point'])) {
+            $this->pdo->prepare('UPDATE woo_orders SET local_pickup_point = ? WHERE woo_order_id = ?')
+                ->execute([json_encode($order['pickup_point'], JSON_UNESCAPED_UNICODE), $id]);
         }
         if (!empty($order['no_shipping'])) {
             // Zamówienie wirtualne - bez ikony „Do wysyłki” (OrderIndicators).

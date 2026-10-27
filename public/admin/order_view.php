@@ -185,6 +185,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
             (new \Pase\Services\ManualOrders($pdo))->setShop($wooOrderId, $shopId > 0 ? $shopId : null);
             $flashOk = $shopId > 0 ? 'Sklep zamówienia: ' . $shopList[$shopId] . '.' : 'Zamówienie bez przypisanego sklepu.';
         }
+    } elseif ($act === 'set_delivery_method') {
+        // Metoda dostawy zamówienia dodanego ręcznie - tylko w CRM. W zamówieniach ze sklepu i Allegro wybrał ją kupujący.
+        $dm = trim((string) ($_POST['delivery_method'] ?? ''));
+        if ((new \Pase\Services\ManualOrders($pdo))->setDeliveryMethod($wooOrderId, $dm)) {
+            $flashOk = $dm !== '' ? 'Zapisano metodę dostawy: ' . $dm . '.' : 'Usunięto metodę dostawy.';
+        }
     } elseif ($act === 'set_planned_ship_date') {
         // Planowana data nadania - tylko w CRM; klient widzi ją na swojej stronie zamówienia (Services\PlannedShipDate).
         try {
@@ -2138,9 +2144,23 @@ foreach ($absorbedOrders as $ab) {
 <div class="card sortable-section" data-section="addresses">
     <div class="drag-handle">⠿</div>
     <?php $deliveryMethodName = $allegroDeliveryMethod ?? (($o['shipping_lines'][0]['method_title'] ?? null) ?: null); ?>
-    <?php if ($deliveryMethodName !== null): ?>
-        <strong>Metoda dostawy</strong>
-        <p style="margin:8px 0 16px;line-height:1.6"><?= htmlspecialchars((string) $deliveryMethodName) ?></p>
+    <?php $dmEditable = $isManualOrder && canEdit(); ?>
+    <?php if ($deliveryMethodName !== null || $dmEditable): ?>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <strong>Metoda dostawy</strong>
+            <?php if ($dmEditable): ?><button class="btn secondary" type="button" style="padding:3px 9px;font-size:12px" title="Zmień metodę dostawy" aria-label="Zmień metodę dostawy" onclick="var f=document.getElementById('dmEdit');f.hidden=!f.hidden;if(!f.hidden){f.querySelector('input[name=delivery_method]').focus();}">✎</button><?php endif; ?>
+        </div>
+        <p style="margin:8px 0 16px;line-height:1.6"><?= $deliveryMethodName !== null ? htmlspecialchars((string) $deliveryMethodName) : '<span style="color:#888">—</span>' ?></p>
+        <?php if ($dmEditable): ?>
+            <form method="post" id="dmEdit" class="pp-edit" hidden style="margin:0 0 16px">
+                <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
+                <input type="hidden" name="action" value="set_delivery_method">
+                <div><input name="delivery_method" aria-label="Metoda dostawy" list="dmList" value="<?= htmlspecialchars((string) ($deliveryMethodName ?? '')) ?>" placeholder="np. Kurier DPD" autocomplete="off">
+                    <datalist id="dmList"><option value="InPost Paczkomat"><option value="Kurier InPost"><option value="Kurier DPD"><option value="Kurier DHL"><option value="ORLEN Paczka"><option value="Poczta Polska"><option value="Odbiór osobisty"></datalist></div>
+                <div style="font-size:11px;color:#888">Koszt dostawy się nie zmienia. Przy zmianie na kuriera usuń punkt odbioru poniżej (✎).</div>
+                <div style="display:flex;gap:6px"><button class="btn" type="submit">Zapisz</button><button class="btn secondary" type="button" onclick="this.closest('form').hidden=true">Anuluj</button></div>
+            </form>
+        <?php endif; ?>
     <?php endif; ?>
     <div class="pp-box">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">

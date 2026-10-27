@@ -110,6 +110,42 @@ final class ManualOrders
         return true;
     }
 
+    /**
+     * Zmienia metodę dostawy zamówienia ręcznego (shipping_lines[0].method_title w payloadzie - stamtąd czytają ją
+     * lista, pakowanie, automatyzacje i faktura). Koszt dostawy zostaje. Zwraca true, gdy coś się zmieniło.
+     */
+    public function setDeliveryMethod(int $wooOrderId, string $method): bool
+    {
+        if (!self::isManual($wooOrderId)) {
+            return false;
+        }
+        $method = mb_substr(trim(preg_replace('/\s+/u', ' ', $method) ?? ''), 0, 120);
+        $st = $this->pdo->prepare('SELECT payload FROM woo_orders WHERE woo_order_id = ?');
+        $st->execute([$wooOrderId]);
+        $payload = json_decode((string) $st->fetchColumn(), true);
+        if (!is_array($payload)) {
+            return false;
+        }
+        $lines = is_array($payload['shipping_lines'] ?? null) ? $payload['shipping_lines'] : [];
+        $cur = (string) ($lines[0]['method_title'] ?? '');
+        if ($lines !== [] && (float) ($lines[0]['total'] ?? 0) > 0) {
+            $lines[0]['method_title'] = $method !== '' ? $method : 'Dostawa';   // linia z kosztem zostaje na fakturze
+        } elseif ($method !== '') {
+            $lines = [array_merge($lines[0] ?? ['total' => '0.00'], ['method_title' => $method])] + $lines;
+        } else {
+            $lines = [];
+        }
+        $new = (string) ($lines[0]['method_title'] ?? '');
+        if ($new === $cur) {
+            return false;
+        }
+        $payload['shipping_lines'] = array_values($lines);
+        $this->pdo->prepare('UPDATE woo_orders SET payload = ? WHERE woo_order_id = ?')
+            ->execute([json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), $wooOrderId]);
+        (new AuditTrail($this->pdo))->record($wooOrderId, 'order.delivery_method_changed', ['delivery_method' => $cur], ['delivery_method' => $new]);
+        return true;
+    }
+
     public static function isManual(int $wooOrderId): bool
     {
         return $wooOrderId >= self::ID_MIN && $wooOrderId <= self::ID_MAX;

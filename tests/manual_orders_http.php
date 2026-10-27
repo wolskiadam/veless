@@ -308,6 +308,24 @@ try {
     ok(str_contains(request($boss, 'admin/order_view.php?id=' . $nid)['body'], 'WAW01M'), 'Pickup point shown on the new order');
     ok((string) $pdo->query('SELECT payload FROM woo_orders WHERE woo_order_id = 502')->fetchColumn() === $before, 'Old order unchanged');
 
+    // Zmiana metody dostawy na stronie zamówienia ręcznego (koszt zostaje), bez edycji w zamówieniu ze sklepu.
+    $page = request($boss, 'admin/order_view.php?id=' . $nid);
+    ok(str_contains($page['body'], 'value="set_delivery_method"') && str_contains($page['body'], 'name="delivery_method" aria-label="Metoda dostawy" list="dmList" value="Kurier"'), 'Manual order page lets you change the delivery method');
+    ok(!str_contains(request($boss, 'admin/order_view.php?id=502')['body'], 'value="set_delivery_method"'), 'Shop order keeps the method chosen by the buyer');
+    ok(!str_contains(request($viewer, 'admin/order_view.php?id=' . $nid)['body'], 'value="set_delivery_method"'), 'Viewer cannot change the delivery method');
+    request($boss, 'admin/order_view.php?id=' . $nid, ['csrf' => csrfOf($page['body']), 'action' => 'set_delivery_method', 'delivery_method' => '  Kurier   DPD ']);
+    $pl = json_decode((string) $pdo->query("SELECT payload FROM woo_orders WHERE woo_order_id = $nid")->fetchColumn(), true);
+    ok(($pl['shipping_lines'][0]['method_title'] ?? '') === 'Kurier DPD' && count($pl['shipping_lines']) === 1, 'Delivery method saved');
+    $page = request($boss, 'admin/order_view.php?id=' . $nid);
+    ok(str_contains($page['body'], '>Kurier DPD</p>'), 'New method shown on the order page');
+    request($boss, 'admin/order_view.php?id=' . $id, ['csrf' => csrfOf($page['body']), 'action' => 'set_delivery_method', 'delivery_method' => '']);
+    $pl = json_decode((string) $pdo->query("SELECT payload FROM woo_orders WHERE woo_order_id = $id")->fetchColumn(), true);
+    ok(($pl['shipping_lines'][0]['method_title'] ?? '') === 'Dostawa' && ($pl['shipping_lines'][0]['total'] ?? '') === '13.99', 'Emptied method keeps the shipping cost line');
+    request($viewer, 'admin/order_view.php?id=' . $nid, ['csrf' => csrfOf(request($viewer, 'admin/order_view.php?id=' . $nid)['body']), 'action' => 'set_delivery_method', 'delivery_method' => 'Poczta']);
+    $pl = json_decode((string) $pdo->query("SELECT payload FROM woo_orders WHERE woo_order_id = $nid")->fetchColumn(), true);
+    ok(($pl['shipping_lines'][0]['method_title'] ?? '') === 'Kurier DPD', 'Viewer change refused');
+    ok(str_contains(request($boss, 'admin/order_history.php?id=' . $nid)['body'], 'Metoda dostawy'), 'Method change in the order history');
+
     echo "\nAll {$checks} manual order HTTP checks passed.\n";
 } finally {
     if (is_resource($process)) { proc_terminate($process); proc_close($process); }

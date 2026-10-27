@@ -6,8 +6,8 @@ declare(strict_types=1);
  * dostawa, płatność. Zamówienie jest tylko w CRM. Przy płatności „PayU - link” można od razu utworzyć link
  * do płatności (PayuPayments::createLink) - pokaże się na stronie zamówienia do skopiowania.
  *
- * ?from=ID - dane klienta, adresy, sposób dostawy i punkt odbioru skopiowane z innego zamówienia
- * (przycisk „Nowe zamówienie dla klienta” na stronie zamówienia, szukanie klienta). Produkty i płatność od nowa.
+ * ?from=ID&copy[]=buyer|delivery|items - dane kupującego, adres i sposób dostawy z paczkomatem i/lub produkty
+ * skopiowane z innego zamówienia (wybór przy szukaniu klienta). Bez copy[] - kupujący i dostawa.
  */
 
 use Pase\Automation\RuleEngine;
@@ -89,63 +89,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Dane klienta z innego zamówienia (?from=ID).
+// Kopia z innego zamówienia (?from=ID&copy[]=...): przy szukaniu klienta wybiera się, co skopiować.
+const COPY_PARTS = ['buyer' => 'Dane kupującego', 'delivery' => 'Adres i sposób dostawy, paczkomat', 'items' => 'Produkty'];
+$copyParts = isset($_GET['copy']) ? array_values(array_intersect(array_keys(COPY_PARTS), (array) $_GET['copy'])) : ['buyer', 'delivery'];
 $fromOrder = null;
-if ($_SERVER['REQUEST_METHOD'] !== 'POST' && (int) ($_GET['from'] ?? 0) > 0) {
+if ($_SERVER['REQUEST_METHOD'] !== 'POST' && (int) ($_GET['from'] ?? 0) > 0 && $copyParts !== []) {
     $src = (new \Pase\Repository\WooOrderRepository($pdo))->find((int) $_GET['from']);
     if ($src !== null) {
         $fromOrder = $src;
         $p = json_decode((string) $src['payload'], true) ?: [];
-        $b = InvoiceData::originalBilling($p);
-        foreach (['first_name', 'last_name', 'company', 'address_1', 'postcode', 'city', 'country', 'email', 'phone', 'nip'] as $k) {
-            $form['billing_' . $k] = trim((string) ($b[$k] ?? '') . ($k === 'address_1' && !empty($b['address_2']) ? ' ' . $b['address_2'] : ''));
-        }
-        $form['billing_country'] = strtoupper($form['billing_country']) ?: 'PL';
-        $form['billing_email'] = (string) ($src['local_billing_email'] ?? '') ?: $form['billing_email'];
-        $form['billing_phone'] = (string) ($src['local_billing_phone'] ?? '') ?: $form['billing_phone'];
-        $sh = is_array($p['shipping'] ?? null) ? $p['shipping'] : [];
-        if (isset($p['delivery']['address']) && is_array($p['delivery']['address'])) {   // Allegro
-            $a = $p['delivery']['address'];
-            $sh = ['first_name' => $a['firstName'] ?? '', 'last_name' => $a['lastName'] ?? '', 'company' => $a['companyName'] ?? '',
-                'address_1' => $a['street'] ?? '', 'postcode' => $a['zipCode'] ?? '', 'city' => $a['city'] ?? '', 'country' => $a['countryCode'] ?? 'PL', 'phone' => $a['phoneNumber'] ?? ''];
-        }
-        if (trim((string) ($sh['address_1'] ?? '') . (string) ($sh['city'] ?? '')) !== ''
-            && trim((string) ($sh['address_1'] ?? '')) . (string) ($sh['city'] ?? '') !== $form['billing_address_1'] . $form['billing_city']) {
-            $form['ship_different'] = '1';
-            foreach (['first_name', 'last_name', 'company', 'address_1', 'postcode', 'city', 'country', 'phone'] as $k) {
-                $form['shipping_' . $k] = (string) ($sh[$k] ?? '');
-            }
-            $form['shipping_country'] = strtoupper($form['shipping_country']) ?: 'PL';
-        }
-        if ($form['billing_nip'] !== '') {
-            $form['wants_invoice'] = '1';
+        if (\Pase\Support\AllegroOrderMapper::needsMapping($p)) {
+            $p = \Pase\Support\AllegroOrderMapper::withWooFields($p);
         }
         $form['shop_id'] = (int) ($src['integration_id'] ?? 0) ?: (int) ($src['manual_shop_id'] ?? 0);
-        // Sposób dostawy (nazwa bez kosztu - koszt wpisuje się do nowego zamówienia) i punkt odbioru (paczkomat...).
-        $form['shipping_method'] = (string) ($p['delivery']['method']['name'] ?? ($p['shipping_lines'][0]['method_title'] ?? ''));
-        $pp = \Pase\Support\PickupPoint::fromOrder($p, json_decode((string) ($src['local_pickup_point'] ?? ''), true) ?: null);
-        if ($pp !== null) {
-            foreach (['id', 'name', 'street', 'postcode', 'city'] as $k) {
-                $form['pp_' . $k] = (string) ($pp[$k] ?? '');
+        $b = InvoiceData::originalBilling($p);
+        if (in_array('buyer', $copyParts, true)) {
+            foreach (['first_name', 'last_name', 'company', 'address_1', 'postcode', 'city', 'country', 'email', 'phone', 'nip'] as $k) {
+                $form['billing_' . $k] = trim((string) ($b[$k] ?? '') . ($k === 'address_1' && !empty($b['address_2']) ? ' ' . $b['address_2'] : ''));
+            }
+            $form['billing_country'] = strtoupper($form['billing_country']) ?: 'PL';
+            $form['billing_email'] = (string) ($src['local_billing_email'] ?? '') ?: $form['billing_email'];
+            $form['billing_phone'] = (string) ($src['local_billing_phone'] ?? '') ?: $form['billing_phone'];
+            if ($form['billing_nip'] !== '') {
+                $form['wants_invoice'] = '1';
+            }
+        }
+        if (in_array('delivery', $copyParts, true)) {
+            $sh = is_array($p['shipping'] ?? null) ? $p['shipping'] : [];
+            if (isset($p['delivery']['address']) && is_array($p['delivery']['address'])) {   // Allegro
+                $a = $p['delivery']['address'];
+                $sh = ['first_name' => $a['firstName'] ?? '', 'last_name' => $a['lastName'] ?? '', 'company' => $a['companyName'] ?? '',
+                    'address_1' => $a['street'] ?? '', 'postcode' => $a['zipCode'] ?? '', 'city' => $a['city'] ?? '', 'country' => $a['countryCode'] ?? 'PL', 'phone' => $a['phoneNumber'] ?? ''];
+            }
+            // Bez danych kupującego adres dostawy idzie jako „Inny adres dostawy”; z nimi - tylko gdy jest inny niż kupującego.
+            $billingAddr = in_array('buyer', $copyParts, true) ? ($form['billing_address_1'] ?? '') . ($form['billing_city'] ?? '') : null;
+            if (trim((string) ($sh['address_1'] ?? '') . (string) ($sh['city'] ?? '')) !== ''
+                && trim((string) ($sh['address_1'] ?? '')) . (string) ($sh['city'] ?? '') !== $billingAddr) {
+                $form['ship_different'] = '1';
+                foreach (['first_name', 'last_name', 'company', 'address_1', 'postcode', 'city', 'country', 'phone'] as $k) {
+                    $form['shipping_' . $k] = (string) ($sh[$k] ?? '');
+                }
+                $form['shipping_country'] = strtoupper($form['shipping_country']) ?: 'PL';
+            }
+            // Sposób dostawy (nazwa bez kosztu - koszt wpisuje się do nowego zamówienia) i punkt odbioru (paczkomat...).
+            $form['shipping_method'] = (string) ($p['delivery']['method']['name'] ?? ($p['shipping_lines'][0]['method_title'] ?? ''));
+            $pp = \Pase\Support\PickupPoint::fromOrder($p, json_decode((string) ($src['local_pickup_point'] ?? ''), true) ?: null);
+            if ($pp !== null) {
+                foreach (['id', 'name', 'street', 'postcode', 'city'] as $k) {
+                    $form['pp_' . $k] = (string) ($pp[$k] ?? '');
+                }
+            }
+        }
+        if (in_array('items', $copyParts, true)) {
+            // Pozycje (z poprawkami z CRM), ceny brutto za sztukę. SKU tylko, gdy produkt jest w magazynie CRM.
+            $srcItems = $src['local_items'] !== null ? (json_decode((string) $src['local_items'], true) ?: []) : ($p['line_items'] ?? []);
+            $inStock = $pdo->prepare('SELECT 1 FROM products WHERE sku = ? LIMIT 1');
+            foreach ($srcItems as $it) {
+                $qty = max(1, (int) ($it['quantity'] ?? 1));
+                $sku = trim((string) ($it['sku'] ?? ''));
+                if ($sku !== '') {
+                    $inStock->execute([$sku]);
+                    $sku = $inStock->fetchColumn() ? $sku : '';
+                }
+                $form['item_sku'][] = $sku;
+                $form['item_name'][] = (string) ($it['name'] ?? '');
+                $form['item_price'][] = number_format(((float) ($it['total'] ?? 0) + (float) ($it['total_tax'] ?? 0)) / $qty, 2, '.', '');
+                $form['item_qty'][] = (string) $qty;
             }
         }
     }
 }
 
-// Szukanie klienta (?q=) - podpowiedź danych z jego ostatniego zamówienia.
+// Szukanie klienta (?q=) - jego ostatnie zamówienia w CRM do skopiowania.
 $customerHits = [];
 $q = trim((string) ($_GET['q'] ?? ''));
 if ($q !== '' && $_SERVER['REQUEST_METHOD'] !== 'POST') {
     try {
         $cs = new \Pase\Services\Customers($pdo);
         foreach ($cs->list($q, 'last', 0, 8)['rows'] as $c) {
-            $last = null;
-            foreach ($cs->ordersOf((int) $c['id']) as $co) {
-                if ((int) $co['in_crm'] === 1) { $last = $co; break; }
-            }
-            if ($last !== null) {
+            $orders = array_slice(array_values(array_filter($cs->ordersOf((int) $c['id']), static fn(array $co): bool => (int) $co['in_crm'] === 1)), 0, 5);
+            if ($orders !== []) {
                 $customerHits[] = ['name' => (string) $c['name'], 'keys' => implode(', ', array_merge(...array_values(array_map('array_values', $c['keys'] ?? [])))),
-                    'from' => (int) $last['woo_order_id'], 'count' => (int) $c['orders_count']];
+                    'orders' => $orders, 'count' => (int) $c['orders_count']];
             }
         }
     } catch (\Throwable) {
@@ -194,8 +219,13 @@ $PAGE_HEAD = <<<'CSS'
     .no-sum strong { font-family:var(--font-num); font-size:20px; }
     .no-check { display:flex; gap:8px; align-items:center; font-size:14px; margin-top:10px; }
     .no-err { background:#fff4f2; border:1px solid #f3c2bc; color:#a3341f; border-radius:8px; padding:10px 12px; margin-bottom:14px; }
-    .no-hits a { display:block; padding:6px 0; border-top:1px solid var(--line); text-decoration:none; color:inherit; }
-    .no-hits a:hover strong { color:var(--accent); }
+    .no-copy { display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; font-size:13px; padding-bottom:8px; }
+    .no-copy span { color:var(--ink-2); }
+    .no-copy label { display:flex; gap:6px; align-items:center; }
+    .no-hit { padding:8px 0; border-top:1px solid var(--line); }
+    .no-hit-orders { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+    .no-hit-orders .btn { padding:5px 10px; font-size:13px; }
+    .no-hit-orders .btn span { color:var(--ink-3); font-weight:400; font-size:12px; margin-left:4px; }
     @media (max-width: 700px) { .no-items thead { display:none; } .no-items tr { display:grid; grid-template-columns:1fr 1fr; gap:4px; border-top:1px solid var(--line); padding:6px 0; } .no-items td:nth-child(-n+2) { grid-column:1 / -1; } }
 </style>
 CSS;
@@ -213,17 +243,33 @@ require __DIR__ . '/header.php';
         <button class="btn secondary" type="submit">Szukaj</button>
     </form>
     <?php if ($q !== ''): ?>
-        <div class="no-hits" style="margin-top:8px">
-        <?php if ($customerHits === []): ?><p style="color:#888;font-size:13px">Nie znaleziono klienta. Wpisz dane poniżej.</p><?php endif; ?>
-        <?php foreach ($customerHits as $h): ?>
-            <a href="order_new.php?from=<?= (int) $h['from'] ?>"><strong><?= htmlspecialchars($h['name'] ?: 'Klient') ?></strong>
-                <span style="color:#888;font-size:12px"> · <?= htmlspecialchars($h['keys']) ?> · zamówień: <?= (int) $h['count'] ?> · użyj danych</span></a>
-        <?php endforeach; ?>
-        </div>
+        <?php if ($customerHits === []): ?><p style="color:#888;font-size:13px;margin-top:8px">Nie znaleziono klienta. Wpisz dane poniżej.</p><?php else: ?>
+        <form method="get" class="no-hits" style="margin-top:10px">
+            <div class="no-copy"><span>Skopiuj z wybranego zamówienia:</span><input type="hidden" name="copy[]" value="">
+                <?php foreach (COPY_PARTS as $ck => $cl): ?>
+                    <label><input type="checkbox" name="copy[]" value="<?= $ck ?>" <?= in_array($ck, $copyParts, true) ? 'checked' : '' ?>> <?= htmlspecialchars($cl) ?></label>
+                <?php endforeach; ?>
+            </div>
+            <?php foreach ($customerHits as $h): ?>
+                <div class="no-hit">
+                    <strong><?= htmlspecialchars($h['name'] ?: 'Klient') ?></strong>
+                    <span style="color:#888;font-size:12px"> · <?= htmlspecialchars($h['keys']) ?> · zamówień: <?= (int) $h['count'] ?></span>
+                    <div class="no-hit-orders">
+                    <?php foreach ($h['orders'] as $co): ?>
+                        <button type="submit" class="btn secondary" name="from" value="<?= (int) $co['woo_order_id'] ?>" title="Kopiuj zaznaczone dane z tego zamówienia">
+                            <?= htmlspecialchars($co['pase_number'] !== null ? '#' . (int) $co['pase_number'] : (string) $co['order_number']) ?>
+                            <span><?= htmlspecialchars(substr((string) $co['date_created'], 0, 10)) ?> · <?= number_format((float) $co['total'], 2, ',', ' ') ?> <?= htmlspecialchars((string) ($co['currency'] ?: 'PLN')) ?></span>
+                        </button>
+                    <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endforeach; ?>
+        </form>
+        <?php endif; ?>
     <?php elseif ($fromOrder !== null): ?>
-        <p style="color:#2f7a45;font-size:13px;margin-top:8px">Dane kupującego i dostawy skopiowane z zamówienia
+        <p style="color:#2f7a45;font-size:13px;margin-top:8px"><?= htmlspecialchars(implode(', ', array_map(static fn(string $k): string => COPY_PARTS[$k], $copyParts))) ?> skopiowane z zamówienia
             <a href="order_view.php?id=<?= (int) $fromOrder['woo_order_id'] ?>"><?= htmlspecialchars($fromOrder['pase_number'] !== null ? '#' . (int) $fromOrder['pase_number'] : (string) $fromOrder['order_number']) ?></a>
-            - sprawdź je, dodaj produkty i zapisz. Stare zamówienie się nie zmienia.</p>
+            - sprawdź je, uzupełnij resztę i zapisz. Stare zamówienie się nie zmienia.</p>
     <?php endif; ?>
 </div>
 

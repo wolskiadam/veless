@@ -111,6 +111,37 @@ $client->knows = 'INPOST'; $client->asked = [];
 $id = $add('InPost Paczkomat');
 check($trk->checkOne($id)['status'] === 'in_transit' && $client->asked === ['INPOST'], 'unknown to the InPost API: Allegro still asked');
 
+// DPD: publiczna strona śledzenia DPD Polska, bez pytania Allegro (paczka z BLPaczki / „Inne").
+$dpdHtml = '<table class="table-track"><thead><tr><th>Data</th><th>Godzina</th><th>Opis</th><th>Oddział</th></tr></thead><tbody>
+<tr><td>2026-10-28</td><td>11:23:12</td><td>Przesyłka doręczona </td><td>WA1/PL69933</td></tr>
+<tr><td>2026-10-28</td><td>10:57:37</td><td>Powiadomienie mail</td><td>WA1</td></tr>
+<tr><td>2026-10-28</td><td>10:55:50</td><td>Przyjęcie przesyłki do punktu Pickup<br/>Punkt: <a href="#">DPD Pickup- &quot;Sklep Żabka&quot;</a></td><td>WA1/PL69933</td></tr>
+<tr><td>2026-10-28</td><td>08:44:32</td><td>Przekazanie przesyłki do doręczenia w punkcie Pickup</td><td>WA1</td></tr>
+<tr><td>2026-10-27</td><td>11:33:50</td><td>Przesyłka odebrana przez Kuriera</td><td></td></tr>
+<tr><td>2026-10-27</td><td>01:49:42</td><td>Nadanie przesyłki w punkcie Pickup</td><td>/PL96522</td></tr>
+<tr><td>2026-10-27</td><td>01:40:14</td><td>Zarejestrowano dane przesyłki, przesyłka jeszcze nienadana</td><td></td></tr>
+</tbody></table>';
+$dpdAsked = [];
+$dpd = static function (string $w) use (&$dpdAsked, $dpdHtml): ?string {
+    $dpdAsked[] = $w;
+    return $w === '1053762950573U' ? $dpdHtml : '<html><body>Nie znaleziono przesyłki</body></html>';
+};
+$trk = new ShipmentTracking($pdo, $client, [], static fn(string $w): ?array => null, [], $dpd);
+$client->asked = []; $client->knows = 'NONE';
+$pdo->prepare("INSERT INTO shipments (courier_code, waybill_no, status, created_at) VALUES ('dpd', '1053762950573U', 'created', ?)")->execute([date('Y-m-d H:i:s')]);
+$id = (int) $pdo->lastInsertId();
+$r = $trk->checkOne($id);
+check($r['ok'] && $r['status'] === 'delivered', 'DPD parcel outside Allegro: delivered from the DPD tracking page');
+check($client->asked === [] && $dpdAsked === ['1053762950573U'], 'Allegro is not asked when DPD answers');
+$ev = json_decode((string) $row($id)['tracking_events'], true);
+check(count($ev) === 6 && $ev[0]['code'] === 'PENDING' && $ev[5]['desc'] === 'Przesyłka doręczona', 'DPD history oldest first, notifications skipped');
+check(str_contains($ev[4]['desc'], 'Sklep Żabka') && $ev[4]['code'] === 'AVAILABLE_FOR_PICKUP', 'pickup point stage with the point name');
+check($ev[5]['at'] === '2026-10-28T11:23:12+01:00' && $row($id)['tracking_carrier'] === 'DPD', 'Polish time stored with offset, carrier DPD');
+$client->knows = 'DPD'; $client->asked = [];
+$pdo->prepare("INSERT INTO shipments (courier_code, waybill_no, status, created_at) VALUES ('DPD (ręcznie)', '0000111122223U', 'created', ?)")->execute([date('Y-m-d H:i:s')]);
+check($trk->checkOne((int) $pdo->lastInsertId())['status'] === 'in_transit' && $client->asked === ['DPD'], 'unknown to DPD: Allegro still asked');
+$trk = new ShipmentTracking($pdo, $client, [], static fn(string $w): ?array => null, null, static fn(string $w): ?string => null);
+
 // Ręczny status - gdy nikt nie zna przesyłki.
 $id = $add('Orlen Paczka');
 check(ShipmentTracking::setManual($pdo, $id, 'delivered', 'Adam'), 'manual status saved');

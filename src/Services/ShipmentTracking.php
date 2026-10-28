@@ -22,6 +22,7 @@ use PasePlugin\Allegro\AllegroClient;
  * Allegro i numer listu + rozpoznany przewoźnik. Allegro zna jednak tylko paczki związane
  * ze swoimi zamówieniami, dlatego InPost pytamy najpierw bezpośrednio (publiczne API śledzenia
  * InPost, bez klucza) - działa też dla paczek spoza Allegro (BLPaczka, „Inne", WooCommerce).
+ * Tak samo DPD: publiczna strona śledzenia DPD Polska (tracktrace.dpd.com.pl) zna każdą paczkę DPD.
  * Wtyczka kurierska może mieć własne śledzenie (metody trackingCarrier() i trackWaybills(), np. ORLEN Paczka):
  * pytamy ją o paczki nadane przez jej konto i o paczki jej przewoźnika wpisane ręcznie, zanim zapytamy Allegro.
  *
@@ -68,6 +69,9 @@ final class ShipmentTracking
     /** Ile paczek InPost pytać bezpośrednio w jednym przebiegu (reszta przez Allegro / następnym razem). */
     private const INPOST_BATCH = 60;
 
+    /** Ile paczek DPD pytać bezpośrednio w jednym przebiegu (reszta przez Allegro / następnym razem). */
+    private const DPD_BATCH = 60;
+
     /** Ile przesyłek maksymalnie w jednym przebiegu harmonogramu. */
     private const BATCH_LIMIT = 300;
 
@@ -104,7 +108,9 @@ final class ShipmentTracking
         /** @var \Closure(string):?array|null atrapa publicznego API InPost w testach (numer => JSON) */
         private readonly ?\Closure $inpostFetch = null,
         /** @var array<int,object>|null wtyczki z własnym śledzeniem (id konta => wtyczka); null = aktywne konta z bazy */
-        private readonly ?array $trackers = null
+        private readonly ?array $trackers = null,
+        /** @var \Closure(string):?string|null atrapa publicznej strony śledzenia DPD w testach (numer => HTML) */
+        private readonly ?\Closure $dpdFetch = null
     ) {}
 
     /** @var array<int,object>|null */
@@ -182,6 +188,7 @@ final class ShipmentTracking
         $noData  = [];     // przesyłki bez odpowiedzi (tylko $fallback)
         $failures = [];
         $inpostCalls = 0;  // InPost pytamy po jednej paczce - limit na przebieg
+        $dpdCalls = 0;     // DPD tak samo
 
         // Wtyczki kurierskie z własnym śledzeniem (np. ORLEN Paczka): ich paczki pytamy najpierw u nich,
         // a to, czego nie znają, idzie dalej zwykłą drogą (InPost / Allegro).
@@ -200,6 +207,13 @@ final class ShipmentTracking
                 && ($wb = $this->inpostTracking((string) $sh['waybill_no'])) !== null) {
                 $tried[(int) $sh['id']] = 'InPost';
                 $changed += $this->apply($sh, 'INPOST', $wb, $now) ? 1 : 0;
+                continue;
+            }
+            // DPD: publiczna strona śledzenia DPD Polska - Allegro zna tylko paczki ze swoich zamówień.
+            if (strcasecmp($carrier, 'DPD') === 0 && $dpdCalls++ < self::DPD_BATCH
+                && ($wb = $this->dpdTracking((string) $sh['waybill_no'])) !== null) {
+                $tried[(int) $sh['id']] = 'DPD';
+                $changed += $this->apply($sh, 'DPD', $wb, $now) ? 1 : 0;
                 continue;
             }
             $groups[$carrier][] = $sh;
@@ -475,6 +489,84 @@ final class ShipmentTracking
         return self::INPOST_STATUSES[$st]
             ?? (str_starts_with($st, 'undelivered') ? ['ISSUE', 'Nie doręczono']
             : (str_starts_with($st, 'return') ? ['RETURNED', 'Zwrot do nadawcy'] : ['IN_TRANSIT', str_replace('_', ' ', $st)]));
+    }
+
+    /**
+     * Historia paczki z publicznej strony śledzenia DPD Polska (tracktrace.dpd.com.pl/parcelDetails), przerobiona
+     * na format odpowiedzi Allegro (dla apply()). Null, gdy DPD nie zna numeru albo strona nie odpowiada.
+     */
+    private function dpdTracking(string $waybill): ?array
+    {
+        $waybill = trim($waybill);
+        try {
+            if ($this->dpdFetch !== null) {
+                $html = ($this->dpdFetch)($waybill);
+            } else {
+                $res = \Pase\Support\Http::request('GET', 'https://tracktrace.dpd.com.pl/parcelDetails?typ=1&p1=' . rawurlencode($waybill),
+                    ['Accept' => 'text/html', 'User-Agent' => 'Mozilla/5.0 (compatible; Veless/1.0)'], null, 10);
+                Logger::apiResponse('dpd', 'GET', '/parcelDetails', $res->status, $waybill);
+                $html = $res->isSuccess() ? $res->body : null;
+            }
+        } catch (\Throwable $e) {
+            Logger::warn('Śledzenie DPD nie powiodło się: ' . $e->getMessage());
+            return null;
+        }
+        $statuses = self::parseDpdHistory((string) $html);
+        return $statuses === [] ? null : ['waybill' => $waybill, 'trackingDetails' => ['statuses' => $statuses]];
+    }
+
+    /**
+     * Tabela „Historia przesyłki" ze strony DPD (wiersze: data | godzina | opis | oddział) -> statusy jak w Allegro.
+     * Powiadomienia (SMS, mail) pomijamy - to nie etapy przesyłki.
+     * @return array<int,array{code:string,description:string,occurredAt:string}>
+     */
+    public static function parseDpdHistory(string $html): array
+    {
+        if (!preg_match_all('~<tr[^>]*>(.*?)</tr>~si', $html, $rows)) {
+            return [];
+        }
+        $tz = new \DateTimeZone('Europe/Warsaw');
+        $out = [];
+        foreach ($rows[1] as $tr) {
+            if (!preg_match_all('~<td[^>]*>(.*?)</td>~si', $tr, $cells) || count($cells[1]) < 3) {
+                continue;
+            }
+            $cell = static fn(string $c): string => trim((string) preg_replace('/\s+/u', ' ',
+                html_entity_decode(strip_tags((string) preg_replace('~<br\s*/?>~i', ' ', $c)), ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+            [$date, $time, $desc] = [$cell($cells[1][0]), $cell($cells[1][1]), $cell($cells[1][2])];
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !preg_match('/^\d{1,2}:\d{2}(:\d{2})?$/', $time) || $desc === '') {
+                continue;
+            }
+            $code = self::dpdCode($desc);
+            if ($code === null) {
+                continue;
+            }
+            try {
+                $at = (new \DateTimeImmutable($date . ' ' . $time, $tz))->format(DATE_ATOM);
+            } catch (\Throwable) {
+                continue;
+            }
+            $out[] = ['code' => $code, 'description' => $desc, 'occurredAt' => $at];
+        }
+        return $out;
+    }
+
+    /** Opis zdarzenia DPD (po polsku) -> kod jak w Allegro (CODE_MAP); null = powiadomienie, nie etap. */
+    private static function dpdCode(string $desc): ?string
+    {
+        $d = mb_strtolower($desc);
+        return match (true) {
+            str_contains($d, 'powiadomienie') => null,
+            str_contains($d, 'zwrot') || str_contains($d, 'zwrócon') || str_contains($d, 'do nadawcy') => 'RETURNED',
+            str_contains($d, 'niedoręczon') || str_contains($d, 'nie doręczon') || str_contains($d, 'odmow')
+                || str_contains($d, 'nieudan') || str_contains($d, 'uszkodz') => 'ISSUE',
+            str_contains($d, 'doręczona') || str_contains($d, 'odebrana przez odbiorc') || str_contains($d, 'wydana odbiorc') => 'DELIVERED',
+            str_contains($d, 'awizo') || str_contains($d, 'awizow') => 'NOTICE_LEFT',
+            str_contains($d, 'do punktu pickup') || str_contains($d, 'gotowa do odbioru') || str_contains($d, 'czeka na odbi') => 'AVAILABLE_FOR_PICKUP',
+            str_contains($d, 'wydanie przesyłki do doręczenia') || str_contains($d, 'wydana do doręczenia') => 'RELEASED_FOR_DELIVERY',
+            str_contains($d, 'jeszcze nienadana') || str_contains($d, 'zarejestrowano dane') => 'PENDING',
+            default => 'IN_TRANSIT',
+        };
     }
 
     /**

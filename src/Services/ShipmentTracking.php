@@ -492,7 +492,7 @@ final class ShipmentTracking
     }
 
     /**
-     * Historia paczki z publicznej strony śledzenia DPD Polska (tracktrace.dpd.com.pl/parcelDetails), przerobiona
+     * Historia paczki z publicznej strony śledzenia DPD Polska (tracktrace.dpd.com.pl/findPackage), przerobiona
      * na format odpowiedzi Allegro (dla apply()). Null, gdy DPD nie zna numeru albo strona nie odpowiada.
      */
     private function dpdTracking(string $waybill): ?array
@@ -502,9 +502,9 @@ final class ShipmentTracking
             if ($this->dpdFetch !== null) {
                 $html = ($this->dpdFetch)($waybill);
             } else {
-                $res = \Pase\Support\Http::request('GET', 'https://tracktrace.dpd.com.pl/parcelDetails?typ=1&p1=' . rawurlencode($waybill),
+                $res = \Pase\Support\Http::request('GET', 'https://tracktrace.dpd.com.pl/findPackage?typ=1&q=' . rawurlencode($waybill),
                     ['Accept' => 'text/html', 'User-Agent' => 'Mozilla/5.0 (compatible; Veless/1.0)'], null, 10);
-                Logger::apiResponse('dpd', 'GET', '/parcelDetails', $res->status, $waybill);
+                Logger::apiResponse('dpd', 'GET', '/findPackage', $res->status, $waybill);
                 $html = $res->isSuccess() ? $res->body : null;
             }
         } catch (\Throwable $e) {
@@ -760,7 +760,7 @@ final class ShipmentTracking
     /** Strony śledzenia przewoźników (numer listu doklejany na końcu). */
     private const TRACKING_URLS = [
         'INPOST'        => 'https://inpost.pl/sledzenie-przesylek?number=',
-        'DPD'           => 'https://tracktrace.dpd.com.pl/parcelDetails?typ=1&p1=',
+        'DPD'           => 'https://tracktrace.dpd.com.pl/findPackage?typ=1&q=',
         'DHL'           => 'https://www.dhl.com/pl-pl/home/sledzenie-przesylek.html?tracking-id=',
         'GLS'           => 'https://gls-group.com/PL/pl/sledzenie-paczek?match=',
         'UPS'           => 'https://www.ups.com/track?loc=pl_PL&tracknum=',

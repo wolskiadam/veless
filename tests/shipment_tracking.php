@@ -179,7 +179,7 @@ $orlen = new class {
         return ['ok' => true, 'message' => '', 'waybills' => $out];
     }
 };
-$trk = new ShipmentTracking($pdo, $client, [], static fn(string $w): ?array => null, [5 => $orlen]);
+$trk = new ShipmentTracking($pdo, $client, [], static fn(string $w): ?array => null, [5 => $orlen], static fn(string $w): ?string => null);
 $pdo->prepare("INSERT INTO shipments (integration_id, courier_code, waybill_no, status, created_at) VALUES (5, 'ORLEN Paczka', '2100012345678', 'created', ?)")->execute([date('Y-m-d H:i:s')]);
 $own = (int) $pdo->lastInsertId();
 $client->asked = []; $client->knows = 'NONE';

@@ -616,7 +616,7 @@ final class ShipmentTracking
 
         $last    = $statuses === [] ? null : end($statuses);
         $code    = $last ? (string) ($last['code'] ?? '') : '';
-        $status  = self::CODE_MAP[$code] ?? null;
+        $status  = self::CODE_MAP[self::stageCode($code, $last ? (string) ($last['description'] ?? '') : '')] ?? null;
         $at      = $last && !empty($last['occurredAt']) ? date('Y-m-d H:i:s', strtotime((string) $last['occurredAt'])) : null;
 
         $fields = ['tracking_carrier' => $carrier, 'tracking_checked_at' => $now];
@@ -642,6 +642,31 @@ final class ShipmentTracking
             }
         }
         return $isChange;
+    }
+
+    /**
+     * Kod zdarzenia -> kod etapu (klucz CODE_MAP). Allegro bywa niekonsekwentne: zdarzenie „Przesyłka nadana”
+     * (Allegro One, DHL) przychodzi z kodem PENDING albo z kodem spoza listy, przez co paczka wisiała na
+     * „Czeka na nadanie”, a reguły „przesyłka w drodze -> Wysłane” nie ruszały. Dla PENDING patrzymy więc
+     * na opis (nadana / odebrana od nadawcy = w drodze), a nieznany kod rozpoznajemy po opisie jak przy DPD.
+     */
+    public static function stageCode(string $code, string $desc): string
+    {
+        if ($code === 'PENDING') {
+            $d = mb_strtolower($desc);
+            $handedOver = preg_match('/(?<!nie)nadan[aoy]\b/u', $d) === 1
+                || str_contains($d, 'odebrana od nadawcy') || str_contains($d, 'odebrana przez kuriera')
+                || str_contains($d, 'w drodze') || str_contains($d, 'sortowni') || str_contains($d, 'w transporcie');
+            return $handedOver ? 'IN_TRANSIT' : $code;
+        }
+        if ($code === '' || isset(self::CODE_MAP[$code])) {
+            return $code;
+        }
+        return match ($code) {
+            'SENT', 'PICKED_UP_FROM_SENDER' => 'IN_TRANSIT',
+            'OUT_FOR_DELIVERY' => 'RELEASED_FOR_DELIVERY',
+            default => trim($desc) !== '' ? (self::dpdCode($desc) ?? '') : '',
+        };
     }
 
     /** Co ile godzin harmonogram sprawdza paczki przewoźnika, który sam przysyła statusy (webhook). */

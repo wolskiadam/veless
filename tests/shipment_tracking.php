@@ -231,6 +231,31 @@ check($push('DELIVERED', '2026-10-09T10:00:00+02:00', '2999999999999') === 0, 'p
 check($push('NOPE', '2026-10-09T10:00:00+02:00') === 0, 'push: unknown status code ignored');
 check($push('PENDING', '2026-10-01T10:00:00+02:00', '21027 11810140') >= 1 && $row($manual)['tracking_carrier'] === 'ORLEN', 'push: number with spaces still matches');
 
+// „Przesyłka nadana” z kodem PENDING (Allegro One, DHL przez Allegro) to już paczka w drodze - nie „Czeka na nadanie”.
+check(ShipmentTracking::stageCode('PENDING', 'Przesyłka nadana') === 'IN_TRANSIT', 'PENDING "Przesyłka nadana" counts as in transit');
+check(ShipmentTracking::stageCode('PENDING', 'Przesyłka przygotowana przez nadawcę') === 'PENDING', 'prepared by sender stays pending');
+check(ShipmentTracking::stageCode('PENDING', 'Przesyłka jeszcze nienadana') === 'PENDING', '"nienadana" stays pending');
+check(ShipmentTracking::stageCode('PENDING', 'Czeka na nadanie') === 'PENDING', '"czeka na nadanie" stays pending');
+check(ShipmentTracking::stageCode('IN_TRANSIT', 'cokolwiek') === 'IN_TRANSIT', 'known codes unchanged');
+check(ShipmentTracking::stageCode('SENT', 'Przesyłka nadana') === 'IN_TRANSIT', 'unknown code SENT -> in transit');
+check(ShipmentTracking::stageCode('XYZ', 'Przesyłka doręczona') === 'DELIVERED', 'unknown code read from description');
+check(ShipmentTracking::stageCode('XYZ', '') === '', 'unknown code without description gives no stage');
+$client2 = new class {
+    public function carriers(): array { return [['id' => 'ALLEGRO', 'name' => 'Allegro']]; }
+    public function carrierTracking(string $carrier, array $waybills): array
+    {
+        return ['ok' => true, 'status' => 200, 'message' => '', 'waybills' => array_map(static fn($w) => ['waybill' => $w, 'trackingDetails' => ['statuses' => [
+            ['code' => 'PENDING', 'occurredAt' => '2026-10-30T19:36:00+01:00', 'description' => 'Przesyłka przygotowana przez nadawcę'],
+            ['code' => 'PENDING', 'occurredAt' => '2026-10-30T22:28:00+01:00', 'description' => 'Przesyłka nadana'],
+        ]]], $waybills)];
+    }
+};
+$pdo->exec("DELETE FROM settings");
+$one = $add('Allegro · ALLEGRO');
+$pdo->exec("UPDATE shipments SET waybill_no = 'AD0LRDD1577GSTJC5', tracking_status = 'pending', tracking_carrier = 'ALLEGRO' WHERE id = {$one}");
+$r = (new ShipmentTracking($pdo, $client2, [], static fn(string $w): ?array => null))->checkOne($one);
+check($r['ok'] && $row($one)['tracking_status'] === 'in_transit', 'Allegro One parcel "nadana" moves from pending to in transit');
+
 // Ikona wysyłki na liście zamówień: etap przesyłki (także ustawiony ręcznie) zmienia jej kolor.
 $ship = static fn(array $shipments, string $pase = 'processing') => \Pase\Services\OrderIndicators::forOrder(
     ['pase_status' => $pase, 'status' => 'processing'], ['shipping_lines' => [['method_id' => 'flat_rate:1']]], $shipments)['shipping'];

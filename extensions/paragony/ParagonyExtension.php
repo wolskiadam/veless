@@ -27,14 +27,19 @@ final class ParagonyExtension extends AbstractExtension
         return new ExtensionManifest(
             type: 'paragony',
             name: 'Paragony',
-            version: '1.0.0',
+            version: '1.1.0',
             author: 'Veless',
-            description: 'Zdjęcia paragonów z NIP-em (faktur uproszczonych) z zakupów firmy: data, sprzedawca, kwota i co kupiono. Lista miesiącami z sumami, dodawanie zdjęcia prosto z telefonu i paczka ZIP z miesiąca dla księgowości.',
+            description: 'Zdjęcia paragonów z NIP-em (faktur uproszczonych) z zakupów firmy: data, sprzedawca, kwota i co kupiono. Lista miesiącami z sumami, dodawanie zdjęcia prosto z telefonu, odczyt danych ze zdjęcia przez ChatGPT (z kluczem OpenAI) i paczka ZIP z miesiąca dla księgowości.',
             icon: '🧾',
             fields: [
                 ['key' => 'nip', 'label' => 'NIP firmy (przypomnienie przy dodawaniu paragonu)', 'type' => 'text',
-                 'help' => 'Pokazuje się nad formularzem, żeby mieć go pod ręką przy kasie.'],
+                 'help' => 'Pokazuje się nad formularzem, żeby mieć go pod ręką przy kasie. Odczyt przez ChatGPT sprawdza też, czy ten NIP jest na paragonie.'],
+                ['key' => 'openai_key', 'label' => 'Klucz API OpenAI (ChatGPT) do odczytu paragonów', 'type' => 'password', 'secret' => true,
+                 'help' => 'Utwórz go na platform.openai.com → API keys (konto API jest płatne osobno od abonamentu ChatGPT). Z kluczem formularz sam odczytuje sprzedawcę, NIP, datę, kwotę, VAT i zakupy ze zdjęcia. Zapisywany zaszyfrowany. Puste = bez odczytu.'],
+                ['key' => 'openai_model', 'label' => 'Model OpenAI', 'type' => 'text', 'default' => ReceiptReader::MODEL,
+                 'help' => 'Model z obsługą zdjęć. Zostaw domyślny, chyba że chcesz inny (np. dokładniejszy i droższy).'],
             ],
+            connects: 'OpenAI (ChatGPT) - zdjęcie paragonu, tylko gdy wpiszesz klucz',
         );
     }
 
@@ -61,10 +66,33 @@ final class ParagonyExtension extends AbstractExtension
                         exit;
                     } catch (\RuntimeException $e) {
                         flash($e->getMessage() . (self::upload() !== null ? ' Dodaj zdjęcie jeszcze raz.' : ''), 'err');
-                        return self::formPage($r, $ctx, $row, $_POST, (string) $this->setting('nip', ''));
+                        return self::formPage($r, $ctx, $row, $_POST, (string) $this->setting('nip', ''), $this->reader() !== null);
                     }
                 }
-                return self::formPage($r, $ctx, $row, null, (string) $this->setting('nip', ''));
+                return self::formPage($r, $ctx, $row, null, (string) $this->setting('nip', ''), $this->reader() !== null);
+            }]);
+
+        // Odczyt zdjęcia przez OpenAI: formularz wysyła wybrane zdjęcie, dostaje JSON z polami do wypełnienia.
+        Hooks::addPage('odczytaj', ['title' => 'Odczyt paragonu', 'menu' => false, 'role' => 'editor', 'raw' => true,
+            'render' => function (PDO $pdo, array $ctx): void {
+                header('Content-Type: application/json; charset=utf-8');
+                header('Cache-Control: no-store');
+                try {
+                    $reader = $this->reader() ?? throw new \RuntimeException('Brak klucza OpenAI. Wpisz go w Konfiguracja → Wtyczki → Paragony → ⚙ Ustawienia.');
+                    $f = self::upload();
+                    $tmp = (string) ($f['tmp_name'] ?? '');
+                    if (!$ctx['post'] || $f === null || ($f['error'] ?? 1) !== UPLOAD_ERR_OK || !is_uploaded_file($tmp)) {
+                        throw new \RuntimeException('Najpierw zrób albo wybierz zdjęcie paragonu.');
+                    }
+                    $data = $reader->read($tmp, Receipts::sniff($tmp) ?? '');
+                    $nip = preg_replace('/\D/', '', (string) $this->setting('nip', '')) ?? '';
+                    $warn = $nip !== '' && $data['buyer_nip'] !== $nip
+                        ? ($data['buyer_nip'] === '' ? 'Na paragonie nie widać NIP-u nabywcy - bez niego to nie jest faktura uproszczona.' : 'NIP nabywcy na paragonie (' . $data['buyer_nip'] . ') różni się od NIP-u firmy (' . $nip . ').')
+                        : '';
+                    echo json_encode(['ok' => true, 'data' => $data, 'warning' => $warn], JSON_UNESCAPED_UNICODE);
+                } catch (\RuntimeException $e) {
+                    echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+                }
             }]);
 
         Hooks::addPage('zobacz', ['title' => '🧾 Paragon', 'menu' => false, 'role' => 'viewer',
@@ -114,6 +142,17 @@ final class ParagonyExtension extends AbstractExtension
                 }
                 self::sendZip($repo()->list($month), $month);
             }]);
+    }
+
+    /** Odczyt przez OpenAI, gdy w ustawieniach jest klucz. */
+    private function reader(): ?ReceiptReader
+    {
+        $key = trim((string) $this->setting('openai_key', ''));
+        if ($key === '') {
+            return null;
+        }
+        // PARAGONY_OPENAI_URL tylko dla testów (udawany serwer OpenAI).
+        return new ReceiptReader($key, trim((string) $this->setting('openai_model', ReceiptReader::MODEL)), getenv('PARAGONY_OPENAI_URL') ?: ReceiptReader::ENDPOINT);
     }
 
     // ---------------------------------------------------------------- lista
@@ -221,7 +260,7 @@ final class ParagonyExtension extends AbstractExtension
 
     // ---------------------------------------------------------------- formularz
 
-    private static function formPage(Receipts $r, array $ctx, ?array $row, ?array $posted, string $nip = ''): string
+    private static function formPage(Receipts $r, array $ctx, ?array $row, ?array $posted, string $nip = '', bool $ai = false): string
     {
         $v = static fn(string $k, string $def = ''): string => self::h((string) ($posted[$k] ?? $row[$k] ?? $def));
         $gross = $posted['gross'] ?? ($row !== null ? number_format((float) $row['gross'], 2, ',', '') : '');
@@ -248,7 +287,9 @@ final class ParagonyExtension extends AbstractExtension
             . '<div class="pg-file"><span>' . ($row !== null ? 'Nowe zdjęcie (bez niego zostaje obecne)' : 'Zdjęcie paragonu') . '</span>'
             . '<div class="pg-pick"><label class="btn pg-cam">📷 Zrób zdjęcie<input type="file" name="photo_cam" id="pg-cam" accept="image/*" capture="environment"></label>'
             . '<label class="btn secondary">🖼 ' . '<span class="pg-cam-only">Z galerii</span><span class="pg-desk-only">Wybierz zdjęcie lub PDF</span>'
-            . '<input type="file" name="photo" id="pg-photo" accept="image/*,application/pdf"></label></div></div>'
+            . '<input type="file" name="photo" id="pg-photo" accept="image/*,application/pdf"></label>'
+            . ($ai ? '<button type="button" class="btn secondary" id="pg-ai" disabled data-url="' . self::h(Hooks::pageUrl('paragony.odczytaj')) . '"' . ($row === null ? ' data-auto="1"' : '') . '>✨ Odczytaj z paragonu</button>' : '')
+            . '</div>' . ($ai ? '<div id="pg-ai-msg" class="pg-ai-msg" role="status"></div>' : '') . '</div>'
             . '<div id="pg-prev">' . $current . '</div>'
             . '<div class="pg-grid">'
             . '<label>Data zakupu<br><input type="date" name="purchase_date" required max="' . date('Y-m-d') . '" value="' . $v('purchase_date', date('Y-m-d')) . '"></label>'
@@ -256,7 +297,7 @@ final class ParagonyExtension extends AbstractExtension
             . '<label>Sprzedawca (sklep)<br><input type="text" name="seller" id="pg-seller" required maxlength="200" list="pg-sellers" autocomplete="off" value="' . $v('seller') . '"></label>'
             . '<label>NIP sprzedawcy<br><input type="text" name="seller_nip" id="pg-nip" maxlength="20" inputmode="numeric" placeholder="z paragonu" value="' . $v('seller_nip') . '"></label>'
             . '<label>w tym VAT (zł, opcjonalnie)<br><input type="text" name="vat" inputmode="decimal" value="' . self::h((string) $vat) . '"></label>'
-            . '<label>Płatność<br><select name="payment">' . $pay . '</select></label>'
+            . '<label>Płatność<br><select name="payment" id="pg-pay">' . $pay . '</select></label>'
             . '<label>Numer paragonu (opcjonalnie)<br><input type="text" name="receipt_no" maxlength="64" value="' . $v('receipt_no') . '"></label>'
             . '</div>'
             . '<label>Co kupiono<br><textarea name="description" rows="3" maxlength="2000" placeholder="np. taśma pakowa i kartony do wysyłek">' . $v('description') . '</textarea></label>'
@@ -281,8 +322,9 @@ final class ParagonyExtension extends AbstractExtension
     }
 
     /**
-     * Podgląd wybranego zdjęcia, zmniejszenie dużego zdjęcia z aparatu przed wysłaniem (najdłuższy bok 2000 px, JPEG)
-     * i NIP podpowiadany z poprzednich paragonów tego sprzedawcy. Bez JS formularz wysyła oryginał.
+     * Podgląd wybranego zdjęcia, zmniejszenie dużego zdjęcia z aparatu przed wysłaniem (najdłuższy bok 2000 px, JPEG),
+     * odczyt przez ChatGPT (przy nowym paragonie sam po wyborze zdjęcia) i NIP podpowiadany z poprzednich paragonów
+     * tego sprzedawcy. Bez JS formularz wysyła oryginał i wszystko wpisuje się ręcznie.
      */
     private static function formScript(array $sellers): string
     {
@@ -297,32 +339,68 @@ final class ParagonyExtension extends AbstractExtension
   });
   var inputs = [document.getElementById('pg-cam'), document.getElementById('pg-photo')];
   var prev = document.getElementById('pg-prev'), save = document.getElementById('pg-save');
-  var MAX = 2000;
-  inputs.forEach(function (input) { input.addEventListener('change', function () {
-    var f = input.files && input.files[0];
-    // Wysyłamy tylko jedno zdjęcie: wybór w jednym polu czyści drugie.
-    inputs.forEach(function (other) { if (other !== input && f) { other.value = ''; } });
-    prev.innerHTML = '';
-    if (!f) { return; }
-    if (f.type === 'application/pdf') { prev.textContent = 'PDF: ' + f.name; return; }
-    var img = document.createElement('img');
-    img.className = 'pg-preview';
-    img.src = URL.createObjectURL(f);
-    prev.appendChild(img);
-    if (!window.createImageBitmap || !window.DataTransfer || f.size < 600 * 1024) { return; }
-    save.disabled = true;
-    createImageBitmap(f).then(function (bmp) {
+  var ai = document.getElementById('pg-ai'), aiMsg = document.getElementById('pg-ai-msg'), form = document.getElementById('pg-form');
+  var MAX = 2000, chosen = null, reading = false;
+  function shrink(input, f) {
+    if (!window.createImageBitmap || !window.DataTransfer || f.size < 600 * 1024) { return Promise.resolve(f); }
+    return createImageBitmap(f).then(function (bmp) {
       var scale = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
       var c = document.createElement('canvas');
       c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
       c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
       return new Promise(function (ok) { c.toBlob(ok, 'image/jpeg', 0.85); });
     }).then(function (blob) {
-      if (!blob || blob.size >= f.size) { return; }
+      if (!blob || blob.size >= f.size) { return f; }
       var dt = new DataTransfer();
       dt.items.add(new File([blob], f.name.replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' }));
       input.files = dt.files;
-    }).catch(function () {}).then(function () { save.disabled = false; });
+      return input.files[0];
+    }).catch(function () { return f; });
+  }
+  function say(text, kind) {
+    if (!aiMsg) { return; }
+    aiMsg.textContent = text;
+    aiMsg.className = 'pg-ai-msg' + (kind ? ' ' + kind : '');
+  }
+  // Odczyt przez ChatGPT: wypełnia pola tym, co dało się odczytać; resztę zostawia.
+  function read() {
+    if (!ai || !chosen || reading) { return; }
+    reading = true; ai.disabled = true; save.disabled = true;
+    say('Odczytuję paragon…');
+    var fd = new FormData();
+    fd.append('csrf', form.elements.csrf.value);
+    fd.append('photo', chosen, chosen.name);
+    fetch(ai.dataset.url, { method: 'POST', body: fd, credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (r) {
+      if (!r.ok) { say(r.error || 'Nie udało się odczytać paragonu.', 'err'); return; }
+      var n = 0;
+      ['purchase_date', 'gross', 'seller', 'seller_nip', 'vat', 'payment', 'receipt_no', 'description'].forEach(function (k) {
+        var el = form.elements[k];
+        if (el && r.data[k]) { el.value = r.data[k]; n++; }
+      });
+      say(n ? 'Odczytano z paragonu - sprawdź dane przed zapisem.' + (r.warning ? ' ⚠ ' + r.warning : '') : 'Nie udało się odczytać danych - wpisz je ręcznie.', r.warning || !n ? 'warn' : 'ok');
+    }).catch(function () { say('Brak połączenia - spróbuj jeszcze raz.', 'err'); })
+      .then(function () { reading = false; ai.disabled = false; save.disabled = false; });
+  }
+  if (ai) { ai.addEventListener('click', read); }
+  inputs.forEach(function (input) { input.addEventListener('change', function () {
+    var f = input.files && input.files[0];
+    // Wysyłamy tylko jedno zdjęcie: wybór w jednym polu czyści drugie.
+    inputs.forEach(function (other) { if (other !== input && f) { other.value = ''; } });
+    prev.innerHTML = '';
+    chosen = null;
+    if (ai) { ai.disabled = true; say(''); }
+    if (!f) { return; }
+    if (f.type === 'application/pdf') { prev.textContent = 'PDF: ' + f.name; return; }
+    var img = document.createElement('img');
+    img.className = 'pg-preview';
+    img.src = URL.createObjectURL(f);
+    prev.appendChild(img);
+    save.disabled = true;
+    shrink(input, f).then(function (file) {
+      save.disabled = false;
+      chosen = file;
+      if (ai) { ai.disabled = false; if (ai.dataset.auto) { read(); } }
+    });
   }); });
 })();
 </script>
@@ -479,7 +557,12 @@ HTML;
 .pg-pick label{position:relative;overflow:hidden;cursor:pointer;display:inline-flex;align-items:center;gap:6px;width:auto;margin:0}
 .pg-pick input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
 .pg-desk-only{display:none}
-@media (hover:hover) and (pointer:fine){.pg-cam{display:none}.pg-cam-only{display:none}.pg-desk-only{display:inline}}
+.pg-ai-msg:empty{display:none}
+.pg-ai-msg{font-size:14px;padding:8px 10px;border-radius:8px;background:var(--bg-2,#f3f1ec)}
+.pg-ai-msg.ok{background:#e7f4ec;color:#1e6b3e}
+.pg-ai-msg.warn{background:#fdf3e1;color:#7a5410}
+.pg-ai-msg.err{background:#fbe9e7;color:#b3261e}
+@media (hover:hover) and (pointer:fine){.pg-pick .pg-cam{display:none}.pg-cam-only{display:none}.pg-desk-only{display:inline}}
 .pg-preview{display:block;max-width:100%;max-height:300px;border-radius:6px;border:1px solid var(--line,#e5e2da)}
 @media (max-width:720px){.pg-view,.pg-grid{grid-template-columns:1fr}.pg-mhead .pg-zip{margin-left:0}.pg-main small{display:block}.pg-pay{display:none}.pg-thumb{width:44px;height:44px}}
 </style>';

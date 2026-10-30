@@ -4,7 +4,7 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
 // Rozszerzenie Paragony przez HTTP: prawdziwe strony panelu z extensions/paragony - dodanie paragonu ze zdjęciem,
 // lista miesiącami z sumami, wyszukiwanie, podgląd, zdjęcie tylko po zalogowaniu, poprawianie, ZIP miesiąca, usuwanie
-// i uprawnienia ról (podgląd nie dodaje ani nie usuwa). Baza SQLite.
+// i uprawnienia ról (podgląd nie dodaje ani nie usuwa), odczyt zdjęcia przez udawany serwer OpenAI. Baza SQLite.
 $root = dirname(__DIR__);
 spl_autoload_register(static function (string $class) use ($root): void {
     if (str_starts_with($class, 'Pase\\')) { require $root . '/src/' . str_replace('\\', '/', substr($class, 5)) . '.php'; }
@@ -121,12 +121,27 @@ try {
     $oins->execute([502, 12, '502', 'processing', 'new', 'PLN', 54.9, 'Anna Kowalska', 'anna@example.com', '2026-09-21 10:00:00', '2026-09-21 10:01:00',
         $order('Polna 2', [['product_id' => 2, 'sku' => 'MW-1L', 'name' => 'MULLED WINE 1l', 'quantity' => 1, 'price' => 39.9, 'total' => '39.90']], 54.9)]);
 
+    // Udawany serwer OpenAI: sprawdza klucz, zapisuje zapytanie i oddaje odczytany paragon.
+    mkdir("$temp/fake-openai");
+    file_put_contents("$temp/fake-openai/router.php", '<?php
+        file_put_contents(__DIR__ . "/request.json", file_get_contents("php://input"));
+        header("Content-Type: application/json");
+        if (($_SERVER["HTTP_AUTHORIZATION"] ?? "") !== "Bearer sk-test-123") { http_response_code(401); echo json_encode(["error" => ["message" => "Incorrect API key"]]); return; }
+        echo json_encode(["choices" => [["message" => ["content" => json_encode(["seller" => "Action Poland sp. z o.o.", "seller_nip" => "954-277-80-83",
+            "buyer_nip" => "PL9522282284", "purchase_date" => "2026-10-30", "gross" => 154.86, "vat" => 28.96, "payment" => "cash", "receipt_no" => "F0640/195",
+            "description" => "Farba ścienna 10 l, wałek teleskopowy, rękawice"])]]]]);');
+    $sock = stream_socket_server('tcp://127.0.0.1:0');
+    $fakeAddr = stream_socket_get_name($sock, false); fclose($sock);
+    $fake = proc_open([PHP_BINARY, '-S', $fakeAddr, "$temp/fake-openai/router.php"], [0 => ['pipe', 'r'], 1 => ['file', "$temp/fake.log", 'a'], 2 => ['file', "$temp/fake.log", 'a']], $fp);
+    putenv("PARAGONY_OPENAI_URL=http://$fakeAddr/v1/chat/completions");
+
     $socket = stream_socket_server('tcp://127.0.0.1:0');
     $address = stream_socket_get_name($socket, false); fclose($socket);
     $base = 'http://' . $address . '/';
     $process = proc_open([PHP_BINARY, '-d', 'display_errors=0', '-S', $address, '-t', "$temp/public"],
         [0 => ['pipe', 'r'], 1 => ['file', "$temp/server.log", 'a'], 2 => ['file', "$temp/server.log", 'a']], $pipes);
     fclose($pipes[0]);
+    for ($i = 0; $i < 100; ++$i) { $p = @stream_socket_client('tcp://' . $fakeAddr, $e1, $e2, 0.1); if ($p) { fclose($p); break; } usleep(10000); }
     for ($i = 0; $i < 100; ++$i) { $p = @stream_socket_client('tcp://' . $address, $e1, $e2, 0.1); if ($p) { fclose($p); break; } usleep(10000); }
 
 
@@ -177,6 +192,32 @@ try {
     $cam = $pdo->query("SELECT * FROM ext_paragony_receipts WHERE seller = 'Aparat Test'")->fetch(PDO::FETCH_ASSOC);
     ok($r['status'] === 302 && $cam && is_file("$temp/storage/uploads/paragony/" . $cam['file']), 'Photo from the camera button is saved');
     $pdo->exec("DELETE FROM ext_paragony_receipts WHERE seller = 'Aparat Test'");
+
+    // ---- Odczyt przez ChatGPT (OpenAI)
+    ok(!str_contains(request($ola, 'admin/ext.php?page=paragony.dodaj')['body'], 'id="pg-ai"'), 'No read button without an OpenAI key');
+    $r = request($ola, 'admin/ext.php?page=paragony.odczytaj', ['csrf' => csrfOf($form['body']), 'photo' => new CURLFile("$temp/paragon.jpg", 'image/jpeg', 'p.jpg')]);
+    ok($r['json']['ok'] === false && str_contains($r['json']['error'], 'Brak klucza OpenAI'), 'Read without a key explains what to do');
+    $pl = request($boss, 'admin/plugins.php');
+    ok(str_contains($pl['body'], 'name="cfg[openai_key]"') && str_contains($pl['body'], 'name="cfg[openai_model]"') && str_contains($pl['body'], 'OpenAI (ChatGPT)'), 'Plugin settings have the OpenAI key and model');
+    request($boss, 'admin/plugins.php', ['csrf' => csrfOf($pl['body']), 'action' => 'ext_settings', 'slug' => 'paragony', 'cfg' => ['nip' => '526-025-02-74', 'openai_key' => 'zly-klucz', 'openai_model' => 'gpt-4o-mini']]);
+    $stored = (string) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'EXT_PARAGONY'")->fetchColumn();
+    ok(str_contains($stored, '"openai_key":"enc:v1:') && !str_contains($stored, 'zly-klucz'), 'OpenAI key is stored encrypted');
+    $form2 = request($ola, 'admin/ext.php?page=paragony.dodaj');
+    ok(str_contains($form2['body'], 'id="pg-ai"') && str_contains($form2['body'], 'data-auto="1"') && str_contains($form2['body'], 'Odczytaj z paragonu'), 'Form has the read button with the key set');
+    $r = request($ola, 'admin/ext.php?page=paragony.odczytaj', ['csrf' => csrfOf($form2['body']), 'photo' => new CURLFile("$temp/paragon.jpg", 'image/jpeg', 'p.jpg')]);
+    ok($r['json']['ok'] === false && str_contains($r['json']['error'], 'odrzuciło klucz'), 'Wrong key is reported');
+    $pl = request($boss, 'admin/plugins.php');
+    request($boss, 'admin/plugins.php', ['csrf' => csrfOf($pl['body']), 'action' => 'ext_settings', 'slug' => 'paragony', 'cfg' => ['nip' => '526-025-02-74', 'openai_key' => 'sk-test-123', 'openai_model' => 'gpt-4o-mini']]);
+    $r = request($ola, 'admin/ext.php?page=paragony.odczytaj', ['csrf' => csrfOf($form2['body']), 'photo_cam' => new CURLFile("$temp/paragon.jpg", 'image/jpeg', 'p.jpg')]);
+    $sent = json_decode((string) file_get_contents("$temp/fake-openai/request.json"), true);
+    ok($r['json']['ok'] === true && $r['json']['data'] === ['seller' => 'Action Poland sp. z o.o.', 'seller_nip' => '9542778083', 'buyer_nip' => '9522282284',
+        'purchase_date' => '2026-10-30', 'gross' => '154,86', 'vat' => '28,96', 'payment' => 'cash', 'receipt_no' => 'F0640/195', 'description' => 'Farba ścienna 10 l, wałek teleskopowy, rękawice']
+        && str_contains($r['json']['warning'], 'różni się od NIP-u firmy'), 'Photo is read into form fields, with a warning when the buyer NIP is not the company NIP');
+    ok($sent['model'] === 'gpt-4o-mini' && str_starts_with($sent['messages'][1]['content'][1]['image_url']['url'], 'data:image/jpeg;base64,/9j/')
+        && $sent['response_format']['json_schema']['strict'] === true, 'OpenAI gets the photo and a strict JSON schema');
+    $r = request($ola, 'admin/ext.php?page=paragony.odczytaj', ['csrf' => csrfOf($form2['body']), 'photo' => new CURLFile("$temp/nie.jpg", 'image/jpeg', 'n.jpg')]);
+    ok($r['json']['ok'] === false && str_contains($r['json']['error'], 'tylko zdjęcie'), 'Non-photo is not sent to OpenAI');
+    ok(request($vi, 'admin/ext.php?page=paragony.odczytaj', ['csrf' => csrfOf(request($vi, 'admin/index.php')['body'])])['status'] === 403, 'Viewer cannot use the reader');
 
     // ---- Lista miesiącami
     $list = request($vi, 'admin/ext.php?page=paragony.lista&y=2026');
@@ -233,5 +274,6 @@ try {
     echo "PASS: {$checks} Paragony HTTP checks\n";
 } finally {
     if (is_resource($process)) { proc_terminate($process); proc_close($process); }
+    if (isset($fake) && is_resource($fake)) { proc_terminate($fake); proc_close($fake); }
     if (getenv('KEEP_TEMP')) { echo "temp: $temp\n"; } else { exec('rm -rf ' . escapeshellarg($temp)); }
 }

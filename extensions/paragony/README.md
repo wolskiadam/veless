@@ -19,6 +19,20 @@ Bez kont i bez połączeń z zewnątrz.
 W ustawieniach wtyczki (Konfiguracja → Wtyczki → Paragony → ⚙) można wpisać NIP firmy: pokazuje się nad formularzem,
 żeby mieć go pod ręką przy kasie.
 
+## Odczyt paragonu przez ChatGPT (OpenAI)
+
+Po wpisaniu w ustawieniach wtyczki **klucza API OpenAI** (platform.openai.com → API keys; konto API rozlicza się osobno
+od abonamentu ChatGPT) formularz sam odczytuje dane ze zdjęcia: zaraz po zrobieniu zdjęcia nowego paragonu wypełnia
+sprzedawcę, NIP sprzedawcy, datę, kwotę, VAT, płatność, numer i „co kupiono”. Przycisk **✨ Odczytaj z paragonu**
+odczytuje ponownie (np. przy poprawianiu). Nic nie zapisuje się samo: dane trzeba sprawdzić i kliknąć „Zapisz paragon”.
+Gdy w ustawieniach jest NIP firmy, odczyt ostrzega, jeśli na paragonie nie ma NIP-u nabywcy albo jest inny.
+
+- Do OpenAI idzie tylko zdjęcie paragonu (zmniejszone w przeglądarce, JPEG), przez `ReceiptReader` (Chat Completions,
+  odpowiedź według schematu JSON). PDF i HEIC nie są odczytywane.
+- Klucz jest polem `secret`: rdzeń trzyma go zaszyfrowanego, formularz go nie pokazuje.
+- Model domyślnie `gpt-4o-mini` (tani, z obsługą zdjęć), do zmiany w ustawieniach.
+- Bez klucza przycisku nie ma, a wtyczka nie łączy się z niczym.
+
 ## Uprawnienia
 
 Podgląd (rola „podgląd”) widzi listę, zdjęcia i pobiera ZIP. Dodawanie, poprawianie i usuwanie wymaga roli

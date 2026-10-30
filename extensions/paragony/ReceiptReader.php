@@ -21,9 +21,16 @@ final class ReceiptReader
     private const PROMPT = 'Odczytaj dane z polskiego paragonu fiskalnego (faktury uproszczonej) na zdjęciu. '
         . 'seller: nazwa sprzedawcy (firma z nagłówka, np. "Action Poland sp. z o.o."), seller_nip: NIP sprzedawcy (same cyfry), '
         . 'buyer_nip: NIP nabywcy, jeśli jest wydrukowany (same cyfry, bez "PL"), purchase_date: data sprzedaży RRRR-MM-DD, '
-        . 'gross: kwota SUMA / DO ZAPŁATY, vat: SUMA PTU (null, gdy jej nie ma), payment: card (karta), cash (gotówka), blik, transfer (przelew) albo pusty tekst, '
-        . 'receipt_no: numer paragonu / wydruku, jeśli jest czytelny, description: krótko po polsku, co kupiono (najwyżej 150 znaków, bez cen i kodów). '
+        . 'gross: kwota SUMA / DO ZAPŁATY, vat: SUMA PTU (null, gdy jej nie ma), receipt_no: numer paragonu / wydruku, jeśli jest czytelny. '
+        . 'payment: forma płatności z części pod sumą (np. „ROZLICZENIE PŁATNOŚCI”, „FORMA PŁATNOŚCI”): '
+        . '„gotówka” gdy jest „Gotówka”, „Got.”, „Wpłata gotówką” albo „Reszta”; „karta” gdy jest „Karta”, „Karta płatnicza”, „Płatność kartą”, „Visa”, „Mastercard”, „Maestro”, „Kredyt” albo numer karty (****); '
+        . '„blik” gdy jest „BLIK”; „przelew” gdy jest „Przelew”; „nie wiadomo” tylko gdy żadnej z tych informacji nie ma. '
+        . 'items: każda pozycja z paragonu osobno, w kolejności z paragonu: name to czytelna nazwa po polsku (rozwiń skróty kasowe, bez kodów, np. „Farba ścienna 10 l, biała”), '
+        . 'quantity ilość, total wartość pozycji w złotych. '
         . 'Gdy czegoś nie da się odczytać, zostaw pusty tekst albo null. Nie zgaduj.';
+
+    /** Forma płatności z odpowiedzi => klucz Receipts::PAYMENTS. */
+    private const PAYMENT_MAP = ['gotówka' => 'cash', 'karta' => 'card', 'blik' => 'blik', 'przelew' => 'transfer'];
 
     public function __construct(private readonly string $apiKey, private readonly string $model, private readonly string $endpoint = self::ENDPOINT)
     {
@@ -81,6 +88,7 @@ final class ReceiptReader
         $str = static fn(string $k, int $max): string => is_scalar($out[$k] ?? null) ? mb_substr(trim((string) $out[$k]), 0, $max) : '';
         $num = static fn(string $k): string => is_numeric($out[$k] ?? null) && (float) $out[$k] >= 0 ? number_format((float) $out[$k], 2, ',', '') : '';
         $date = $str('purchase_date', 10);
+        $payment = is_string($out['payment'] ?? null) ? mb_strtolower(trim($out['payment'])) : '';
         $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $date);
         return [
             'seller' => $str('seller', 200),
@@ -89,10 +97,27 @@ final class ReceiptReader
             'purchase_date' => $d !== false && $d->format('Y-m-d') === $date ? $date : '',
             'gross' => $num('gross'),
             'vat' => $num('vat'),
-            'payment' => in_array($out['payment'] ?? '', ['card', 'cash', 'blik', 'transfer'], true) ? (string) $out['payment'] : '',
+            'payment' => self::PAYMENT_MAP[$payment] ?? (in_array($payment, self::PAYMENT_MAP, true) ? $payment : ''),
             'receipt_no' => $str('receipt_no', 64),
-            'description' => $str('description', 300),
+            'description' => self::items($out['items'] ?? null) ?: $str('description', 300),
         ];
+    }
+
+    /** Pozycje jako podpunkty, po jednej w linii: „- Farba ścienna 10 l (79,00 zł)”, „- 2 × Rękawice robocze (7,98 zł)”. */
+    private static function items(mixed $items): string
+    {
+        $lines = [];
+        foreach (is_array($items) ? $items : [] as $it) {
+            $name = is_array($it) && is_scalar($it['name'] ?? null) ? trim(preg_replace('/\s+/u', ' ', (string) $it['name']) ?? '') : '';
+            if ($name === '') {
+                continue;
+            }
+            $qty = is_numeric($it['quantity'] ?? null) ? (float) $it['quantity'] : 1.0;
+            $total = is_numeric($it['total'] ?? null) ? number_format((float) $it['total'], 2, ',', '') . ' zł' : '';
+            $lines[] = '- ' . ($qty > 0 && abs($qty - 1) > 0.0001 ? rtrim(rtrim(number_format($qty, 3, ',', ''), '0'), ',') . ' × ' : '')
+                . mb_substr($name, 0, 120) . ($total !== '' ? ' (' . $total . ')' : '');
+        }
+        return mb_substr(implode("\n", array_slice($lines, 0, 40)), 0, 2000);
     }
 
     private static function schema(): array
@@ -101,12 +126,16 @@ final class ReceiptReader
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['seller', 'seller_nip', 'buyer_nip', 'purchase_date', 'gross', 'vat', 'payment', 'receipt_no', 'description'],
+            'required' => ['seller', 'seller_nip', 'buyer_nip', 'purchase_date', 'gross', 'vat', 'payment', 'receipt_no', 'items'],
             'properties' => [
                 'seller' => $text, 'seller_nip' => $text, 'buyer_nip' => $text, 'purchase_date' => $text,
                 'gross' => ['type' => ['number', 'null']], 'vat' => ['type' => ['number', 'null']],
-                'payment' => ['type' => 'string', 'enum' => ['card', 'cash', 'blik', 'transfer', '']],
-                'receipt_no' => $text, 'description' => $text,
+                'payment' => ['type' => 'string', 'enum' => ['gotówka', 'karta', 'blik', 'przelew', 'nie wiadomo']],
+                'receipt_no' => $text,
+                'items' => ['type' => 'array', 'items' => [
+                    'type' => 'object', 'additionalProperties' => false, 'required' => ['name', 'quantity', 'total'],
+                    'properties' => ['name' => $text, 'quantity' => ['type' => ['number', 'null']], 'total' => ['type' => ['number', 'null']]],
+                ]],
             ],
         ];
     }

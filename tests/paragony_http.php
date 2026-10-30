@@ -128,8 +128,8 @@ try {
         header("Content-Type: application/json");
         if (($_SERVER["HTTP_AUTHORIZATION"] ?? "") !== "Bearer sk-test-123") { http_response_code(401); echo json_encode(["error" => ["message" => "Incorrect API key"]]); return; }
         echo json_encode(["choices" => [["message" => ["content" => json_encode(["seller" => "Action Poland sp. z o.o.", "seller_nip" => "954-277-80-83",
-            "buyer_nip" => "PL9522282284", "purchase_date" => "2026-10-30", "gross" => 154.86, "vat" => 28.96, "payment" => "cash", "receipt_no" => "F0640/195",
-            "description" => "Farba ścienna 10 l, wałek teleskopowy, rękawice"])]]]]);');
+            "buyer_nip" => "PL9522282284", "purchase_date" => "2026-10-30", "gross" => 154.86, "vat" => 28.96, "payment" => "gotówka", "receipt_no" => "F0640/195",
+            "items" => [["name" => "Farba ścienna 10 l, biała", "quantity" => 1, "total" => 79], ["name" => "Rękawice robocze", "quantity" => 2, "total" => 7.98]]])]]]]);');
     $sock = stream_socket_server('tcp://127.0.0.1:0');
     $fakeAddr = stream_socket_get_name($sock, false); fclose($sock);
     $fake = proc_open([PHP_BINARY, '-S', $fakeAddr, "$temp/fake-openai/router.php"], [0 => ['pipe', 'r'], 1 => ['file', "$temp/fake.log", 'a'], 2 => ['file', "$temp/fake.log", 'a']], $fp);
@@ -211,10 +211,11 @@ try {
     $r = request($ola, 'admin/ext.php?page=paragony.odczytaj', ['csrf' => csrfOf($form2['body']), 'photo_cam' => new CURLFile("$temp/paragon.jpg", 'image/jpeg', 'p.jpg')]);
     $sent = json_decode((string) file_get_contents("$temp/fake-openai/request.json"), true);
     ok($r['json']['ok'] === true && $r['json']['data'] === ['seller' => 'Action Poland sp. z o.o.', 'seller_nip' => '9542778083', 'buyer_nip' => '9522282284',
-        'purchase_date' => '2026-10-30', 'gross' => '154,86', 'vat' => '28,96', 'payment' => 'cash', 'receipt_no' => 'F0640/195', 'description' => 'Farba ścienna 10 l, wałek teleskopowy, rękawice']
+        'purchase_date' => '2026-10-30', 'gross' => '154,86', 'vat' => '28,96', 'payment' => 'cash', 'receipt_no' => 'F0640/195', 'description' => "- Farba ścienna 10 l, biała (79,00 zł)\n- 2 × Rękawice robocze (7,98 zł)"]
         && str_contains($r['json']['warning'], 'różni się od NIP-u firmy'), 'Photo is read into form fields, with a warning when the buyer NIP is not the company NIP');
     ok($sent['model'] === 'gpt-4o-mini' && str_starts_with($sent['messages'][1]['content'][1]['image_url']['url'], 'data:image/jpeg;base64,/9j/')
-        && $sent['response_format']['json_schema']['strict'] === true, 'OpenAI gets the photo and a strict JSON schema');
+        && $sent['response_format']['json_schema']['strict'] === true && in_array('gotówka', $sent['response_format']['json_schema']['schema']['properties']['payment']['enum'], true),
+        'OpenAI gets the photo and a strict JSON schema with Polish payment names');
     $r = request($ola, 'admin/ext.php?page=paragony.odczytaj', ['csrf' => csrfOf($form2['body']), 'photo' => new CURLFile("$temp/nie.jpg", 'image/jpeg', 'n.jpg')]);
     ok($r['json']['ok'] === false && str_contains($r['json']['error'], 'tylko zdjęcie'), 'Non-photo is not sent to OpenAI');
     ok(request($vi, 'admin/ext.php?page=paragony.odczytaj', ['csrf' => csrfOf(request($vi, 'admin/index.php')['body'])])['status'] === 403, 'Viewer cannot use the reader');
@@ -231,6 +232,14 @@ try {
     $s = request($vi, 'admin/ext.php?page=paragony.lista&y=2026&q=woda');
     ok(str_contains($s['body'], 'Biedronka') && !str_contains($s['body'], 'Castorama'), 'Search by description');
     ok(str_contains(request($vi, 'admin/ext.php?page=paragony.lista&y=2025')['body'], 'Brak paragonów z 2025'), 'Other year is empty');
+
+    // ---- Pozycje jako podpunkty, zdjęcie w lightboxie
+    $pdo->prepare("UPDATE ext_paragony_receipts SET description = ? WHERE id = ?")->execute(["- Farba ścienna 10 l (79,00 zł)\n- 2 × Rękawice robocze (7,98 zł)", $row['id']]);
+    $v = request($vi, 'admin/ext.php?page=paragony.zobacz&id=' . $row['id']);
+    ok(str_contains($v['body'], '<ul class="pg-items"><li>Farba ścienna 10 l (79,00 zł)</li><li>2 × Rękawice robocze (7,98 zł)</li></ul>')
+        && str_contains($v['body'], 'data-lightbox="ext.php?page=paragony.plik') && str_contains($v['body'], 'id="pg-lb"'), 'Items are shown as bullet points and the photo opens in a lightbox');
+    ok(str_contains(request($vi, 'admin/ext.php?page=paragony.lista&y=2026')['body'], 'Farba ścienna 10 l, 2 × Rękawice robocze</span>'), 'List shows item names without prices');
+    $pdo->prepare("UPDATE ext_paragony_receipts SET description = ? WHERE id = ?")->execute([$row['description'], $row['id']]);
 
     // ---- Podgląd, plik
     $id = $row['id'];

@@ -12,7 +12,8 @@ Bez kont i bez połączeń z zewnątrz.
   na komputerze zdjęcie albo PDF), data
   zakupu, sprzedawca, NIP sprzedawcy, kwota brutto, opcjonalnie VAT, forma płatności, numer paragonu i „co kupiono”.
   Sprzedawca podpowiada się z poprzednich paragonów i uzupełnia jego NIP.
-- **Podgląd paragonu**: duże zdjęcie (kliknięcie otwiera pełny rozmiar), dane, „Pobierz plik”, „Popraw” i „Usuń”.
+- **Podgląd paragonu**: duże zdjęcie (kliknięcie otwiera je na całym ekranie, kolejne kliknięcie powiększa do pełnego
+  rozmiaru, ✕ albo Esc zamyka), dane, pozycje z paragonu jako podpunkty, „Pobierz plik”, „Popraw” i „Usuń”.
 - **⬇ Pobierz miesiąc (ZIP)**: zdjęcia z miesiąca nazwane `2026-10-05_Castorama_123,45.jpg` i
   `zestawienie-2026-10.csv` (średnik, UTF-8, otwiera się w Excelu) z sumą - do wysłania księgowej.
 
@@ -23,7 +24,8 @@ W ustawieniach wtyczki (Konfiguracja → Wtyczki → Paragony → ⚙) można wp
 
 Po wpisaniu w ustawieniach wtyczki **klucza API OpenAI** (platform.openai.com → API keys; konto API rozlicza się osobno
 od abonamentu ChatGPT) formularz sam odczytuje dane ze zdjęcia: zaraz po zrobieniu zdjęcia nowego paragonu wypełnia
-sprzedawcę, NIP sprzedawcy, datę, kwotę, VAT, płatność, numer i „co kupiono”. Przycisk **✨ Odczytaj z paragonu**
+sprzedawcę, NIP sprzedawcy, datę, kwotę, VAT, formę płatności (gotówka / karta / BLIK / przelew), numer i pozycje
+z paragonu (każda w osobnej linii, z ilością i ceną). Przycisk **✨ Odczytaj z paragonu**
 odczytuje ponownie (np. przy poprawianiu). Nic nie zapisuje się samo: dane trzeba sprawdzić i kliknąć „Zapisz paragon”.
 Gdy w ustawieniach jest NIP firmy, odczyt ostrzega, jeśli na paragonie nie ma NIP-u nabywcy albo jest inny.
 

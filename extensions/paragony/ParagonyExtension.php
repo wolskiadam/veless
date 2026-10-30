@@ -214,7 +214,7 @@ final class ParagonyExtension extends AbstractExtension
         return '<a class="pg-row" id="p-' . self::h($row['id']) . '" href="' . self::h($view) . '">' . self::thumb($row)
             . '<span class="pg-main"><b>' . self::h($row['seller']) . '</b>'
             . ($row['seller_nip'] !== '' ? ' <small>NIP ' . self::h($row['seller_nip']) . '</small>' : '')
-            . ($row['description'] !== '' ? '<span class="pg-desc">' . self::h($row['description']) . '</span>' : '') . '</span>'
+            . ($row['description'] !== '' ? '<span class="pg-desc">' . self::h(self::shortItems((string) $row['description'])) . '</span>' : '') . '</span>'
             . '<span class="pg-amount"><b>' . self::money($row['gross']) . '</b><small>' . self::h(self::date((string) $row['purchase_date']))
             . ($row['payment'] !== '' ? '<span class="pg-pay"> · ' . self::h($pay) . '</span>' : '') . '</small></span></a>';
     }
@@ -234,7 +234,7 @@ final class ParagonyExtension extends AbstractExtension
         $file = Hooks::pageUrl('paragony.plik', ['id' => $row['id']]);
         $media = $row['mime'] === 'application/pdf'
             ? '<a class="btn secondary" href="' . self::h($file) . '" target="_blank" rel="noopener">Otwórz PDF</a>'
-            : '<a href="' . self::h($file) . '" target="_blank" rel="noopener" title="Otwórz w pełnym rozmiarze"><img class="pg-photo" src="' . self::h($file) . '" alt="Zdjęcie paragonu"></a>';
+            : '<a href="' . self::h($file) . '" target="_blank" rel="noopener" data-lightbox="' . self::h($file) . '" title="Powiększ"><img class="pg-photo" src="' . self::h($file) . '" alt="Zdjęcie paragonu"></a>';
         $line = static fn(string $label, string $value): string => $value === '' ? '' : '<dt>' . $label . '</dt><dd>' . $value . '</dd>';
         $html = self::style() . '<p><a href="' . self::h(self::monthUrl((string) $row['purchase_date'], (string) $row['id'])) . '">← Paragony: '
             . self::h(self::monthName(substr((string) $row['purchase_date'], 0, 7))) . '</a></p>'
@@ -246,7 +246,7 @@ final class ParagonyExtension extends AbstractExtension
             . $line('Kwota', '<b>' . self::money($row['gross']) . '</b>')
             . $line('w tym VAT', $row['vat'] !== null ? self::money($row['vat']) : '')
             . $line('Płatność', $row['payment'] !== '' ? self::h(Receipts::PAYMENTS[(string) $row['payment']] ?? '') : '')
-            . $line('Co kupiono', '<span style="white-space:pre-wrap">' . self::h($row['description']) . '</span>')
+            . $line('Co kupiono', self::itemsHtml((string) $row['description']))
             . $line('Dodał(a)', self::h(trim((string) $row['created_by'] . ', ' . self::when((string) $row['created_at']), ', ')))
             . '</dl><div class="pg-actions"><a class="btn secondary" href="' . self::h($file . '&pobierz=1') . '">⬇ Pobierz plik</a>';
         if ($ctx['canEdit']) {
@@ -255,7 +255,58 @@ final class ParagonyExtension extends AbstractExtension
                 . '<input type="hidden" name="csrf" value="' . self::h($ctx['csrf']) . '"><input type="hidden" name="id" value="' . self::h($row['id']) . '">'
                 . '<button class="btn secondary pg-del" type="submit">Usuń</button></form>';
         }
-        return $html . '</div></div></div>';
+        return $html . '</div></div></div>' . self::lightbox();
+    }
+
+    /** Pozycje z opisu: jedna na linię, bez znaczników „- ”. @return list<string> */
+    private static function items(string $desc): array
+    {
+        $lines = array_map(static fn(string $l): string => trim(preg_replace('/^\s*[-•*–]\s*/u', '', $l) ?? $l), preg_split('/\R/u', $desc) ?: []);
+        return array_values(array_filter($lines, static fn(string $l): bool => $l !== ''));
+    }
+
+    /** „Co kupiono” w podglądzie: kilka pozycji (albo opis zaczęty od „- ”) jako podpunkty, inaczej zwykły tekst. */
+    private static function itemsHtml(string $desc): string
+    {
+        $items = self::items($desc);
+        if (count($items) < 2 && !preg_match('/^\s*[-•*–]\s/u', $desc)) {
+            return '<span style="white-space:pre-wrap">' . self::h($desc) . '</span>';
+        }
+        return '<ul class="pg-items">' . implode('', array_map(static fn(string $i): string => '<li>' . self::h($i) . '</li>', $items)) . '</ul>';
+    }
+
+    /** Krótko na liście: nazwy pozycji po przecinku, bez cen w nawiasach. */
+    private static function shortItems(string $desc): string
+    {
+        return implode(', ', array_map(static fn(string $i): string => preg_replace('/\s*\([\d\s,.]+\s*zł\)$/u', '', $i) ?? $i, self::items($desc)));
+    }
+
+    /** Powiększenie zdjęcia na całym ekranie: klik w zdjęcie przełącza dopasowanie / pełny rozmiar, ✕, Esc albo klik w tło zamyka. */
+    private static function lightbox(): string
+    {
+        return <<<'HTML'
+<div class="pg-lb" id="pg-lb" hidden role="dialog" aria-modal="true" aria-label="Zdjęcie paragonu">
+  <button type="button" class="pg-lb-close" aria-label="Zamknij">✕</button>
+  <div class="pg-lb-scroll"><img alt="Zdjęcie paragonu"></div>
+</div>
+<script>
+(function () {
+  var lb = document.getElementById('pg-lb'), img = lb.querySelector('img'), box = lb.querySelector('.pg-lb-scroll');
+  function close() { lb.hidden = true; lb.classList.remove('zoom'); img.removeAttribute('src'); document.body.style.overflow = ''; }
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-lightbox], img.pg-preview');
+    if (!el || lb.contains(el)) { return; }
+    e.preventDefault();
+    img.src = el.dataset.lightbox || el.src;
+    lb.hidden = false;
+    document.body.style.overflow = 'hidden';
+  });
+  img.addEventListener('click', function (e) { e.stopPropagation(); lb.classList.toggle('zoom'); });
+  lb.addEventListener('click', function (e) { if (e.target === lb || e.target === box || e.target.closest('.pg-lb-close')) { close(); } });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !lb.hidden) { close(); } });
+})();
+</script>
+HTML;
     }
 
     // ---------------------------------------------------------------- formularz
@@ -300,10 +351,10 @@ final class ParagonyExtension extends AbstractExtension
             . '<label>Płatność<br><select name="payment" id="pg-pay">' . $pay . '</select></label>'
             . '<label>Numer paragonu (opcjonalnie)<br><input type="text" name="receipt_no" maxlength="64" value="' . $v('receipt_no') . '"></label>'
             . '</div>'
-            . '<label>Co kupiono<br><textarea name="description" rows="3" maxlength="2000" placeholder="np. taśma pakowa i kartony do wysyłek">' . $v('description') . '</textarea></label>'
+            . '<label>Co kupiono<br><textarea name="description" rows="5" maxlength="2000" placeholder="np. taśma pakowa i kartony do wysyłek (każda pozycja w osobnej linii)">' . $v('description') . '</textarea></label>'
             . '<datalist id="pg-sellers">' . $list . '</datalist>'
             . '<div class="pg-actions"><button class="btn" type="submit" id="pg-save">Zapisz paragon</button><a class="btn secondary" href="' . self::h($back) . '">Anuluj</a></div>'
-            . '</form>' . self::formScript($sellers);
+            . '</form>' . self::formScript($sellers) . self::lightbox();
     }
 
     /**
@@ -439,7 +490,7 @@ HTML;
             }
             $csv .= self::csvLine([$row['purchase_date'], $row['seller'], $row['seller_nip'], $row['receipt_no'],
                 number_format((float) $row['gross'], 2, ',', ''), $row['vat'] !== null ? number_format((float) $row['vat'], 2, ',', '') : '',
-                Receipts::PAYMENTS[(string) $row['payment']] ?? '', $row['description'], $name]);
+                Receipts::PAYMENTS[(string) $row['payment']] ?? '', implode('; ', self::items((string) $row['description'])), $name]);
         }
         $csv .= self::csvLine(['Razem', '', '', '', number_format(array_sum(array_column($rows, 'gross')), 2, ',', ''), '', '', '', '']);
         $zip->addFromString('zestawienie-' . $month . '.csv', $csv);
@@ -557,6 +608,16 @@ HTML;
 .pg-pick label{position:relative;overflow:hidden;cursor:pointer;display:inline-flex;align-items:center;gap:6px;width:auto;margin:0}
 .pg-pick input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
 .pg-desk-only{display:none}
+.pg-items{margin:0;padding-left:18px}
+.pg-items li{margin:2px 0}
+.pg-preview,.pg-media img{cursor:zoom-in}
+.pg-lb{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.96)}
+.pg-lb[hidden]{display:none}
+.pg-lb-scroll{position:absolute;inset:0;overflow:auto;display:flex;align-items:center;justify-content:center}
+.pg-lb img{max-width:100vw;max-height:100vh;object-fit:contain;cursor:zoom-in}
+.pg-lb.zoom .pg-lb-scroll{display:block}
+.pg-lb.zoom img{max-width:none;max-height:none;cursor:zoom-out}
+.pg-lb-close{position:fixed;top:12px;right:12px;z-index:1;width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.18);color:#fff;font-size:22px;cursor:pointer}
 .pg-ai-msg:empty{display:none}
 .pg-ai-msg{font-size:14px;padding:8px 10px;border-radius:8px;background:var(--bg-2,#f3f1ec)}
 .pg-ai-msg.ok{background:#e7f4ec;color:#1e6b3e}

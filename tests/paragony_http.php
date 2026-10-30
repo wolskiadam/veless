@@ -148,6 +148,7 @@ try {
     // ---- Dodanie paragonu ze zdjęciem
     $form = request($ola, 'admin/ext.php?page=paragony.dodaj');
     ok($form['status'] === 200 && str_contains($form['body'], 'enctype="multipart/form-data"') && str_contains($form['body'], 'name="photo"')
+        && str_contains($form['body'], 'name="photo_cam" id="pg-cam" accept="image/*" capture="environment"') && str_contains($form['body'], 'Zrób zdjęcie')
         && str_contains($form['body'], '526-025-02-74'), 'Form has the photo field and the company NIP reminder');
     $img = imagecreatetruecolor(40, 60);
     imagefill($img, 0, 0, imagecolorallocate($img, 250, 250, 240));
@@ -169,6 +170,13 @@ try {
     $pdo->prepare("INSERT INTO ext_paragony_receipts (id, purchase_date, seller, seller_nip, receipt_no, gross, vat, payment, description, file, file_name, mime, created_by, created_at, updated_at)
         VALUES (?, ?, ?, '', '', ?, NULL, '', '', 'brak.jpg', 'x.jpg', 'image/jpeg', 'Ola', '2026-09-01 10:00:00', '2026-09-01 10:00:00')")
         ->execute(['bbbbbbbbbbbbbbbb', '2026-09-20', 'Orlen', 100]);
+
+    // Zdjęcie z przycisku „Zrób zdjęcie” (pole photo_cam) zapisuje się tak samo.
+    $r = request($ola, 'admin/ext.php?page=paragony.dodaj', array_merge($fields, ['csrf' => csrfOf(request($ola, 'admin/ext.php?page=paragony.dodaj')['body']), 'seller' => 'Aparat Test'])
+        + ['photo_cam' => new CURLFile("$temp/paragon.jpg", 'image/jpeg', 'image.jpg')]);
+    $cam = $pdo->query("SELECT * FROM ext_paragony_receipts WHERE seller = 'Aparat Test'")->fetch(PDO::FETCH_ASSOC);
+    ok($r['status'] === 302 && $cam && is_file("$temp/storage/uploads/paragony/" . $cam['file']), 'Photo from the camera button is saved');
+    $pdo->exec("DELETE FROM ext_paragony_receipts WHERE seller = 'Aparat Test'");
 
     // ---- Lista miesiącami
     $list = request($vi, 'admin/ext.php?page=paragony.lista&y=2026');

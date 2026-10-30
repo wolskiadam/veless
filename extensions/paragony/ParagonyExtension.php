@@ -55,12 +55,12 @@ final class ParagonyExtension extends AbstractExtension
                 }
                 if ($ctx['post']) {
                     try {
-                        $saved = $r->save($row !== null ? $id : null, $_POST, $_FILES['photo'] ?? null, (string) $ctx['user']);
+                        $saved = $r->save($row !== null ? $id : null, $_POST, self::upload(), (string) $ctx['user']);
                         flash(($row !== null ? 'Zapisano zmiany paragonu: ' : 'Dodano paragon: ') . $saved['seller'] . ', ' . self::money($saved['gross']) . '.');
                         header('Location: ' . self::monthUrl((string) $saved['purchase_date'], (string) $saved['id']));
                         exit;
                     } catch (\RuntimeException $e) {
-                        flash($e->getMessage() . (isset($_FILES['photo']) && ($_FILES['photo']['error'] ?? 4) !== UPLOAD_ERR_NO_FILE ? ' Dodaj zdjęcie jeszcze raz.' : ''), 'err');
+                        flash($e->getMessage() . (self::upload() !== null ? ' Dodaj zdjęcie jeszcze raz.' : ''), 'err');
                         return self::formPage($r, $ctx, $row, $_POST, (string) $this->setting('nip', ''));
                     }
                 }
@@ -245,8 +245,10 @@ final class ParagonyExtension extends AbstractExtension
             . ($nip !== '' ? '<p class="pg-nip">NIP firmy do podania przy kasie: <b>' . self::h($nip) . '</b></p>' : '')
             . '<input type="hidden" name="csrf" value="' . self::h($ctx['csrf']) . '">'
             . ($row !== null ? '<input type="hidden" name="id" value="' . self::h($row['id']) . '">' : '')
-            . '<label class="pg-file">' . ($row !== null ? 'Nowe zdjęcie (zostaw puste, żeby zachować obecne)' : 'Zdjęcie paragonu') . '<br>'
-            . '<input type="file" name="photo" id="pg-photo" accept="image/*,application/pdf"' . ($row === null ? ' required' : '') . '></label>'
+            . '<div class="pg-file"><span>' . ($row !== null ? 'Nowe zdjęcie (bez niego zostaje obecne)' : 'Zdjęcie paragonu') . '</span>'
+            . '<div class="pg-pick"><label class="btn pg-cam">📷 Zrób zdjęcie<input type="file" name="photo_cam" id="pg-cam" accept="image/*" capture="environment"></label>'
+            . '<label class="btn secondary">🖼 ' . '<span class="pg-cam-only">Wybierz z galerii</span><span class="pg-desk-only">Wybierz zdjęcie lub PDF</span>'
+            . '<input type="file" name="photo" id="pg-photo" accept="image/*,application/pdf"></label></div></div>'
             . '<div id="pg-prev">' . $current . '</div>'
             . '<div class="pg-grid">'
             . '<label>Data zakupu<br><input type="date" name="purchase_date" required max="' . date('Y-m-d') . '" value="' . $v('purchase_date', date('Y-m-d')) . '"></label>'
@@ -264,6 +266,21 @@ final class ParagonyExtension extends AbstractExtension
     }
 
     /**
+     * Przesłany plik: zdjęcie z aparatu albo z galerii / dysku (formularz ma dwa pola, wysyła się jedno).
+     * @return array<string,mixed>|null
+     */
+    private static function upload(): ?array
+    {
+        foreach (['photo_cam', 'photo'] as $field) {
+            $f = $_FILES[$field] ?? null;
+            if (is_array($f) && ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                return $f;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Podgląd wybranego zdjęcia, zmniejszenie dużego zdjęcia z aparatu przed wysłaniem (najdłuższy bok 2000 px, JPEG)
      * i NIP podpowiadany z poprzednich paragonów tego sprzedawcy. Bez JS formularz wysyła oryginał.
      */
@@ -278,10 +295,13 @@ final class ParagonyExtension extends AbstractExtension
   seller.addEventListener('change', function () {
     if (nip.value === '' && sellers[seller.value]) { nip.value = sellers[seller.value]; }
   });
-  var input = document.getElementById('pg-photo'), prev = document.getElementById('pg-prev'), save = document.getElementById('pg-save');
+  var inputs = [document.getElementById('pg-cam'), document.getElementById('pg-photo')];
+  var prev = document.getElementById('pg-prev'), save = document.getElementById('pg-save');
   var MAX = 2000;
-  input.addEventListener('change', function () {
+  inputs.forEach(function (input) { input.addEventListener('change', function () {
     var f = input.files && input.files[0];
+    // Wysyłamy tylko jedno zdjęcie: wybór w jednym polu czyści drugie.
+    inputs.forEach(function (other) { if (other !== input && f) { other.value = ''; } });
     prev.innerHTML = '';
     if (!f) { return; }
     if (f.type === 'application/pdf') { prev.textContent = 'PDF: ' + f.name; return; }
@@ -303,7 +323,7 @@ final class ParagonyExtension extends AbstractExtension
       dt.items.add(new File([blob], f.name.replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' }));
       input.files = dt.files;
     }).catch(function () {}).then(function () { save.disabled = false; });
-  });
+  }); });
 })();
 </script>
 HTML;
@@ -454,7 +474,12 @@ HTML;
 .pg-form input:not([type=file]),.pg-form select,.pg-form textarea{width:100%;box-sizing:border-box}
 .pg-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .pg-nip{margin:0;color:var(--ink-2)}
-.pg-file input{max-width:100%}
+.pg-file{display:flex;flex-direction:column;gap:6px}
+.pg-pick{display:flex;gap:8px;flex-wrap:wrap}
+.pg-pick label{position:relative;overflow:hidden;cursor:pointer;display:inline-flex;align-items:center;gap:6px;width:auto;margin:0}
+.pg-pick input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
+.pg-desk-only{display:none}
+@media (hover:hover) and (pointer:fine){.pg-cam{display:none}.pg-cam-only{display:none}.pg-desk-only{display:inline}}
 .pg-preview{display:block;max-width:100%;max-height:300px;border-radius:6px;border:1px solid var(--line,#e5e2da)}
 @media (max-width:720px){.pg-view,.pg-grid{grid-template-columns:1fr}.pg-mhead .pg-zip{margin-left:0}.pg-main small{display:block}.pg-pay{display:none}.pg-thumb{width:44px;height:44px}}
 </style>';

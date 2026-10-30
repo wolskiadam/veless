@@ -22,6 +22,30 @@ final class AllegroOrderMapper
     }
 
     /**
+     * Imię i nazwisko klienta do listy zamówień. Allegro nie zawsze podaje je w danych
+     * kupującego (buyer.firstName/lastName bywają puste), więc kolejno: kupujący, adres
+     * dostawy, nazwa firmy kupującego / z adresu dostawy / z faktury.
+     */
+    public static function customerName(array $payload): string
+    {
+        $buyer = $payload['buyer'] ?? [];
+        $del   = $payload['delivery']['address'] ?? [];
+        $person = static fn(array $a): string => trim(trim((string) ($a['firstName'] ?? '')) . ' ' . trim((string) ($a['lastName'] ?? '')));
+        foreach ([
+            $person(is_array($buyer) ? $buyer : []),
+            $person(is_array($del) ? $del : []),
+            trim((string) ($buyer['companyName'] ?? '')),
+            trim((string) ($del['companyName'] ?? '')),
+            trim((string) ($payload['invoice']['address']['company']['name'] ?? '')),
+        ] as $name) {
+            if ($name !== '') {
+                return $name;
+            }
+        }
+        return '';
+    }
+
+    /**
      * @param array<int,array{sku:?string,product_id:?int}> $matched dopasowanie do magazynu
      *        per indeks pozycji (z importu); brak => SKU z sygnatury oferty, product_id 0
      */

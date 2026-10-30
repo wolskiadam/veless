@@ -44,6 +44,7 @@ jobs:
       - run: php tests/operational_health.php
       - run: php tests/sales_workflow.php
       - run: php tests/invoice_data.php
+      - run: php tests/allegro_customer_name.php
       - run: php tests/backup_restore.php
       - run: php tests/backup_cli.php
       - run: php tests/section_backup.php

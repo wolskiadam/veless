@@ -119,7 +119,7 @@ final class NewAllegroOrderHandler
             $syntheticOrderId = 9_000_000_000 + crc32($sourceOrderId);
 
             $buyer = $payload['buyer'] ?? [];
-            $customerName = trim(($buyer['firstName'] ?? '') . ' ' . ($buyer['lastName'] ?? ''));
+            $customerName = \Pase\Support\AllegroOrderMapper::customerName($payload);
             $rawDate = $payload['boughtAt'] ?? $payload['updatedAt'] ?? null;
             $dateCreated = is_string($rawDate) && $rawDate !== ''
                 ? str_replace('T', ' ', substr($rawDate, 0, 19))

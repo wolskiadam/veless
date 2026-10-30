@@ -111,6 +111,7 @@ final class Migrator
             Logger::warn('Auto-migracja: numery zamówień ręcznych - ' . $e->getMessage());
         }
         $this->backfillAllegroOrderItems();
+        $this->backfillAllegroCustomerNames();
         $this->clearStubInvoiceIds();
     }
 
@@ -129,6 +130,36 @@ final class Migrator
             );
         } catch (\Throwable $e) {
             Logger::warn('Auto-migracja: nie udało się wyczyścić atrap numerów faktur - ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Zamówienia z Allegro bez imienia i nazwiska kupującego (puste buyer.firstName/lastName)
+     * zapisywały pusty customer_name - lista i karta klienta pokazywały „—”. Uzupełnia z adresu
+     * dostawy / nazwy firmy (AllegroOrderMapper::customerName). Idempotentne.
+     */
+    private function backfillAllegroCustomerNames(): void
+    {
+        try {
+            $rows = $this->pdo->query(
+                "SELECT woo_order_id, payload FROM woo_orders
+                 WHERE (customer_name IS NULL OR customer_name = '') AND payload LIKE '%\"lineItems\"%'"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            $save = $this->pdo->prepare('UPDATE woo_orders SET customer_name = ? WHERE woo_order_id = ?');
+            $fixed = 0;
+            foreach ($rows as $r) {
+                $payload = json_decode((string) $r['payload'], true);
+                $name = is_array($payload) ? AllegroOrderMapper::customerName($payload) : '';
+                if ($name !== '') {
+                    $save->execute([mb_substr($name, 0, 255), (int) $r['woo_order_id']]);
+                    ++$fixed;
+                }
+            }
+            if ($fixed > 0) {
+                Logger::info("Auto-migracja: uzupełniono nazwisko klienta w {$fixed} zamówieniach z Allegro");
+            }
+        } catch (\Throwable $e) {
+            Logger::warn('Auto-migracja: nazwiska klientów Allegro - ' . $e->getMessage());
         }
     }
 

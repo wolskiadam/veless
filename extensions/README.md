@@ -106,6 +106,9 @@ Skopiuj go do `extensions/przyklad/`, żeby zobaczyć efekt.
 Prawdziwe rozszerzenie z kontem zewnętrznej usługi: **`extensions/ksef/`** (e-faktury do KSeF - sekcja karty zamówienia,
 ikona na liście, strony, akcja automatyzacji, token jako pole `secret` w ustawieniach). Opis: `extensions/ksef/README.md`.
 
+Własne strony z formularzem i wgrywaniem zdjęć (bez haków list i kart): **`extensions/paragony/`** (paragony z NIP-em
+z zakupów firmy, miesiącami, zdjęcia w `storage/uploads/`). Opis: `extensions/paragony/README.md`.
+
 ## Katalog haków
 
 Priorytet (trzeci argument `addFilter`/`addAction`, domyślnie 10): mniejszy działa wcześniej.

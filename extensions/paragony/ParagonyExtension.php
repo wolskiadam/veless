@@ -247,7 +247,7 @@ final class ParagonyExtension extends AbstractExtension
             . ($row !== null ? '<input type="hidden" name="id" value="' . self::h($row['id']) . '">' : '')
             . '<div class="pg-file"><span>' . ($row !== null ? 'Nowe zdjęcie (bez niego zostaje obecne)' : 'Zdjęcie paragonu') . '</span>'
             . '<div class="pg-pick"><label class="btn pg-cam">📷 Zrób zdjęcie<input type="file" name="photo_cam" id="pg-cam" accept="image/*" capture="environment"></label>'
-            . '<label class="btn secondary">🖼 ' . '<span class="pg-cam-only">Wybierz z galerii</span><span class="pg-desk-only">Wybierz zdjęcie lub PDF</span>'
+            . '<label class="btn secondary">🖼 ' . '<span class="pg-cam-only">Z galerii</span><span class="pg-desk-only">Wybierz zdjęcie lub PDF</span>'
             . '<input type="file" name="photo" id="pg-photo" accept="image/*,application/pdf"></label></div></div>'
             . '<div id="pg-prev">' . $current . '</div>'
             . '<div class="pg-grid">'

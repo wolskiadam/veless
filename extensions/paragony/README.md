@@ -8,7 +8,7 @@ Bez kont i bez połączeń z zewnątrz.
 - **Zamówienia → 🧾 Paragony**: paragony z wybranego roku pogrupowane po miesiącach (od najnowszego), przy każdym
   miesiącu liczba paragonów i suma (oraz suma VAT, jeśli był wpisany). Wyszukiwanie po sklepie, NIP-ie (z kreskami
   albo bez), numerze paragonu i opisie.
-- **+ Dodaj paragon**: zdjęcie (na telefonie przycisk **📷 Zrób zdjęcie** od razu otwiera aparat, obok „Wybierz z galerii”;
+- **+ Dodaj paragon**: zdjęcie (na telefonie przycisk **📷 Zrób zdjęcie** od razu otwiera aparat, obok „Z galerii”;
   na komputerze zdjęcie albo PDF), data
   zakupu, sprzedawca, NIP sprzedawcy, kwota brutto, opcjonalnie VAT, forma płatności, numer paragonu i „co kupiono”.
   Sprzedawca podpowiada się z poprzednich paragonów i uzupełnia jego NIP.

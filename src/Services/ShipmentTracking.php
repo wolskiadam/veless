@@ -652,9 +652,11 @@ final class ShipmentTracking
      */
     public static function stageCode(string $code, string $desc): string
     {
+        // Allegro One opisuje zdarzenia po angielsku („Parcel has been sent”) - najpierw tłumaczymy jak przy wyświetlaniu.
+        $desc = \Pase\Support\TrackingText::translate($desc) ?? $desc;
         if ($code === 'PENDING') {
             $d = mb_strtolower($desc);
-            $handedOver = preg_match('/(?<!nie)nadan[aoy]\b/u', $d) === 1
+            $handedOver = preg_match('/(?<!nie)(?:nadan|wysłan)[aoy]\b/u', $d) === 1
                 || str_contains($d, 'odebrana od nadawcy') || str_contains($d, 'odebrana przez kuriera')
                 || str_contains($d, 'w drodze') || str_contains($d, 'sortowni') || str_contains($d, 'w transporcie');
             return $handedOver ? 'IN_TRANSIT' : $code;

@@ -236,6 +236,10 @@ check(ShipmentTracking::stageCode('PENDING', 'Przesyłka nadana') === 'IN_TRANSI
 check(ShipmentTracking::stageCode('PENDING', 'Przesyłka przygotowana przez nadawcę') === 'PENDING', 'prepared by sender stays pending');
 check(ShipmentTracking::stageCode('PENDING', 'Przesyłka jeszcze nienadana') === 'PENDING', '"nienadana" stays pending');
 check(ShipmentTracking::stageCode('PENDING', 'Czeka na nadanie') === 'PENDING', '"czeka na nadanie" stays pending');
+check(ShipmentTracking::stageCode('PENDING', 'Parcel has been sent') === 'IN_TRANSIT', 'English "Parcel has been sent" (Allegro One) counts as in transit');
+check(ShipmentTracking::stageCode('PENDING', 'Parcel has been dispatched to its destination point') === 'IN_TRANSIT', 'English "dispatched to destination point" counts as in transit');
+check(ShipmentTracking::stageCode('PENDING', 'Parcel has been prepared by the sender') === 'PENDING', 'English "prepared by the sender" stays pending');
+check(ShipmentTracking::stageCode('PENDING', 'The parcel is ready to be sent') === 'PENDING', 'English "ready to be sent" stays pending');
 check(ShipmentTracking::stageCode('IN_TRANSIT', 'cokolwiek') === 'IN_TRANSIT', 'known codes unchanged');
 check(ShipmentTracking::stageCode('SENT', 'Przesyłka nadana') === 'IN_TRANSIT', 'unknown code SENT -> in transit');
 check(ShipmentTracking::stageCode('XYZ', 'Przesyłka doręczona') === 'DELIVERED', 'unknown code read from description');

@@ -303,6 +303,38 @@ try {
     $r = $post($ola, 'import', ['kind' => 'bne', 'text' => '{"foo":1}']);
     ok(str_contains($r['body'], 'To nie jest kopia z Rejestru Partii'), 'Wrong JSON is refused');
 
+    // ---- Eksport i import partii (CSV)
+    $ex = request($vi, $url('partie_eksport'));
+    $csv = $ex["body"];
+    ok($ex['status'] === 200 && str_contains($ex['headers'], 'text/csv') && str_contains($ex['headers'], 'partie-') && str_starts_with($csv, "\xEF\xBB\xBF")
+        && str_contains($csv, '"Numer partii";"Data produkcji";Produkt;SKU') && str_contains($csv, 'AD010LX02ABBA') && str_contains($csv, 'AL001BW02AAB'), 'Viewer exports batches to CSV');
+    $line = array_values(array_filter(explode("\n", $csv), static fn($l) => str_starts_with($l, 'AD010LX02ABBA')))[0] ?? '';
+    ok(str_contains($line, ';2026-11-04;') && str_contains($line, 'Świeca Piernik 180') && preg_match('/;#\d+/', $line) === 1 && str_contains($line, 'Wosk sojowy'), 'Exported batch has date, product, materials and orders: ' . $line);
+    $exf = request($vi, $url('partie_eksport', ['q' => 'AL001']))['body'];
+    ok(str_contains($exf, 'AL001BW02AAB') && !str_contains($exf, 'AD010LX02ABBA'), 'Export follows the list filters');
+    $before = (int) $pdo->query('SELECT COUNT(*) FROM ext_prod_batches')->fetchColumn();
+    $r = $post($ola, 'import', ['kind' => 'partie', 'text' => $csv]);
+    ok($r['status'] === 302 && str_contains($flash($ola), 'dodano 0') && (int) $pdo->query('SELECT COUNT(*) FROM ext_prod_batches')->fetchColumn() === $before, 'Re-importing our own export adds nothing');
+    $stockBefore = (int) $pdo->query("SELECT actual_stock FROM products WHERE sku = 'GB-1L'")->fetchColumn();
+    // Eksport „Partie CSV” z Rejestru Partii: przecinek, data d.m.Y, bez numeru w jednym wierszu, Windows-1250.
+    $old = iconv('UTF-8', 'CP1250', "Kod,Data,Produkt,Zapach,Wosk,Ilość,Pracownik\nOLD001,14.03.2025,Świeca Piernik 180,Piernik,Sojowy,12,Ola\n,15.03.2025,Wosk zapachowy,Wanilia,Rzepakowy,30,Adam\nOLD003,,Bez daty,,,1,\n");
+    $r = $post($ola, 'import', ['kind' => 'partie', 'text' => $old]);
+    $f = $flash($ola);
+    $o1 = $pdo->query("SELECT b.*, p.name AS pname FROM ext_prod_batches b LEFT JOIN ext_prod_products p ON p.id = b.product_id WHERE b.code = 'OLD001'")->fetch(PDO::FETCH_ASSOC);
+    $o2 = $pdo->query("SELECT * FROM ext_prod_batches WHERE code = 'IMP-20250315-01'")->fetch(PDO::FETCH_ASSOC);
+    ok($r['status'] === 302 && str_contains($f, 'dodano 2') && str_contains($f, 'nowych wyrobów 1') && str_contains($f, 'pominięto 1 bez daty') && str_contains($f, 'Wiersz 4'), 'Old CSV batches are imported');
+    ok($o1 && $o1['produced_at'] === '2025-03-14' && (int) $o1['qty'] === 12 && $o1['person'] === 'Ola' && $o1['product_id'] === $prod && str_contains($o1['notes'], 'Zapach: Piernik')
+        && (int) $o1['imported'] === 1 && $o2 && $o2['product_name'] === 'Wosk zapachowy', 'Imported batches keep date, quantity, person and link to existing products');
+    ok((int) $pdo->query("SELECT actual_stock FROM products WHERE sku = 'GB-1L'")->fetchColumn() === $stockBefore, 'Imported history does not change product stock');
+    $post($ola, 'import', ['kind' => 'partie', 'text' => $old]);
+    ok(str_contains($flash($ola), 'pominięto 1 z numerem'), 'Importing the same file again skips known numbers');
+    $r = $post($ola, 'import', ['kind' => 'partie', 'text' => "Produkt;Ilość\nX;1"]);
+    ok(str_contains($r['body'], 'Nie znalazłem kolumny z datą'), 'File without a date column is refused');
+    $r = request($vi, $url('import', ['co' => 'partie']));
+    ok($r['status'] !== 200 || !str_contains($r['body'], 'name="kind" value="partie"'), 'Viewer cannot open the import');
+    $mx = request($vi, $url('materialy_eksport'));
+    ok($mx['status'] === 200 && str_contains($mx['body'], 'nazwa;kategoria;jednostka;kod;stan') && str_contains($mx["body"], '"Goldenwax 464";Wosk;g;01;20000;380;5000'), 'Materials export in the import format');
+
     // ---- Osoby i zmiany
     $post($ola, 'ludzie', ['person_name' => ['Adam Wolski', 'Ola'], 'person_rate' => ['40', '25'], 'shift_name' => ['Seria 1', 'Poranna'], 'shift_code' => ['z', 'p']]);
     $sh = $pdo->query("SELECT id FROM ext_prod_dict WHERE kind = 'shift' AND name = 'Poranna'")->fetchColumn();

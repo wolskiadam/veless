@@ -124,6 +124,7 @@ jobs:
       - run: php tests/ksef.php
       - run: php tests/ksef_http.php
       - run: php tests/paragony_http.php
+      - run: php tests/produkcja_http.php
       - run: php tests/allegro_offer_hooks_http.php
       - run: php tests/document_concurrency.php
       - run: php tests/order_list_sort.php

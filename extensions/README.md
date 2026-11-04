@@ -109,6 +109,9 @@ ikona na liście, strony, akcja automatyzacji, token jako pole `secret` w ustawi
 Własne strony z formularzem i wgrywaniem zdjęć (bez haków list i kart): **`extensions/paragony/`** (paragony z NIP-em
 z zakupów firmy, miesiącami, zdjęcia w `storage/uploads/`). Opis: `extensions/paragony/README.md`.
 
+Większe rozszerzenie z własną grupą menu, hakiem pakowania i sekcją karty zamówienia: **`extensions/produkcja/`**
+(produkcja świec - materiały, receptury, partie z numerem partii, testy spalania). Opis: `extensions/produkcja/README.md`.
+
 ## Katalog haków
 
 Priorytet (trzeci argument `addFilter`/`addAction`, domyślnie 10): mniejszy działa wcześniej.

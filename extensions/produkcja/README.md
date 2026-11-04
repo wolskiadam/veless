@@ -1,0 +1,56 @@
+# Produkcja (rozszerzenie)
+
+Produkcja świec: materiały i magazyn, wyroby z recepturą i kosztem, partie z numerem partii, testy spalania
+i numer partii przy zamówieniu. Kod numerów partii pochodzi z wtyczki WordPress „Rejestr Partii”
+(batch-number-generator-pro), przeniesiony do CRM. Bez kont i bez połączeń z zewnątrz.
+
+## Co robi
+
+- **Produkcja → Pulpit**: liczba materiałów, wyrobów i partii, co się kończy (poniżej minimum), terminy ważności
+  dostaw, co da się zrobić z obecnego stanu i ostatnie partie. Na pustej wtyczce: pierwsze kroki i import.
+- **Materiały i magazyn**: wosk, zapachy, knoty, pojemniki, opakowania i inne (jednostki g, ml, szt.). Każdy materiał
+  ma dostawy (ilość, cena, dostawca, numer partii dostawcy, ważność); stan to suma tego, co zostało z dostaw,
+  a cena jednostkowa to średnia ważona z pozostałego zapasu. Historia ruchów, kosz dostaw (30 dni), inwentaryzacja
+  i import CSV (`nazwa;kategoria;jednostka;kod;stan;cena;minimum;dostawca;ważne do`, kg i l przeliczane na g i ml).
+- **Wyroby**: receptura (materiał + ilość na sztukę), koszt materiałów i robocizny, cena, marża, próg rentowności,
+  symulator ceny, ile sztuk da się zrobić i powiązanie z produktem CRM po SKU.
+- **Partie**: nowa partia zdejmuje materiały z magazynu (najpierw wskazana dostawa, potem najstarsze) i zapisuje,
+  z których dostaw poszły. Numer partii z wzoru w ustawieniach (domyślnie jak w Rejestrze Partii:
+  `{DC}{QTY}{MC}{YC}{WC}{SC}{WK}{PC}`), podgląd na żywo, dekoder numeru, szkice do zatwierdzenia, kosz (30 dni),
+  etykiety do druku. Brak materiału blokuje zapis, chyba że zaznaczy się „zapisz mimo braków”.
+- **Testy spalania**: pomiary (jeziorko, płomień, kopcenie, tunelowanie), zdjęcie, powiązanie z partią i wyrobem.
+- **Numer partii przy zamówieniu**: osoba pakująca wpisuje numer partii przy każdej pozycji na ekranie pakowania
+  (podpowiedzi z ostatnich partii tego SKU); to samo pole jest w karcie zamówienia. Na karcie partii widać,
+  do których zamówień poszła.
+
+## Stan produktów CRM
+
+Zatwierdzona partia dodaje sztuki do produktu CRM o tym samym SKU. Ustawienie „Partia dokłada sztuki do”:
+stan faktyczny (`actual_stock`, domyślnie; pomijany, gdy produkt nie był jeszcze liczony), stan CRM (`pase_stock`,
+wysyłany do sklepu przez kolejkę `woo.stock.push`), oba albo nigdzie. Usunięcie lub poprawienie partii cofa materiały
+i sztuki. Sprzedaż zdejmuje stan jak dotąd, wtyczka niczego przy sprzedaży nie zmienia.
+
+## Import z Rejestru Partii
+
+**Produkcja → Pulpit → Import danych**: plik kopii zapasowej JSON z Rejestru Partii. Woski, zapachy, knoty i pojemniki
+stają się materiałami (z kodami do numeru partii), pracownicy i zmiany słownikami, dostawy historią dostaw
+(bez stanu), a rekordy partiami z wyrobami. Ponowny import tego samego pliku niczego nie dubluje.
+
+## Ustawienia
+
+Konfiguracja → Wtyczki → Produkcja → ⚙: wzór numeru partii, gdzie dodać sztuki, stawka godzinowa, koszty stałe
+miesięczne (do progu rentowności), rozmiar etykiety i dane producenta na etykiecie.
+
+## Uprawnienia
+
+Podgląd (rola „podgląd”) widzi wszystko i wpisuje numer partii przy pakowaniu. Dodawanie i zmiany wymagają roli
+edytora.
+
+## Licencja
+
+`License::active()` zwraca na razie zawsze `true`. Docelowo wtyczka będzie wymagała kodu licencyjnego; sprawdzenie
+trafi tam.
+
+## Dane
+
+Tabele `ext_prod_*` (MySQL i SQLite), zdjęcia testów w `storage/uploads/produkcja/`. Test: `php tests/produkcja_http.php`.

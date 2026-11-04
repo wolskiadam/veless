@@ -258,7 +258,13 @@ $dialogs = '';
                         <input type="hidden" name="slug" value="<?= htmlspecialchars($p['slug']) ?>">
                         <?php foreach ($m->fields as $f): $k = (string) ($f['key'] ?? ''); if ($k === '') { continue; }
                             $type = (string) ($f['type'] ?? 'text'); $val = (string) ($vals[$k] ?? ($f['default'] ?? ''));
-                            $fname = 'cfg[' . htmlspecialchars($k) . ']'; ?>
+                            $fname = 'cfg[' . htmlspecialchars($k) . ']';
+                            if ($type === 'link'): $href = (string) ($f['url'] ?? '');
+                                // Tylko strony panelu (ext.php?…), bez adresów zewnętrznych i javascript:.
+                                if (!str_starts_with($href, 'ext.php?')) { continue; } ?>
+                            <div class="ext-link"><a class="btn secondary" href="<?= htmlspecialchars($href) ?>"><?= htmlspecialchars((string) ($f['label'] ?? $k)) ?> →</a>
+                                <?php if (!empty($f['help'])): ?><small><?= htmlspecialchars((string) $f['help']) ?></small><?php endif; ?></div>
+                            <?php continue; endif; ?>
                             <label>
                                 <?php if ($type === 'checkbox'): ?>
                                     <span><input type="checkbox" name="<?= $fname ?>" value="1"<?= $val === '1' ? ' checked' : '' ?>> <?= htmlspecialchars((string) ($f['label'] ?? $k)) ?></span>
@@ -341,6 +347,7 @@ $dialogs = '';
     .ext-cfg label > span { font-weight:600; }
     .ext-cfg small { color:var(--ink-2); }
     .ext-cfg .ext-clear { margin-top:-6px; }
+    .ext-cfg .ext-link { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .ext-cfg .ext-clear > span { font-weight:400; color:var(--ink-2); font-size:12px; }
     .ext-cfg .pl-dialog-foot { margin-top:6px; position:sticky; bottom:-20px; background:var(--surface); padding:12px 0 4px; border-top:1px solid var(--line); }
 </style>

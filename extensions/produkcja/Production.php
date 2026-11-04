@@ -43,11 +43,27 @@ final class Production
         return ['wax' => $best['wosk'][1], 'scent' => $best['zapach'][1], 'wick' => $wick];
     }
 
-    public function code(?array $product, string $date, int $qty, string $shiftCode, ?string $exceptId = null): string
+    /** Dane do numeru partii bez wyrobu: wybrany wosk, zapach i knot. @param list<array<string,mixed>> $plan z freePlan() */
+    public static function freeCodeParts(array $plan): array
+    {
+        $out = ['wax' => '', 'scent' => '', 'wick' => ''];
+        foreach ($plan as $l) {
+            match ($l['category'] ?? '') {
+                'wosk' => $out['wax'] = (string) $l['code'],
+                'zapach' => $out['scent'] = (string) $l['code'],
+                'knot' => $out['wick'] = (string) $l['name'],
+                default => null,
+            };
+        }
+        return $out;
+    }
+
+    /** @param ?array $parts gotowe dane do numeru (partia bez wyrobu), inaczej z receptury wyrobu */
+    public function code(?array $product, string $date, int $qty, string $shiftCode, ?string $exceptId = null, ?array $parts = null): string
     {
         $existing = array_map('strval', array_column($this->s->all('SELECT code FROM ext_prod_batches WHERE deleted_at IS NULL'
             . ($exceptId !== null ? ' AND id <> ?' : ''), $exceptId !== null ? [$exceptId] : []), 'code'));
-        return BatchCode::generate($this->pattern(), $date, $this->codeParts($product) + [
+        return BatchCode::generate($this->pattern(), $date, ($parts ?? $this->codeParts($product)) + [
             'qty' => $qty, 'shift' => $shiftCode, 'seq' => $this->s->countOnDay($date, $exceptId) + 1,
         ], $existing);
     }
@@ -56,11 +72,18 @@ final class Production
      * Nowa partia albo zmiana istniejącej (cofa starą i zapisuje od nowa).
      * Wejście: product_id, produced_at, qty, person, shift, work_hours, notes, draft (wycena robocza), pick[material_id] = dostawa,
      * allow_short (zapisz mimo braków), keep_code.
+     * Partia bez wyrobu (jak w Rejestrze Partii): free=1, product_name, shelf_life_months i f[wosk|zapach|knot|pojemnik] = [id, qty]
+     * - materiały wybrane ręcznie, ilość na całą partię (pusta = tylko do numeru i historii, bez zdejmowania ze stanu).
      */
     public function save(?string $id, array $in, string $user): array
     {
         $old = $id !== null ? ($this->s->batch($id) ?? throw new \RuntimeException('Nie ma takiej partii.')) : null;
-        $product = $this->s->product((string) ($in['product_id'] ?? '')) ?? throw new \RuntimeException('Wybierz wyrób.');
+        $free = !empty($in['free']);
+        $product = $free ? null : ($this->s->product((string) ($in['product_id'] ?? '')) ?? throw new \RuntimeException('Wybierz wyrób albo zrób partię bez wyrobu.'));
+        $name = $free ? mb_substr(trim((string) ($in['product_name'] ?? '')), 0, 200) : (string) $product['name'];
+        if ($name === '') {
+            throw new \RuntimeException('Wpisz nazwę produktu.');
+        }
         $qty = (int) ($in['qty'] ?? 0);
         if ($qty < 1 || $qty > 99999) {
             throw new \RuntimeException('Wpisz ilość sztuk (1-99999).');
@@ -70,19 +93,21 @@ final class Production
         $shift = $this->dictRow('shift', (string) ($in['shift'] ?? ''));
         $person = $this->dictRow('person', (string) ($in['person'] ?? ''));
         $hours = Store::num($in['work_hours'] ?? '');
-        $months = (int) $product['shelf_life_months'];
+        $months = $free ? max(0, min(120, (int) ($in['shelf_life_months'] ?? 12))) : (int) $product['shelf_life_months'];
 
-        return $this->s->tx(function () use ($old, $product, $qty, $date, $draft, $shift, $person, $hours, $months, $in, $user): array {
+        return $this->s->tx(function () use ($old, $product, $name, $free, $qty, $date, $draft, $shift, $person, $hours, $months, $in, $user): array {
             if ($old !== null) {
                 $this->revert($old, $user, 'zmiana partii');
             }
+            $plan = $free ? $this->freePlan((array) ($in['f'] ?? []), (array) ($in['pick'] ?? [])) : $this->plan($product, $qty, (array) ($in['pick'] ?? []));
             $id = $old['id'] ?? Store::id();
             $keep = $old !== null && !empty($in['keep_code']) && (int) $old['is_draft'] === ($draft ? 1 : 0);
-            $code = $keep ? (string) $old['code'] : ($draft ? BatchCode::draft($date) : $this->code($product, $date, $qty, (string) ($shift['code'] ?? ''), $old['id'] ?? null));
+            $code = $keep ? (string) $old['code'] : ($draft ? BatchCode::draft($date)
+                : $this->code($product, $date, $qty, (string) ($shift['code'] ?? ''), $old['id'] ?? null, $free ? self::freeCodeParts($plan) : null));
             $row = [
                 'code' => $code,
-                'product_id' => $product['id'],
-                'product_name' => $product['name'],
+                'product_id' => $product['id'] ?? null,
+                'product_name' => $name,
                 'produced_at' => $date,
                 'qty' => $qty,
                 'expires_at' => $months > 0 ? date('Y-m-d', strtotime($date . ' +' . $months . ' months')) : null,
@@ -93,7 +118,6 @@ final class Production
                 'notes' => mb_substr(trim((string) ($in['notes'] ?? '')), 0, 2000),
                 'updated_at' => Store::now(),
             ];
-            $plan = $this->plan($product, $qty, (array) ($in['pick'] ?? []));
             if (!$draft && empty($in['allow_short'])) {
                 $short = array_filter($plan, static fn(array $l): bool => $l['need'] > $l['stock'] + 0.0005);
                 if ($short !== []) {
@@ -130,6 +154,52 @@ final class Production
         return $out;
     }
 
+    public const FREE_KINDS = ['wosk' => 'Wosk', 'zapach' => 'Zapach', 'knot' => 'Knot', 'pojemnik' => 'Pojemnik'];
+
+    /**
+     * Materiały partii bez wyrobu: wybrany wosk, zapach, knot i pojemnik z ilością na całą partię.
+     * @param array<string,array{id?:string,qty?:string}> $f
+     * @return list<array<string,mixed>> jak plan(), z kategorią i kodem
+     */
+    public function freePlan(array $f, array $pick = []): array
+    {
+        $out = [];
+        foreach (array_keys(self::FREE_KINDS) as $cat) {
+            $m = $this->s->material((string) ($f[$cat]['id'] ?? ''));
+            if ($m === null) {
+                continue;
+            }
+            $need = Store::num($f[$cat]['qty'] ?? '');
+            $out[] = ['material_id' => (string) $m['id'], 'name' => (string) $m['name'], 'unit' => (string) $m['unit'], 'category' => $cat, 'code' => (string) $m['code'],
+                'need' => $need !== null && $need > 0 ? round($need, 3) : 0.0, 'stock' => $this->s->stock((string) $m['id']), 'pick' => (string) ($pick[$m['id']] ?? '')];
+        }
+        return $out;
+    }
+
+    /** Pola partii bez wyrobu z zapisanej partii (do edycji i zatwierdzenia wyceny). @return array<string,array{id:string,qty:string}> */
+    public function freeFields(array $b): array
+    {
+        $f = [];
+        foreach (json_decode((string) $b['lines_json'], true) ?: [] as $l) {
+            $cat = (string) ($l['category'] ?? ($this->s->material((string) $l['material_id'])['category'] ?? ''));
+            if (isset(self::FREE_KINDS[$cat]) && !isset($f[$cat])) {
+                $f[$cat] = ['id' => (string) $l['material_id'], 'qty' => (float) $l['need'] > 0 ? Ui::n($l['need']) : ''];
+            }
+        }
+        return $f;
+    }
+
+    /** Okres przydatności partii w miesiącach (z dat), do edycji partii bez wyrobu. */
+    public static function shelfMonths(array $b): int
+    {
+        if (empty($b['expires_at'])) {
+            return 0;
+        }
+        $a = new \DateTimeImmutable((string) $b['produced_at']);
+        $d = $a->diff(new \DateTimeImmutable((string) $b['expires_at']));
+        return max(0, $d->y * 12 + $d->m);
+    }
+
     /** Zdjęcie materiałów i dołożenie sztuk (wycena robocza tylko liczy koszt z cen). */
     private function apply(string $id, array $plan, bool $draft, string $user): void
     {
@@ -139,16 +209,21 @@ final class Production
         $known = true;
         $prices = $draft ? $this->s->unitPrices() : [];
         foreach ($plan as $l) {
-            if ($draft) {
+            $extra = isset($l['category']) ? ['category' => $l['category']] : [];
+            if ((float) $l['need'] <= 0) {
+                // Partia bez wyrobu: materiał wybrany bez ilości - tylko do numeru i historii.
+                $c = 0.0;
+                $lines[] = ['material_id' => $l['material_id'], 'name' => $l['name'], 'unit' => $l['unit'], 'need' => 0, 'taken' => [], 'missing' => 0, 'cost' => null] + $extra;
+            } elseif ($draft) {
                 $unit = $prices[$l['material_id']] ?? null;
                 $c = $unit !== null ? round($unit * $l['need'], 4) : null;
-                $lines[] = ['material_id' => $l['material_id'], 'name' => $l['name'], 'unit' => $l['unit'], 'need' => $l['need'], 'taken' => [], 'missing' => 0, 'cost' => $c];
+                $lines[] = ['material_id' => $l['material_id'], 'name' => $l['name'], 'unit' => $l['unit'], 'need' => $l['need'], 'taken' => [], 'missing' => 0, 'cost' => $c] + $extra;
             } else {
                 $r = $this->s->consume($l['material_id'], $l['need'], $l['pick'], $id, 'partia', 'partia ' . $b['code'], $user);
                 $costs = array_column($r['taken'], 'cost');
                 $c = in_array(null, $costs, true) || $costs === [] ? null : array_sum($costs);
                 $lines[] = ['material_id' => $l['material_id'], 'name' => $l['name'], 'unit' => $l['unit'], 'need' => $l['need'],
-                    'taken' => $r['taken'], 'missing' => $r['missing'], 'cost' => $c !== null ? round($c, 4) : null];
+                    'taken' => $r['taken'], 'missing' => $r['missing'], 'cost' => $c !== null ? round($c, 4) : null] + $extra;
             }
             if ($c === null) {
                 $known = false;
@@ -158,7 +233,8 @@ final class Production
         }
         $stock = $draft ? [] : $this->addToProduct((string) $b['product_id'], (int) $b['qty'], (string) $b['code']);
         $this->s->update('ext_prod_batches', $id, ['lines_json' => json_encode($lines, JSON_UNESCAPED_UNICODE),
-            'stock_json' => json_encode($stock, JSON_UNESCAPED_UNICODE), 'cost_materials' => $plan === [] ? null : round($cost, 2) + ($known ? 0 : 0)]);
+            'stock_json' => json_encode($stock, JSON_UNESCAPED_UNICODE),
+            'cost_materials' => array_filter($plan, static fn(array $l): bool => (float) $l['need'] > 0) === [] ? null : round($cost, 2) + ($known ? 0 : 0)]);
     }
 
     /** Cofnięcie partii: materiały wracają do swoich dostaw, sztuki schodzą z produktu. */
@@ -196,12 +272,16 @@ final class Production
         return $this->s->tx(function () use ($b, $user): array {
             $this->s->update('ext_prod_batches', (string) $b['id'], ['deleted_at' => null]);
             $product = $b['product_id'] !== null ? $this->s->product((string) $b['product_id']) : null;
-            if ((int) $b['is_draft'] === 0 && (int) $b['imported'] === 0 && $product !== null) {
+            if ((int) $b['is_draft'] === 0 && (int) $b['imported'] === 0) {
                 $pick = [];
                 foreach (json_decode((string) $b['lines_json'], true) ?: [] as $l) {
                     $pick[$l['material_id']] = (string) ($l['taken'][0]['delivery_id'] ?? '');
                 }
-                $this->apply((string) $b['id'], $this->plan($product, (int) $b['qty'], $pick), false, $user);
+                if ($product !== null) {
+                    $this->apply((string) $b['id'], $this->plan($product, (int) $b['qty'], $pick), false, $user);
+                } elseif ($b['product_id'] === null) {
+                    $this->apply((string) $b['id'], $this->freePlan($this->freeFields($b), $pick), false, $user);
+                }
             }
             return $this->s->batch((string) $b['id']) ?? [];
         });
@@ -213,7 +293,8 @@ final class Production
         $b = $this->s->batch($id) ?? throw new \RuntimeException('Nie ma takiej wyceny.');
         $shift = $this->s->one('SELECT id FROM ext_prod_dict WHERE kind = ? AND name = ?', ['shift', $b['shift']]);
         $person = $this->s->one('SELECT id FROM ext_prod_dict WHERE kind = ? AND name = ?', ['person', $b['person']]);
-        return $this->save($id, ['product_id' => $b['product_id'], 'produced_at' => $b['produced_at'], 'qty' => $b['qty'],
+        $free = $b['product_id'] === null ? ['free' => 1, 'product_name' => $b['product_name'], 'shelf_life_months' => self::shelfMonths($b), 'f' => $this->freeFields($b)] : [];
+        return $this->save($id, $free + ['product_id' => $b['product_id'], 'produced_at' => $b['produced_at'], 'qty' => $b['qty'],
             'person' => $person['id'] ?? $b['person'], 'shift' => $shift['id'] ?? '', 'work_hours' => $b['work_hours'], 'notes' => $b['notes'],
             'allow_short' => $allowShort ? 1 : 0], $user);
     }

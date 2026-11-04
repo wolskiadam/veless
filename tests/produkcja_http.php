@@ -152,10 +152,13 @@ try {
         'cfg' => ['pattern' => '{DC}{QTY}{MC}{YC}{WC}{SC}{WK}{PC}', 'stock_target' => 'actual', 'hourly_rate' => '30', 'fixed_monthly' => '600', 'label_w' => '50', 'label_h' => '30',
         'maker' => "Klub Woskarzy\nul. Testowa 1, Warszawa"]]);
     ok($r['status'] === 200 && str_contains($r['body'], 'Zapisano ustawienia'), 'Settings are saved');
+    ok(str_contains($pl['body'], 'href="ext.php?page=produkcja.import"') && str_contains($pl['body'], 'Import i eksport danych')
+        && !str_contains((string) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'EXT_PRODUKCJA'")->fetchColumn(), '"import"'), 'Import is linked from the plugin settings (link field stores nothing)');
     $home = request($vi, 'admin/index.php')['body'];
     ok(preg_match('#Produkcja\s*<svg#', $home) === 1 && str_contains($home, 'href="ext.php?page=produkcja.pulpit"') && str_contains($home, 'href="ext.php?page=produkcja.testy"'), 'Own menu tab with the pages');
     $d = request($ola, $url('pulpit'));
-    ok($d['status'] === 200 && str_contains($d['body'], 'Zacznij od tego, co masz na półce') && str_contains($d['body'], '+ Dodaj materiał'), 'Empty dashboard shows the first steps');
+    ok($d['status'] === 200 && str_contains($d['body'], 'Zacznij od tego, co masz na półce') && str_contains($d['body'], '+ Dodaj materiał')
+        && !str_contains($d['body'], 'produkcja.import'), 'Empty dashboard shows the first steps (import only in settings)');
     ok(!str_contains(request($vi, $url('materialy'))['body'], '+ Dodaj materiał'), 'Viewer sees no add button');
     ok(request($vi, $url('material_zapisz'), ['csrf' => csrfOf($home), 'name' => 'X'])['status'] === 403, 'Viewer cannot save');
 
@@ -334,6 +337,40 @@ try {
     ok($r['status'] !== 200 || !str_contains($r['body'], 'name="kind" value="partie"'), 'Viewer cannot open the import');
     $mx = request($vi, $url('materialy_eksport'));
     ok($mx['status'] === 200 && str_contains($mx['body'], 'nazwa;kategoria;jednostka;kod;stan') && str_contains($mx["body"], '"Goldenwax 464";Wosk;g;01;20000;380;5000'), 'Materials export in the import format');
+
+    // ---- Partia bez wyrobu (jak w Rejestrze Partii)
+    $fm = request($ola, $url('partia_nowa', ['bez' => 1]))['body'];
+    ok(str_contains($fm, 'name="product_name"') && str_contains($fm, 'name="f[wosk][id]"') && str_contains($fm, 'name="free" value="1"') && !str_contains($fm, 'name="product_id"'), 'Batch form without a product');
+    $code = json_decode(request($ola, $url('partia_kod', ['free' => 1, 'produced_at' => '2026-11-07', 'qty' => 6, 'f' => ['wosk' => ['id' => $wax], 'zapach' => ['id' => $scent], 'knot' => ['id' => $wick]]]))['body'], true);
+    ok(str_starts_with($code['code'] ?? '', 'AG006LX02ABB'), 'Live number from the chosen wax, scent and wick: ' . ($code['code'] ?? ''));
+    $waxBefore = $stock('Wosk sojowy Golden 464');
+    $scentBefore = $stock('Olejek Piernik');
+    $crmBefore = $actual();
+    $r = $post($ola, 'partia_nowa', ['free' => 1, 'save' => 1, 'product_name' => 'Świeca sojowa Lawenda', 'shelf_life_months' => '18', 'qty' => '6', 'produced_at' => '2026-11-07',
+        'f' => ['wosk' => ['id' => $wax, 'qty' => '600'], 'zapach' => ['id' => $scent, 'qty' => ''], 'knot' => ['id' => $wick, 'qty' => '6'], 'pojemnik' => ['id' => '', 'qty' => '']]]);
+    $fid = $locId($r);
+    $fb = $pdo->query("SELECT * FROM ext_prod_batches WHERE id = '$fid'")->fetch(PDO::FETCH_ASSOC);
+    ok($r['status'] === 302 && $fb && $fb['product_id'] === null && $fb['product_name'] === 'Świeca sojowa Lawenda' && str_starts_with($fb['code'], 'AG006LX02ABB')
+        && $fb['expires_at'] === '2028-05-07' && (int) $fb['qty'] === 6, 'Batch without a product is saved: ' . ($fb['code'] ?? ''));
+    ok($stock('Wosk sojowy Golden 464') == $waxBefore - 600 && $stock('Olejek Piernik') == $scentBefore && $actual() === $crmBefore,
+        'Only materials with a quantity leave the stock, no CRM product is touched');
+    $fc = request($vi, $url('partia', ['id' => $fid]))['body'];
+    ok(str_contains($fc, 'Świeca sojowa Lawenda') && str_contains($fc, 'Wosk sojowy Golden 464') && str_contains($fc, 'Olejek Piernik'), 'Card lists the chosen materials');
+    $fe = request($ola, $url('partia_nowa', ['id' => $fid]))['body'];
+    ok(str_contains($fe, 'value="Świeca sojowa Lawenda"') && str_contains($fe, 'value="600"') && str_contains($fe, 'value="18"'), 'Edit form is filled from the batch');
+    $post($ola, 'partia_usun', ['id' => $fid]);
+    ok($stock('Wosk sojowy Golden 464') == $waxBefore, 'Trash gives the wax back');
+    $post($ola, 'partia_przywroc', ['id' => $fid]);
+    ok($stock('Wosk sojowy Golden 464') == $waxBefore - 600, 'Restore takes it again');
+    $r = $post($ola, 'partia_nowa', ['free' => 1, 'save' => 1, 'draft' => 1, 'product_name' => 'Lawenda próbna', 'qty' => '2', 'produced_at' => '2026-11-08',
+        'f' => ['wosk' => ['id' => $wax, 'qty' => '300']]]);
+    $did = $locId($r);
+    ok($stock('Wosk sojowy Golden 464') == $waxBefore - 600, 'Free draft does not take materials');
+    $post($ola, 'partia_zatwierdz', ['id' => $did]);
+    $db = $pdo->query("SELECT * FROM ext_prod_batches WHERE id = '$did'")->fetch(PDO::FETCH_ASSOC);
+    ok((int) $db['is_draft'] === 0 && $db['product_name'] === 'Lawenda próbna' && $stock('Wosk sojowy Golden 464') == $waxBefore - 900, 'Approved free draft takes the materials');
+    $r = $post($ola, 'partia_nowa', ['free' => 1, 'save' => 1, 'product_name' => '', 'qty' => '1']);
+    ok(str_contains($r['body'], 'Wpisz nazwę produktu'), 'Name is required without a product');
 
     // ---- Osoby i zmiany
     $post($ola, 'ludzie', ['person_name' => ['Adam Wolski', 'Ola'], 'person_rate' => ['40', '25'], 'shift_name' => ['Seria 1', 'Poranna'], 'shift_code' => ['z', 'p']]);

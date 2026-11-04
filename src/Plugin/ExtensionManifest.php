@@ -7,6 +7,8 @@ namespace Pase\Plugin;
  * Manifest wtyczki rozszerzającej. Pola ustawień ($fields) mają ten sam format co
  * w PluginManifest (text, textarea, select, checkbox, url, password) - formularz
  * pokazuje strona Konfiguracja → Wtyczki, a wartości czyta AbstractExtension::setting().
+ * Dodatkowo typ link (['type' => 'link', 'label' => ..., 'url' => Hooks::pageUrl(...)]): przycisk w oknie ustawień
+ * prowadzący do strony rozszerzenia (np. import danych), bez zapisywanej wartości.
  */
 final class ExtensionManifest
 {

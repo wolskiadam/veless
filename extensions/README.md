@@ -74,6 +74,8 @@ final class MojafunkcjaExtension extends AbstractExtension
             icon: '🧩',
             fields: [                     // ustawienia w panelu (opcjonalnie), format jak w integracjach
                 ['key' => 'kolor', 'label' => 'Kolor', 'type' => 'select', 'options' => ['red' => 'Czerwony', 'blue' => 'Niebieski']],
+                // przycisk do własnej strony (np. import danych) w oknie ustawień; nic nie zapisuje
+                ['key' => 'import', 'label' => 'Import danych', 'type' => 'link', 'url' => Hooks::pageUrl('przyklad.import')],
             ],
             connects: '',                 // usługa poza CRM, z którą się łączysz (np. 'KSeF'), do opisu uprawnień
         );

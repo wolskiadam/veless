@@ -24,13 +24,12 @@ final class MaterialPages
             . '<div class="pr-top"><p>Surowce i opakowania: stan, ceny z dostaw i to, co się kończy.</p><div class="pr-actions">'
             . ($all !== [] ? '<a class="btn secondary" href="' . U::h(U::url('materialy_eksport')) . '" title="Materiały ze stanem do pliku CSV (da się go wczytać z powrotem)">⬇ Eksport CSV</a>' : '')
             . ($ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('inwentaryzacja')) . '">✓ Inwentaryzacja</a>'
-                . '<a class="btn secondary" href="' . U::h(U::url('import', ['co' => 'materialy'])) . '">⬆ Import</a>'
                 . '<a class="btn" href="' . U::h(U::url('material', ['nowy' => 1])) . '">+ Dodaj materiał</a>' : '')
             . '</div></div>';
 
         if ($all === [] && !$arch) {
             return $html . U::empty('Dodaj pierwszy materiał', 'Wystarczy nazwa. Stan, cenę i dostawcę uzupełnisz przy przyjęciu dostawy albo wczytasz wszystko z pliku CSV lub z kopii Rejestru Partii.',
-                $ctx['canEdit'] ? '<a class="btn" href="' . U::h(U::url('material', ['nowy' => 1])) . '">+ Dodaj materiał</a><a class="btn secondary" href="' . U::h(U::url('import')) . '">Import z pliku</a>' : '');
+                $ctx['canEdit'] ? '<a class="btn" href="' . U::h(U::url('material', ['nowy' => 1])) . '">+ Dodaj materiał</a>' : '');
         }
 
         $cats = ['' => 'Wszystkie kategorie'] + Store::CATEGORIES;

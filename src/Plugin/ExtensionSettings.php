@@ -61,6 +61,9 @@ final class ExtensionSettings
                 continue;
             }
             $type = (string) ($f['type'] ?? 'text');
+            if ($type === 'link') {
+                continue;
+            }
             $v = $type === 'checkbox' ? (!empty($posted[$k]) ? '1' : '0') : trim((string) ($posted[$k] ?? ''));
             if ($type === 'select' && $v !== '' && !array_key_exists($v, (array) ($f['options'] ?? []))) {
                 $v = '';

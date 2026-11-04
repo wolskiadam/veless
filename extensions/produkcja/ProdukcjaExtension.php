@@ -30,6 +30,9 @@ final class ProdukcjaExtension extends AbstractExtension
             description: 'Produkcja świec: materiały z magazynem i datami ważności, wyroby z recepturą i kosztem sztuki, partie z numerem do śledzenia (zdejmują materiały i dokładają sztuki do produktu), testy spalania i numer partii przypisywany przy pakowaniu. Import danych z Rejestru Partii.',
             icon: '🕯',
             fields: [
+                ['key' => 'import', 'label' => 'Import i eksport danych', 'type' => 'link', 'url' => Hooks::pageUrl('produkcja.import'),
+                 'help' => 'Rejestr Partii (kopia JSON), stare partie i materiały z Excela (CSV), eksport do CSV.'],
+                ['key' => 'ludzie', 'label' => 'Osoby i zmiany', 'type' => 'link', 'url' => Hooks::pageUrl('produkcja.ludzie')],
                 ['key' => 'pattern', 'label' => 'Wzór numeru partii', 'type' => 'text', 'default' => BatchCode::DEFAULT_PATTERN,
                  'help' => '{DC}{MC}{YC} dzień/miesiąc/rok literami, {DD}{MM}{YY}{YYYY} cyframi, {QTY} ilość, {WC} kod wosku, {SC} kod zapachu, {WK} knot (B/K/X), {PC} zmiana albo kolejna litera, {SEQ} numer partii tego dnia. Ten sam wzór co w Rejestrze Partii.'],
                 ['key' => 'stock_target', 'label' => 'Partia dokłada sztuki do', 'type' => 'select', 'default' => 'actual',
@@ -202,7 +205,7 @@ final class ProdukcjaExtension extends AbstractExtension
                     echo $csv;
                 }]);
         }
-        Hooks::addPage('import', ['title' => 'Import do produkcji', 'menu' => false, 'role' => 'editor',
+        Hooks::addPage('import', ['title' => 'Import i eksport danych', 'menu' => false, 'role' => 'editor',
             'render' => fn(PDO $pdo, array $ctx): string => $this->importPage($store(), $ctx)]);
         Hooks::addPage('ludzie', ['title' => 'Osoby i zmiany', 'menu' => false, 'role' => 'editor',
             'render' => fn(PDO $pdo, array $ctx): string => $this->peoplePage($store(), $ctx)]);
@@ -282,7 +285,10 @@ final class ProdukcjaExtension extends AbstractExtension
                 $date = preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['produced_at'] ?? '')) ? (string) $_GET['produced_at'] : date('Y-m-d');
                 header('Content-Type: application/json; charset=utf-8');
                 $id = (string) ($_GET['id'] ?? '');
-                echo json_encode(['code' => $w !== null ? $prod($s)->code($w, $date, max(1, (int) ($_GET['qty'] ?? 1)), (string) ($sh['code'] ?? ''), $id !== '' ? $id : null) : ''], JSON_UNESCAPED_UNICODE);
+                $p = $prod($s);
+                $free = !empty($_GET['free']);
+                echo json_encode(['code' => $w !== null || $free ? $p->code($w, $date, max(1, (int) ($_GET['qty'] ?? 1)), (string) ($sh['code'] ?? ''), $id !== '' ? $id : null,
+                    $free ? Production::freeCodeParts($p->freePlan((array) ($_GET['f'] ?? []))) : null) : ''], JSON_UNESCAPED_UNICODE);
             }]);
         Hooks::addPage('partia_usun', ['title' => 'Partia', 'menu' => false, 'role' => 'editor',
             'render' => static function (PDO $pdo, array $ctx) use ($store, $prod, $user, $go): void {
@@ -408,9 +414,9 @@ final class ProdukcjaExtension extends AbstractExtension
             return $html . '<div class="card" style="background:var(--ink);color:#fff;border:0"><h2 style="margin:0 0 6px;color:#fff">Zacznij od tego, co masz na półce</h2>'
                 . '<p style="margin:0;opacity:.8">Dodaj materiały, a policzymy koszt każdego wyrobu i powiemy, kiedy coś się kończy.</p></div>'
                 . '<div class="pr-cards">'
-                . self::step(1, 'Materiały', 'Wosk, zapachy, knoty, słoiki. Wystarczy nazwa, albo wczytaj listę z pliku.', $ctx['canEdit'] ? '<a class="btn" href="' . U::h(U::url('material', ['nowy' => 1])) . '">+ Dodaj materiał</a> <a href="' . U::h(U::url('import')) . '">Import z pliku</a>' : '')
+                . self::step(1, 'Materiały', 'Wosk, zapachy, knoty, słoiki. Wystarczy nazwa.', $ctx['canEdit'] ? '<a class="btn" href="' . U::h(U::url('material', ['nowy' => 1])) . '">+ Dodaj materiał</a>' : '')
                 . self::step(2, 'Wyroby z kosztem i ceną', 'Receptura świecy i SKU produktu w sklepie. Koszt sztuki policzy się sam.', $ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('wyrob', ['nowy' => 1])) . '">Nowy wyrób</a>' : '')
-                . self::step(3, 'Partie', 'Lanie świec z numerem partii. Zdejmie materiały i doda sztuki do produktu.', $ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('import')) . '">Wczytaj Rejestr Partii</a>' : '')
+                . self::step(3, 'Partie', 'Lanie świec z numerem partii, z wyrobu albo od razu z wybranym woskiem, zapachem i knotem.', $ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('partia_nowa', ['bez' => 1])) . '">+ Nowa partia</a>' : '')
                 . '</div>';
         }
         $low = array_values(array_filter($mats, static fn(array $m): bool => $m['low']));
@@ -489,8 +495,8 @@ final class ProdukcjaExtension extends AbstractExtension
         }
         $html .= '</div></div>';
         if ($ctx['canEdit']) {
-            $html .= '<p class="pr-small" style="margin-top:16px"><a href="' . U::h(U::url('ludzie')) . '">Osoby i zmiany</a> · <a href="' . U::h(U::url('import')) . '">Import danych</a>'
-                . ($ctx['isAdmin'] ? ' · <a href="plugins.php">Ustawienia wtyczki</a>' : '') . '</p>';
+            $html .= '<p class="pr-small" style="margin-top:16px"><a href="' . U::h(U::url('ludzie')) . '">Osoby i zmiany</a>'
+                . ($ctx['isAdmin'] ? ' · <a href="plugins.php">Ustawienia wtyczki (import i eksport danych)</a>' : '') . '</p>';
         }
         return $html;
     }
@@ -541,7 +547,6 @@ final class ProdukcjaExtension extends AbstractExtension
             . '<h3 style="margin:0">' . $title . '</h3><p class="pr-muted" style="margin:0">' . $text . '</p>' . U::csrf($ctx) . '<input type="hidden" name="kind" value="' . $kind . '">'
             . '<label>Plik<input type="file" name="file" accept="' . $accept . '"></label><label>albo wklej treść<textarea name="text" rows="5" placeholder="' . U::h($ph) . '"></textarea></label>'
             . '<div class="pr-actions"><button class="btn" type="submit">Importuj</button></div></form>';
-        $batches = ($_GET['co'] ?? '') === 'partie';
         $partie = $form('partie', 'Partie z pliku CSV (Excel)', 'Stare partie z arkusza albo z Rejestru Partii (Partie → Eksport CSV), a także plik z „⬇ Eksport CSV” tej wtyczki. '
                 . 'Pierwszy wiersz to nagłówki, kolumny rozpoznaję po nazwie: <b>numer partii</b> (albo kod), <b>data produkcji</b> (albo data), produkt, SKU, ilość, ważne do (albo przydatność w miesiącach), '
                 . 'osoba (pracownik), zmiana, wosk, zapach, knot, pojemnik, koszt, uwagi. Wymagana jest data. Partie wchodzą jako historia: nie zdejmują materiałów i nie dokładają sztuk. '
@@ -551,8 +556,12 @@ final class ProdukcjaExtension extends AbstractExtension
                 '.csv,text/csv,text/plain', "nazwa;kategoria;jednostka;kod;stan;cena;minimum\nGoldenwax 464;wosk;kg;01;20;380;5");
         $bne = $form('bne', 'Kopia z Rejestru Partii (WordPress)', 'Plik JSON z Rejestru Partii → Narzędzia → Kopia zapasowa. Przeniesie woski, zapachy, knoty, pojemniki, pracowników, zmiany, dostawy i historię partii. Ponowny import pomija to, co już jest.',
                 '.json,application/json', '{"batch_records": [...], "batch_waxes": [...]}');
-        return U::style() . U::tabs($batches ? 'partie' : 'materialy') . U::back(U::url($batches ? 'partie' : 'materialy'), $batches ? 'Partie' : 'Materiały i magazyn')
-            . '<div class="pr-two">' . ($batches ? $partie . $bne . $mats : $mats . $partie . $bne) . '</div>';
+        $export = '<div class="card pr-form"><h3 style="margin:0">Eksport do CSV (Excel)</h3><p class="pr-muted" style="margin:0">Pliki da się wczytać z powrotem formularzami obok. '
+            . 'Eksport partii z filtrami jest też w zakładce Partie.</p><div class="pr-actions">'
+            . '<a class="btn secondary" href="' . U::h(U::url('partie_eksport')) . '">⬇ Partie</a><a class="btn secondary" href="' . U::h(U::url('partie_eksport', ['widok' => 'wyceny'])) . '">⬇ Wyceny robocze</a>'
+            . '<a class="btn secondary" href="' . U::h(U::url('materialy_eksport')) . '">⬇ Materiały</a></div></div>';
+        return U::style() . U::tabs('') . ($ctx['isAdmin'] ? U::back('plugins.php', 'Konfiguracja → Wtyczki') : '')
+            . '<div class="pr-two">' . $bne . $partie . $mats . $export . '</div>';
     }
 
     private function peoplePage(Store $s, array $ctx): string

@@ -17,8 +17,7 @@ final class BatchPages
         $q = array_filter(['widok' => $view, 'q' => $f['q'], 'wyrob' => $f['product'], 'od' => $f['from'], 'do' => $f['to']], static fn($v) => $v !== '');
         $html = U::style() . U::tabs('partie') . '<div class="pr-top"><p>Każda partia ma numer do śledzenia: z czego ją zrobiono i komu poszła.</p><div class="pr-actions">'
             . '<a class="btn secondary" href="' . U::h(U::url('partie_eksport', $q)) . '" title="Partie z widoku poniżej (z filtrami) do pliku CSV dla Excela">⬇ Eksport CSV</a>'
-            . ($ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('import', ['co' => 'partie'])) . '">⬆ Import</a>'
-                . '<a class="btn secondary" href="' . U::h(U::url('partia_nowa', ['wycena' => 1])) . '">Wycena robocza</a><a class="btn" href="' . U::h(U::url('partia_nowa')) . '">+ Nowa partia</a>' : '')
+            . ($ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('partia_nowa', ['wycena' => 1])) . '">Wycena robocza</a><a class="btn" href="' . U::h(U::url('partia_nowa')) . '">+ Nowa partia</a>' : '')
             . '</div></div>';
 
         $prods = ['' => 'Wszystkie wyroby'];
@@ -194,10 +193,9 @@ final class BatchPages
             return (string) ($posted[$k] ?? $b[$k] ?? $d);
         };
         $html = U::style() . U::tabs('partie') . U::back($edit ? U::url('partia', ['id' => $b['id']]) : U::url('partie'), $edit ? (string) $b['code'] : 'Partie');
-        if ($products === []) {
-            return $html . U::empty('Najpierw dodaj wyrób', 'Partia powstaje z wyrobu i jego receptury.', '<a class="btn" href="' . U::h(U::url('wyrob', ['nowy' => 1])) . '">+ Nowy wyrób</a>');
-        }
-        $pid = $v('product_id', (string) ($_GET['wyrob'] ?? ''));
+        // Partia bez wyrobu: nazwa i materiały wybrane ręcznie, jak w Rejestrze Partii.
+        $free = $posted !== null ? !empty($posted['free']) : ($edit ? $b['product_id'] === null : (isset($_GET['bez']) || $products === []));
+        $pid = $free ? '' : $v('product_id', (string) ($_GET['wyrob'] ?? ''));
         $opts = ['' => '- wybierz wyrób -'];
         foreach ($products as $w) {
             $opts[$w['id']] = $w['name'] . ($w['sku'] !== '' ? ' (' . $w['sku'] . ')' : '');
@@ -220,6 +218,8 @@ final class BatchPages
         }
         $product = $pid !== '' ? $s->product($pid) : null;
         $qty = (int) $v('qty', '1');
+        $ff = (array) ($posted['f'] ?? ($edit && $free ? $p->freeFields($b) : []));
+        $freePlan = $free ? $p->freePlan($ff) : [];
         $pick = (array) ($posted['pick'] ?? []);
         if ($b !== null && $posted === null) {
             foreach (json_decode((string) $b['lines_json'], true) ?: [] as $l) {
@@ -231,25 +231,32 @@ final class BatchPages
             . '<h3 style="margin:0">' . ($edit ? 'Edytuj ' . ($draft ? 'wycenę' : 'partię') : ($draft ? 'Wycena robocza' : 'Nowa partia')) . '</h3>'
             . ($draft ? '<p class="pr-muted" style="margin:0">Wycena robocza liczy koszt, ale nie zdejmuje materiałów i nie dokłada sztuk. Zatwierdzisz ją później jako partię.</p>' : '')
             . U::csrf($ctx) . ($edit ? '<input type="hidden" name="id" value="' . U::h($b['id']) . '">' : '') . ($draft ? '<input type="hidden" name="draft" value="1">' : '')
+            . (!$edit ? '<div class="pr-filter" style="margin:0"><a class="btn secondary' . (!$free ? ' on' : '') . '" href="' . U::h(U::url('partia_nowa', $draft ? ['wycena' => 1] : [])) . '">Z wyrobu (receptura)</a>'
+                . '<a class="btn secondary' . ($free ? ' on' : '') . '" href="' . U::h(U::url('partia_nowa', ['bez' => 1] + ($draft ? ['wycena' => 1] : []))) . '">Bez wyrobu</a></div>' : '')
+            . ($free ? '<input type="hidden" name="free" value="1">' : '')
             . '<div class="pr-grid">'
-            . U::select('product_id', $opts, $pid, 'Wyrób', 'required onchange="this.form.querySelector(\'[name=reload]\').value=1;this.form.submit()"')
+            . ($free ? self::freeFields($s, $v('product_name'), $posted !== null ? (string) ($posted['shelf_life_months'] ?? '12') : ($edit ? (string) Production::shelfMonths($b) : '12'))
+                : U::select('product_id', $opts, $pid, 'Wyrób', 'required onchange="this.form.querySelector(\'[name=reload]\').value=1;this.form.submit()"'))
             . U::input('qty', (string) max(1, $qty), 'Ilość (szt.)', 'type="number" min="1" max="99999" required')
             . U::input('produced_at', $v('produced_at', date('Y-m-d')), 'Data produkcji', 'type="date" required')
             . U::select('person', $people, (string) ($posted['person'] ?? $personId), 'Kto robił')
             . U::select('shift', $shifts, (string) ($posted['shift'] ?? $shiftId), 'Zmiana / seria')
             . U::input('work_hours', $v('work_hours') !== '' ? U::n($v('work_hours')) : '', 'Czas pracy (godz.)', 'inputmode="decimal"')
-            . '</div><input type="hidden" name="reload" value="">';
+            . '</div>' . ($free ? self::freeMaterials($s, $ff) : '') . '<input type="hidden" name="reload" value="">';
 
         if (!$draft) {
             $html .= '<div class="pr-codebox"><span class="pr-muted">Numer partii:</span><span class="pr-code" id="pr-code">'
-                . U::h($product !== null ? ($edit && !(int) $b['is_draft'] ? $b['code'] : $p->code($product, $v('produced_at', date('Y-m-d')), max(1, $qty), '', $b['id'] ?? null)) : '-') . '</span>'
+                . U::h($product !== null || $free ? ($edit && !(int) $b['is_draft'] ? $b['code']
+                    : $p->code($product, $v('produced_at', date('Y-m-d')), max(1, $qty), '', $b['id'] ?? null, $free ? Production::freeCodeParts($freePlan) : null)) : '-') . '</span>'
                 . ($edit && (int) $b['is_draft'] === 0 ? '<label class="pr-check"><input type="checkbox" name="keep_code" value="1" checked> zostaw obecny numer</label>' : '')
                 . '<span class="pr-small">wzór ' . U::h($p->pattern()) . '</span></div>';
         }
 
-        if ($product !== null) {
-            $plan = $p->plan($product, max(1, $qty), $pick);
-            if ($plan === []) {
+        if ($product !== null || $free) {
+            $plan = $free ? array_values(array_filter($p->freePlan($ff, $pick), static fn(array $l): bool => $l['need'] > 0)) : $p->plan($product, max(1, $qty), $pick);
+            if ($free && $plan === []) {
+                // nic do zdjęcia ze stanu - podpowiedź jest pod polami materiałów
+            } elseif ($plan === []) {
                 $html .= '<p class="pr-warn" style="margin:0">Ten wyrób nie ma receptury, więc partia nie zdejmie materiałów. <a href="' . U::h(U::url('wyrob', ['id' => $product['id'], 'edytuj' => 1])) . '">Dodaj recepturę</a></p>';
             } else {
                 // Przy edycji to, co partia już zużyła, wraca na stan przed zapisem.
@@ -262,7 +269,7 @@ final class BatchPages
                     }
                 }
                 $prices = $s->unitPrices();
-                $html .= '<div class="pr-table"><b>Materiały na ' . max(1, $qty) . ' szt.</b><table class="pr-wide" style="margin-top:6px"><thead><tr><th>Materiał</th><th class="pr-num">Potrzeba</th><th class="pr-num">Na stanie</th>'
+                $html .= '<div class="pr-table"><b>' . ($free ? 'Z magazynu zejdzie' : 'Materiały na ' . max(1, $qty) . ' szt.') . '</b><table class="pr-wide" style="margin-top:6px"><thead><tr><th>Materiał</th><th class="pr-num">Potrzeba</th><th class="pr-num">Na stanie</th>'
                     . (!$draft ? '<th>Z dostawy</th>' : '') . '<th class="pr-num">Koszt</th></tr></thead><tbody>';
                 $sum = 0.0;
                 foreach ($plan as $l) {
@@ -297,8 +304,45 @@ final class BatchPages
             . '<a class="btn secondary" href="' . U::h($edit ? U::url('partia', ['id' => $b['id']]) : U::url('partie')) . '">Anuluj</a></div></form>'
             . '<script>(function(){var f=document.getElementById("pr-batch"),out=document.getElementById("pr-code");if(!f||!out)return;var t;function go(){clearTimeout(t);t=setTimeout(function(){'
             . 'var d=new FormData(f);d.delete("csrf");var q=new URLSearchParams(d);fetch(f.dataset.codeUrl+"&"+q.toString(),{credentials:"same-origin"}).then(function(r){return r.json();}).then(function(r){if(r&&r.code){var k=f.querySelector("[name=keep_code]");if(!k||!k.checked)out.textContent=r.code;}});},250);}'
-            . '["qty","produced_at","shift"].forEach(function(n){var e=f.querySelector("[name="+n+"]");if(e){e.addEventListener("input",go);e.addEventListener("change",go);}});'
-            . 'var k=f.querySelector("[name=keep_code]");if(k)k.addEventListener("change",go);})();</script>';
+            . 'f.addEventListener("input",go);f.addEventListener("change",go);})();</script>';
+    }
+
+    /** Nazwa produktu i przydatność partii bez wyrobu. */
+    private static function freeFields(Store $s, string $name, string $months): string
+    {
+        $names = [];
+        foreach ($s->products() as $w) {
+            $names[$w['name']] = true;
+        }
+        foreach ($s->all('SELECT DISTINCT product_name FROM ext_prod_batches WHERE product_id IS NULL AND deleted_at IS NULL ORDER BY product_name LIMIT 300') as $r) {
+            $names[(string) $r['product_name']] = true;
+        }
+        $dl = '';
+        foreach (array_keys($names) as $n) {
+            $dl .= '<option value="' . U::h($n) . '">';
+        }
+        return U::input('product_name', $name, 'Produkt', 'required maxlength="200" list="pr-names" autocomplete="off"')
+            . '<datalist id="pr-names">' . $dl . '</datalist>'
+            . U::input('shelf_life_months', $months, 'Przydatność (miesiące)', 'type="number" min="0" max="120"');
+    }
+
+    /** Wosk, zapach, knot i pojemnik do wyboru z ilością na całą partię. */
+    private static function freeMaterials(Store $s, array $f): string
+    {
+        $by = [];
+        foreach ($s->materials() as $m) {
+            $by[$m['category']][$m['id']] = $m['name'] . ($m['code'] !== '' ? ' (' . $m['code'] . ')' : '');
+        }
+        $html = '<div class="pr-grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">';
+        foreach (Production::FREE_KINDS as $cat => $label) {
+            $opts = ['' => '-'] + ($by[$cat] ?? []);
+            $mid = (string) ($f[$cat]['id'] ?? '');
+            $unit = $mid !== '' ? (string) ($s->material($mid)['unit'] ?? '') : (in_array($cat, ['wosk', 'zapach'], true) ? 'g' : 'szt');
+            $html .= '<div style="display:flex;gap:6px;align-items:end">' . U::select('f[' . $cat . '][id]', $opts, $mid, $label, 'style="flex:1"')
+                . U::input('f[' . $cat . '][qty]', (string) ($f[$cat]['qty'] ?? ''), 'Ilość (' . (Store::UNITS[$unit] ?? $unit) . ')', 'inputmode="decimal" placeholder="-" style="width:90px"') . '</div>';
+        }
+        return $html . '</div><p class="pr-small" style="margin:-6px 0 0">Ilość na całą partię. Pusta: materiał trafia tylko do numeru partii i historii, bez zdejmowania ze stanu. '
+            . 'Brakuje czegoś na liście? <a href="' . U::h(U::url('material', ['nowy' => 1])) . '">Dodaj materiał</a>.</p>';
     }
 
     /** Arkusz etykiet partii do druku (nazwa, numer, data produkcji, ważność). */

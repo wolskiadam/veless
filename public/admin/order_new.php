@@ -8,6 +8,12 @@ declare(strict_types=1);
  *
  * ?from=ID&copy[]=buyer|delivery|items - dane kupującego, adres i sposób dostawy z paczkomatem i/lub produkty
  * skopiowane z innego zamówienia (wybór przy szukaniu klienta). Bez copy[] - kupujący i dostawa.
+ *
+ * Haki rozszerzeń (np. extensions/meta - zamówienie z rozmowy Messenger/Instagram):
+ *  - order_new.form (filtr, array $form, array $query): wstępne wypełnienie formularza z parametrów adresu,
+ *  - order_new.top (akcja HTML, array $form): komunikat nad formularzem (skąd są dane),
+ *  - order_new.fields (akcja HTML, array $form): własne pola (np. ukryte) w formularzu, wracają przy błędzie,
+ *  - order_new.created (akcja, int $id, array $posted, string $user): po zapisaniu zamówienia.
  */
 
 use Pase\Automation\RuleEngine;
@@ -56,6 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if ($errors === []) {
         $id = $svc->create($checked['order'], currentUserName());
+        \Pase\Plugin\Hooks::doAction('order_new.created', $id, $_POST, currentUserName());
         $messages = ['Dodano zamówienie ręczne (tylko w CRM).'];
         $error = null;
 
@@ -158,6 +165,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' && (int) ($_GET['from'] ?? 0) > 0 && $
             }
         }
     }
+}
+
+// Rozszerzenia mogą wypełnić formularz z własnych parametrów adresu (np. ?meta=rozmowa).
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $form = \Pase\Plugin\Hooks::applyFilters('order_new.form', $form, $_GET);
 }
 
 // Szukanie klienta (?q=) - jego ostatnie zamówienia w CRM do skopiowania.
@@ -271,10 +283,12 @@ require __DIR__ . '/header.php';
             <a href="order_view.php?id=<?= (int) $fromOrder['woo_order_id'] ?>"><?= htmlspecialchars($fromOrder['pase_number'] !== null ? '#' . (int) $fromOrder['pase_number'] : (string) $fromOrder['order_number']) ?></a>
             - sprawdź je, uzupełnij resztę i zapisz. Stare zamówienie się nie zmienia.</p>
     <?php endif; ?>
+    <?= \Pase\Plugin\Hooks::render('order_new.top', $form) ?>
 </div>
 
 <form method="post" id="newOrderForm">
 <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
+<?= \Pase\Plugin\Hooks::render('order_new.fields', $form) ?>
 
 <?php if ($shops !== []):
     $shopSel = (int) ($form['shop_id'] ?? 0);

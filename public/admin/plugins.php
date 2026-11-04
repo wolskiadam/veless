@@ -359,6 +359,11 @@ document.addEventListener('click', function (e) {
     if (close) { close.closest('dialog').close(); return; }
     if (e.target.tagName === 'DIALOG' && e.target.classList.contains('pl-dialog')) { e.target.close(); } // klik w tło
 });
+// plugins.php#pl-cfg-extension-<nazwa> otwiera od razu okno ustawień wtyczki (link z innej strony).
+(function () {
+    var d = location.hash.length > 1 ? document.getElementById(location.hash.slice(1)) : null;
+    if (d && d.classList.contains('pl-dialog') && d.showModal) { d.showModal(); }
+})();
 </script>
 
 <?php require __DIR__ . '/footer.php'; ?>

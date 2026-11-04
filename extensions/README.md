@@ -114,6 +114,9 @@ z zakupów firmy, miesiącami, zdjęcia w `storage/uploads/`). Opis: `extensions
 Większe rozszerzenie z własną grupą menu, hakiem pakowania i sekcją karty zamówienia: **`extensions/produkcja/`**
 (produkcja świec - materiały, receptury, partie z numerem partii, testy spalania). Opis: `extensions/produkcja/README.md`.
 
+Rozszerzenie z kontem Meta, pracą w tle i hakami formularza Nowe zamówienie: **`extensions/meta/`** (rozmowy z Messengera
+i Instagrama, odpowiadanie, zamówienie z rozmowy). Opis: `extensions/meta/README.md`.
+
 ## Katalog haków
 
 Priorytet (trzeci argument `addFilter`/`addAction`, domyślnie 10): mniejszy działa wcześniej.
@@ -172,6 +175,17 @@ Ikona: `['state' => 'ok|warn|bad|info|transit|partial', 'label' => 'Opis', 'lite
 Sekcja: `['id' => 'notatka', 'title' => 'Tytuł', 'col' => 'left'|'right', 'render' => fn(array $row, array $order): string]`.
 Sekcje rozszerzeń przeciąga się i zapamiętuje jak sekcje rdzenia. Formularz w sekcji wysyłaj na własną stronę
 (`Hooks::addPage(..., ['menu' => false])`) z polem `csrf`, a ta przekierowuje z powrotem do `order_view.php?id=...`.
+
+### Nowe zamówienie (formularz zamówienia ręcznego)
+
+| Hak | Rodzaj | Argumenty | Co robi |
+|---|---|---|---|
+| `order_new.form` | filtr | `array $form, array $query` | wstępnie wypełnij pola formularza (klucze jak `name` pól, np. `billing_first_name`, `pp_id`, `customer_note`) z parametrów adresu `$query` (`$_GET`) |
+| `order_new.top` | akcja (HTML) | `array $form` | komunikat nad formularzem, np. skąd są dane |
+| `order_new.fields` | akcja (HTML) | `array $form` | własne pola w formularzu (np. ukryte); przy błędzie zapisu `$form` to wysłany formularz, więc wracają |
+| `order_new.created` | akcja | `int $id, array $posted, string $user` | po dodaniu zamówienia (np. połącz je ze swoimi danymi) |
+
+Klucze własnych pól poprzedzaj nazwą rozszerzenia (`ext_<nazwa>_...`). Przykład: `extensions/meta/` (zamówienie z rozmowy).
 
 ### Automatyzacje
 

@@ -159,6 +159,18 @@ try {
     $d = request($ola, $url('pulpit'));
     ok($d['status'] === 200 && str_contains($d['body'], 'Zacznij od tego, co masz na półce') && str_contains($d['body'], '+ Dodaj materiał')
         && !str_contains($d['body'], 'produkcja.import'), 'Empty dashboard shows the first steps (import only in settings)');
+    $cfgPattern = static fn(): string => (string) (json_decode((string) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'EXT_PRODUKCJA'")->fetchColumn(), true)['pattern'] ?? '');
+    ok($cfgPattern() === '{DC}{MC}{YC}{PR}{FC}{WC}{SC}{WK}{QTY}{PC}', 'Old Rejestr Partii pattern is upgraded to the new default');
+    // Dalsza część testu sprawdza stary wzór (zgodność z Rejestrem Partii) - wybrany świadomie w ustawieniach zostaje.
+    $setPattern = static function (string $pattern) use ($boss): array {
+        $pl = request($boss, 'admin/plugins.php');
+        return request($boss, 'admin/plugins.php', ['csrf' => csrfOf($pl['body']), 'action' => 'ext_settings', 'slug' => 'produkcja',
+            'cfg' => ['pattern' => $pattern, 'stock_target' => 'actual', 'hourly_rate' => '30', 'fixed_monthly' => '600', 'label_w' => '50', 'label_h' => '30',
+            'maker' => "Klub Woskarzy\nul. Testowa 1, Warszawa"]]);
+    };
+    $setPattern('{DC}{QTY}{MC}{YC}{WC}{SC}{WK}{PC}');
+    request($ola, $url('pulpit'));
+    ok($cfgPattern() === '{DC}{QTY}{MC}{YC}{WC}{SC}{WK}{PC}', 'A pattern chosen after the upgrade stays');
     ok(!str_contains(request($vi, $url('materialy'))['body'], '+ Dodaj materiał'), 'Viewer sees no add button');
     ok(request($vi, $url('material_zapisz'), ['csrf' => csrfOf($home), 'name' => 'X'])['status'] === 403, 'Viewer cannot save');
 
@@ -377,6 +389,37 @@ try {
     $sh = $pdo->query("SELECT id FROM ext_prod_dict WHERE kind = 'shift' AND name = 'Poranna'")->fetchColumn();
     $code = json_decode(request($ola, $url('partia_kod', ['product_id' => $prod, 'produced_at' => '2026-11-06', 'qty' => 2, 'shift' => $sh]))['body'], true);
     ok(($code['code'] ?? '') === 'AF002LX02ABBP', 'Shift letter goes into the number: ' . ($code['code'] ?? ''));
+
+    // ---- Nowy wzór: wyrób, forma, ilość bez limitu, bez duplikatów
+    $setPattern('{DC}{MC}{YC}{PR}{FC}{WC}{SC}{WK}{QTY}{PC}');
+    $post($ola, 'material_zapisz', ['id' => $jar, 'name' => 'Słoik 180 ml', 'category' => 'pojemnik', 'unit' => 'szt', 'code' => 'S1', 'fill_g' => '180']);
+    $mould = $mat(['name' => 'Forma walec zakręcony', 'category' => 'pojemnik', 'unit' => 'szt', 'code' => 'F7', 'stock' => '50']);
+    $r = $post($ola, 'wyrob_zapisz', ['id' => $prod, 'name' => 'Świeca Piernik 180', 'sku' => 'GB-1L', 'code' => 'pk', 'shelf_life_months' => '24', 'price' => '49',
+        'recipe' => [['material_id' => $wax, 'qty' => '180'], ['material_id' => $scent, 'qty' => '14'], ['material_id' => $wick, 'qty' => '1'], ['material_id' => $jar, 'qty' => '1']]]);
+    ok($pdo->query("SELECT code FROM ext_prod_products WHERE id = '$prod'")->fetchColumn() === 'PK', 'Product keeps its own code');
+    $code = json_decode(request($ola, $url('partia_kod', ['product_id' => $prod, 'produced_at' => '2026-11-09', 'qty' => 1500]))['body'], true);
+    ok(($code['code'] ?? '') === 'AJLXPKS102ABB1500A', 'New number has product, form and a 4-digit quantity: ' . ($code['code'] ?? ''));
+    $r = $post($ola, 'wyrob_zapisz', ['name' => 'Walec zakręcony', 'code' => 'PK', 'recipe' => [['material_id' => $wax, 'qty' => '200']]]);
+    ok(str_contains($r['body'], 'Kod PK ma już wyrób'), 'Two products cannot share a code');
+    // Dwie dekoracyjne świece z tym samym woskiem i knotem, ale inną formą - różne numery.
+    $nm = static fn(string $form) => json_decode(request($ola, $url('partia_kod', ['free' => 1, 'product_name' => 'Świeca dekoracyjna', 'produced_at' => '2026-11-09', 'qty' => 4,
+        'f' => ['wosk' => ['id' => $wax], 'knot' => ['id' => $wick], 'pojemnik' => ['id' => $form]]]))['body'], true)['code'] ?? '';
+    ok($nm($jar) !== $nm($mould) && str_contains($nm($mould), 'F7') && str_contains($nm($jar), 'S1'), 'Different moulds give different numbers: ' . $nm($jar) . ' / ' . $nm($mould));
+    // Ta sama zmiana dwa razy tego samego dnia: druga partia dostaje końcówkę -2.
+    $pp = $pdo->query("SELECT id FROM ext_prod_dict WHERE kind = 'shift' AND name = 'Poranna'")->fetchColumn();
+    $twice = [];
+    foreach ([1, 2] as $_) {
+        $r = $post($ola, 'partia_nowa', ['free' => 1, 'save' => 1, 'product_name' => 'Świeca dekoracyjna', 'product_code' => 'DK', 'qty' => '4', 'produced_at' => '2026-11-10', 'shift' => $pp,
+            'f' => ['wosk' => ['id' => $wax], 'knot' => ['id' => $wick], 'pojemnik' => ['id' => $mould]]]);
+        $twice[] = $pdo->query("SELECT code FROM ext_prod_batches WHERE id = '" . $locId($r) . "'")->fetchColumn();
+    }
+    ok($twice[0] === 'AKLXDKF702AAB004P' && $twice[1] === 'AKLXDKF702AAB004P-2', 'Same shift twice never gives the same number: ' . implode(' / ', $twice));
+    $dec = request($vi, $url('partie', ['dekoduj' => 'AJLXPKS102ABB1500A']))['body'];
+    ok(str_contains($dec, 'Świeca Piernik 180') && str_contains($dec, 'Słoik 180 ml') && str_contains($dec, '1500') && str_contains($dec, 'Wosk sojowy Golden 464'), 'Decoder reads the new number');
+    $dec = request($vi, $url('partie', ['dekoduj' => 'AKLXDKF702AAB004P-2']))['body'];
+    ok(str_contains($dec, 'Forma walec zakręcony') && str_contains($dec, 'Kolejna partia o tym samym numerze'), 'Decoder reads the -2 ending');
+    $dec = request($vi, $url('partie', ['dekoduj' => 'AD010LX02ABBA']))['body'];
+    ok(str_contains($dec, 'listopad') && str_contains($dec, '<dd>10</dd>') && str_contains($dec, 'Olejek Piernik'), 'Old Rejestr Partii numbers still decode');
 
     $warnings = preg_grep('/PHP (Warning|Fatal|Parse|Deprecated|Notice)|Rozszerzenie .* błąd/', file("$temp/server.log") ?: []);
     ok($warnings === [], 'No PHP warnings or extension errors' . ($warnings ? ': ' . implode(' | ', array_map('trim', $warnings)) : ''));

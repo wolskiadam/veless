@@ -116,7 +116,8 @@ final class ProductPages
         $html .= '</dl>' . ($cost['missing'] !== [] ? '<p class="pr-warn" style="margin:10px 0 0">Bez ceny: ' . U::h(implode(', ', $cost['missing'])) . '. Wpisz cenę przy dostawie, żeby koszt był pełny.</p>' : '')
             . self::simulator($cost['total'], (int) $w['vat']) . '</div>';
 
-        $html .= '<div class="card"><h3 style="margin:0 0 8px">Produkt w CRM</h3><dl class="pr-dl"><dt>SKU</dt><dd class="pr-code">' . U::h($w['sku'] !== '' ? $w['sku'] : '-') . '</dd>';
+        $html .= '<div class="card"><h3 style="margin:0 0 8px">Produkt w CRM</h3><dl class="pr-dl"><dt>SKU</dt><dd class="pr-code">' . U::h($w['sku'] !== '' ? $w['sku'] : '-') . '</dd>'
+            . '<dt>Kod w numerze partii</dt><dd class="pr-code">' . U::h(($w['code'] ?? '') !== '' ? $w['code'] : BatchCode::initials((string) $w['name']) . ' (z nazwy)') . '</dd>';
         if ($w['sku'] === '') {
             $html .= '</dl><p class="pr-muted" style="margin:8px 0 0">Wpisz SKU produktu ze sklepu, a partie dołożą sztuki do jego stanu.</p>';
         } elseif ($crm === null) {
@@ -189,6 +190,8 @@ final class ProductPages
             . '<div class="pr-grid">'
             . U::input('name', $v('name'), 'Nazwa', 'required maxlength="200"')
             . U::input('sku', $v('sku'), 'SKU produktu w sklepie', 'maxlength="191" list="pr-skus" autocomplete="off"', 'partie dołożą sztuki do tego produktu')
+            . U::input('code', $v('code'), 'Kod do numeru partii', 'maxlength="2" style="text-transform:uppercase" placeholder="' . U::h(BatchCode::initials($v('name')) ?: 'np. WZ') . '"',
+                '2 litery lub cyfry, inny dla każdego wyrobu; puste = pierwsze litery nazwy')
             . U::input('price', $v('price') !== '' ? U::n($v('price')) : '', 'Cena brutto (zł)', 'inputmode="decimal"')
             . U::select('vat', ['23' => '23%', '8' => '8%', '5' => '5%', '0' => 'zw. / 0%'], $v('vat', '23'), 'VAT')
             . U::input('shelf_life_months', $v('shelf_life_months', '12'), 'Ważność (miesiące)', 'type="number" min="0" max="120"', '0 = bez daty ważności')

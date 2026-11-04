@@ -82,11 +82,15 @@ final class BatchPages
         $out = '';
         if ($code !== '') {
             $found = $s->batchByCode($code);
-            $maps = ['wax' => [], 'scent' => [], 'shift' => []];
+            $maps = ['wax' => [], 'scent' => [], 'shift' => [], 'product' => [], 'form' => []];
             foreach ($s->materials() as $m) {
-                if ($m['code'] !== '' && in_array($m['category'], ['wosk', 'zapach'], true)) {
-                    $maps[$m['category'] === 'wosk' ? 'wax' : 'scent'][$m['code']] = $m['name'];
+                $key = ['wosk' => 'wax', 'zapach' => 'scent', 'pojemnik' => 'form'][$m['category']] ?? null;
+                if ($m['code'] !== '' && $key !== null) {
+                    $maps[$key][$key === 'form' ? str_pad(substr(strtoupper($m['code']), 0, 2), 2, '0', STR_PAD_LEFT) : $m['code']] = $m['name'];
                 }
+            }
+            foreach ($s->products() as $w) {
+                $maps['product'][str_pad(($w['code'] ?? '') !== '' ? (string) $w['code'] : BatchCode::initials((string) $w['name']), 2, '0', STR_PAD_LEFT)] ??= $w['name'];
             }
             foreach ($s->dict('shift') as $d) {
                 $maps['shift'][$d['code']] = $d['name'];
@@ -235,7 +239,7 @@ final class BatchPages
                 . '<a class="btn secondary' . ($free ? ' on' : '') . '" href="' . U::h(U::url('partia_nowa', ['bez' => 1] + ($draft ? ['wycena' => 1] : []))) . '">Bez wyrobu</a></div>' : '')
             . ($free ? '<input type="hidden" name="free" value="1">' : '')
             . '<div class="pr-grid">'
-            . ($free ? self::freeFields($s, $v('product_name'), $posted !== null ? (string) ($posted['shelf_life_months'] ?? '12') : ($edit ? (string) Production::shelfMonths($b) : '12'))
+            . ($free ? self::freeFields($s, $v('product_name'), $posted !== null ? (string) ($posted['shelf_life_months'] ?? '12') : ($edit ? (string) Production::shelfMonths($b) : '12'), (string) ($posted['product_code'] ?? ''))
                 : U::select('product_id', $opts, $pid, 'Wyrób', 'required onchange="this.form.querySelector(\'[name=reload]\').value=1;this.form.submit()"'))
             . U::input('qty', (string) max(1, $qty), 'Ilość (szt.)', 'type="number" min="1" max="99999" required')
             . U::input('produced_at', $v('produced_at', date('Y-m-d')), 'Data produkcji', 'type="date" required')
@@ -247,7 +251,7 @@ final class BatchPages
         if (!$draft) {
             $html .= '<div class="pr-codebox"><span class="pr-muted">Numer partii:</span><span class="pr-code" id="pr-code">'
                 . U::h($product !== null || $free ? ($edit && !(int) $b['is_draft'] ? $b['code']
-                    : $p->code($product, $v('produced_at', date('Y-m-d')), max(1, $qty), '', $b['id'] ?? null, $free ? Production::freeCodeParts($freePlan) : null)) : '-') . '</span>'
+                    : $p->code($product, $v('produced_at', date('Y-m-d')), max(1, $qty), '', $b['id'] ?? null, $free ? Production::freeCodeParts($freePlan, $v('product_name'), (string) ($posted['product_code'] ?? '')) : null)) : '-') . '</span>'
                 . ($edit && (int) $b['is_draft'] === 0 ? '<label class="pr-check"><input type="checkbox" name="keep_code" value="1" checked> zostaw obecny numer</label>' : '')
                 . '<span class="pr-small">wzór ' . U::h($p->pattern()) . '</span></div>';
         }
@@ -308,7 +312,7 @@ final class BatchPages
     }
 
     /** Nazwa produktu i przydatność partii bez wyrobu. */
-    private static function freeFields(Store $s, string $name, string $months): string
+    private static function freeFields(Store $s, string $name, string $months, string $code = ''): string
     {
         $names = [];
         foreach ($s->products() as $w) {
@@ -322,6 +326,7 @@ final class BatchPages
             $dl .= '<option value="' . U::h($n) . '">';
         }
         return U::input('product_name', $name, 'Produkt', 'required maxlength="200" list="pr-names" autocomplete="off"')
+            . U::input('product_code', $code, 'Kod do numeru', 'maxlength="2" style="text-transform:uppercase" placeholder="z nazwy"', 'np. WZ dla walca zakręconego')
             . '<datalist id="pr-names">' . $dl . '</datalist>'
             . U::input('shelf_life_months', $months, 'Przydatność (miesiące)', 'type="number" min="0" max="120"');
     }

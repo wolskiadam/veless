@@ -15,8 +15,7 @@ i numer partii przy zamówieniu. Kod numerów partii pochodzi z wtyczki WordPres
 - **Wyroby**: receptura (materiał + ilość na sztukę), koszt materiałów i robocizny, cena, marża, próg rentowności,
   symulator ceny, ile sztuk da się zrobić i powiązanie z produktem CRM po SKU.
 - **Partie**: nowa partia zdejmuje materiały z magazynu (najpierw wskazana dostawa, potem najstarsze) i zapisuje,
-  z których dostaw poszły. Numer partii z wzoru w ustawieniach (domyślnie jak w Rejestrze Partii:
-  `{DC}{QTY}{MC}{YC}{WC}{SC}{WK}{PC}`), podgląd na żywo, dekoder numeru, szkice do zatwierdzenia, kosz (30 dni),
+  z których dostaw poszły. Numer partii z wzoru w ustawieniach, podgląd na żywo, dekoder numeru, szkice do zatwierdzenia, kosz (30 dni),
   etykiety do druku. Brak materiału blokuje zapis, chyba że zaznaczy się „zapisz mimo braków”.
 - **Partia bez wyrobu** (jak w Rejestrze Partii): w „Nowa partia” zakładka „Bez wyrobu” - nazwa produktu, przydatność
   w miesiącach i ręcznie wybrany wosk, zapach, knot i pojemnik. Numer partii liczy się z ich kodów. Ilość materiału jest
@@ -26,6 +25,20 @@ i numer partii przy zamówieniu. Kod numerów partii pochodzi z wtyczki WordPres
 - **Numer partii przy zamówieniu**: osoba pakująca wpisuje numer partii przy każdej pozycji na ekranie pakowania
   (podpowiedzi z ostatnich partii tego SKU); to samo pole jest w karcie zamówienia. Na karcie partii widać,
   do których zamówień poszła.
+
+## Numer partii
+
+Domyślny wzór: `{DC}{MC}{YC}{PR}{FC}{WC}{SC}{WK}{QTY}{PC}`, np. `AJLXPKS102ABB1500A` = 9 listopada 2026, wyrób PK, forma/pojemnik S1,
+wosk 02, zapach AB, knot bawełniany, 1500 szt., kolejna litera A.
+
+- `{PR}` kod wyrobu (pole „Kod do numeru partii” na wyrobie, inny dla każdego wyrobu; puste = pierwsze litery nazwy).
+  W partii bez wyrobu: pole „Kod do numeru” albo pierwsze litery nazwy produktu.
+- `{FC}` kod formy / pojemnika (kod materiału z kategorii Pojemnik z receptury albo wybrany w partii bez wyrobu).
+- `{QTY}` ilość: 3 cyfry, od 1000 sztuk więcej (dekoder sam rozpoznaje długość).
+- Numer jest zawsze unikalny (sprawdzany także z koszem): gdy wyszedłby taki sam (np. ta sama zmiana dwa razy jednego dnia),
+  dostaje końcówkę `-2`, `-3`.
+- Stary wzór Rejestru Partii `{DC}{QTY}{MC}{YC}{WC}{SC}{WK}{PC}` (ilość do 999, bez wyrobu i formy) przy aktualizacji
+  zmienia się na nowy domyślny; własny wzór zostaje. Stare numery dekoder dalej odczytuje.
 
 ## Stan produktów CRM
 

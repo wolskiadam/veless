@@ -34,7 +34,7 @@ final class ProdukcjaExtension extends AbstractExtension
                  'help' => 'Rejestr Partii (kopia JSON), stare partie i materiały z Excela (CSV), eksport do CSV.'],
                 ['key' => 'ludzie', 'label' => 'Osoby i zmiany', 'type' => 'link', 'url' => Hooks::pageUrl('produkcja.ludzie')],
                 ['key' => 'pattern', 'label' => 'Wzór numeru partii', 'type' => 'text', 'default' => BatchCode::DEFAULT_PATTERN,
-                 'help' => '{DC}{MC}{YC} dzień/miesiąc/rok literami, {DD}{MM}{YY}{YYYY} cyframi, {QTY} ilość, {WC} kod wosku, {SC} kod zapachu, {WK} knot (B/K/X), {PC} zmiana albo kolejna litera, {SEQ} numer partii tego dnia. Ten sam wzór co w Rejestrze Partii.'],
+                 'help' => '{DC}{MC}{YC} dzień/miesiąc/rok literami, {DD}{MM}{YY}{YYYY} cyframi, {PR} kod wyrobu, {FC} kod formy/pojemnika, {WC} kod wosku, {SC} kod zapachu, {WK} knot (B/K/X), {QTY} ilość (3 cyfry, więcej od 1000 szt.), {PC} zmiana albo kolejna litera, {SEQ} numer partii tego dnia. Numer zawsze jest unikalny (powtórka dostaje -2). Stary wzór Rejestru Partii: ' . BatchCode::LEGACY_PATTERN . ' - stare numery odczytują się w dekoderze przy każdym wzorze.'],
                 ['key' => 'stock_target', 'label' => 'Partia dokłada sztuki do', 'type' => 'select', 'default' => 'actual',
                  'options' => ['actual' => 'stanu faktycznego produktu (bez wysyłki do sklepu)', 'crm' => 'stanu CRM (idzie do sklepu)', 'both' => 'obu stanów', 'none' => 'niczego'],
                  'help' => 'Produkt CRM szukany po SKU wyrobu. Sprzedaż zdejmuje sztuki jak dotąd.'],
@@ -288,7 +288,7 @@ final class ProdukcjaExtension extends AbstractExtension
                 $p = $prod($s);
                 $free = !empty($_GET['free']);
                 echo json_encode(['code' => $w !== null || $free ? $p->code($w, $date, max(1, (int) ($_GET['qty'] ?? 1)), (string) ($sh['code'] ?? ''), $id !== '' ? $id : null,
-                    $free ? Production::freeCodeParts($p->freePlan((array) ($_GET['f'] ?? []))) : null) : ''], JSON_UNESCAPED_UNICODE);
+                    $free ? Production::freeCodeParts($p->freePlan((array) ($_GET['f'] ?? [])), (string) ($_GET['product_name'] ?? ''), (string) ($_GET['product_code'] ?? '')) : null) : ''], JSON_UNESCAPED_UNICODE);
             }]);
         Hooks::addPage('partia_usun', ['title' => 'Partia', 'menu' => false, 'role' => 'editor',
             'render' => static function (PDO $pdo, array $ctx) use ($store, $prod, $user, $go): void {

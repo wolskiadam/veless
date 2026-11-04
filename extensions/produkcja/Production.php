@@ -25,13 +25,15 @@ final class Production
     }
 
     /**
-     * Dane do numeru partii z receptury wyrobu: kod wosku i zapachu (tego, którego jest najwięcej), knot, zmiana.
-     * @return array{wax:string,scent:string,wick:string}
+     * Dane do numeru partii z receptury wyrobu: kod wyrobu, forma/pojemnik, kod wosku i zapachu (tego, którego jest
+     * najwięcej), knot.
+     * @return array{wax:string,scent:string,wick:string,product:string,form:string}
      */
     public function codeParts(?array $product): array
     {
         $best = ['wosk' => [0.0, ''], 'zapach' => [0.0, '']];
         $wick = '';
+        $form = '';
         foreach ($product !== null ? $this->s->recipe((string) $product['id']) : [] as $l) {
             if (isset($best[$l['category']]) && (float) $l['qty'] > $best[$l['category']][0]) {
                 $best[$l['category']] = [(float) $l['qty'], (string) $l['code']];
@@ -39,19 +41,28 @@ final class Production
             if ($l['category'] === 'knot' && $wick === '') {
                 $wick = (string) $l['name'];
             }
+            if ($l['category'] === 'pojemnik' && $form === '') {
+                $form = (string) $l['code'];
+            }
         }
-        return ['wax' => $best['wosk'][1], 'scent' => $best['zapach'][1], 'wick' => $wick];
+        return ['wax' => $best['wosk'][1], 'scent' => $best['zapach'][1], 'wick' => $wick, 'form' => $form,
+            'product' => $product === null ? '' : (trim((string) ($product['code'] ?? '')) !== '' ? (string) $product['code'] : BatchCode::initials((string) $product['name']))];
     }
 
-    /** Dane do numeru partii bez wyrobu: wybrany wosk, zapach i knot. @param list<array<string,mixed>> $plan z freePlan() */
-    public static function freeCodeParts(array $plan): array
+    /**
+     * Dane do numeru partii bez wyrobu: wybrany wosk, zapach, knot, pojemnik i kod produktu (wpisany albo z nazwy).
+     * @param list<array<string,mixed>> $plan z freePlan()
+     */
+    public static function freeCodeParts(array $plan, string $name = '', string $productCode = ''): array
     {
-        $out = ['wax' => '', 'scent' => '', 'wick' => ''];
+        $productCode = substr(BatchCode::clean($productCode), 0, 2);
+        $out = ['wax' => '', 'scent' => '', 'wick' => '', 'form' => '', 'product' => $productCode !== '' ? $productCode : BatchCode::initials($name)];
         foreach ($plan as $l) {
             match ($l['category'] ?? '') {
                 'wosk' => $out['wax'] = (string) $l['code'],
                 'zapach' => $out['scent'] = (string) $l['code'],
                 'knot' => $out['wick'] = (string) $l['name'],
+                'pojemnik' => $out['form'] = (string) $l['code'],
                 default => null,
             };
         }
@@ -61,8 +72,9 @@ final class Production
     /** @param ?array $parts gotowe dane do numeru (partia bez wyrobu), inaczej z receptury wyrobu */
     public function code(?array $product, string $date, int $qty, string $shiftCode, ?string $exceptId = null, ?array $parts = null): string
     {
-        $existing = array_map('strval', array_column($this->s->all('SELECT code FROM ext_prod_batches WHERE deleted_at IS NULL'
-            . ($exceptId !== null ? ' AND id <> ?' : ''), $exceptId !== null ? [$exceptId] : []), 'code'));
+        // Wszystkie numery, także z kosza (przywrócona partia nie może dostać cudzego numeru).
+        $existing = array_map('strval', array_column($this->s->all('SELECT code FROM ext_prod_batches'
+            . ($exceptId !== null ? ' WHERE id <> ?' : ''), $exceptId !== null ? [$exceptId] : []), 'code'));
         return BatchCode::generate($this->pattern(), $date, ($parts ?? $this->codeParts($product)) + [
             'qty' => $qty, 'shift' => $shiftCode, 'seq' => $this->s->countOnDay($date, $exceptId) + 1,
         ], $existing);
@@ -103,7 +115,7 @@ final class Production
             $id = $old['id'] ?? Store::id();
             $keep = $old !== null && !empty($in['keep_code']) && (int) $old['is_draft'] === ($draft ? 1 : 0);
             $code = $keep ? (string) $old['code'] : ($draft ? BatchCode::draft($date)
-                : $this->code($product, $date, $qty, (string) ($shift['code'] ?? ''), $old['id'] ?? null, $free ? self::freeCodeParts($plan) : null));
+                : $this->code($product, $date, $qty, (string) ($shift['code'] ?? ''), $old['id'] ?? null, $free ? self::freeCodeParts($plan, $name, (string) ($in['product_code'] ?? '')) : null));
             $row = [
                 'code' => $code,
                 'product_id' => $product['id'] ?? null,

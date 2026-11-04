@@ -15,7 +15,7 @@ use PDO;
  */
 final class Store
 {
-    public const SCHEMA = '1';
+    public const SCHEMA = '2';
     public const CATEGORIES = ['wosk' => 'Wosk', 'zapach' => 'Zapach', 'knot' => 'Knot', 'pojemnik' => 'Pojemnik', 'barwnik' => 'Barwnik',
         'dodatek' => 'Dodatek', 'opakowanie' => 'Opakowanie', 'etykieta' => 'Etykieta', 'inne' => 'Inne'];
     public const UNITS = ['g' => 'g', 'ml' => 'ml', 'szt' => 'szt.'];
@@ -50,7 +50,7 @@ final class Store
                 supplier VARCHAR(200) NOT NULL, lot_no VARCHAR(100) NOT NULL, expires_at VARCHAR(10) NULL, qty DECIMAL(14,3) NOT NULL,
                 remaining DECIMAL(14,3) NOT NULL, price_total DECIMAL(12,2) NULL, notes TEXT NOT NULL, created_by VARCHAR(100) NULL,
                 created_at DATETIME NOT NULL, deleted_at DATETIME NULL',
-            'ext_prod_products' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, name VARCHAR(200) NOT NULL, sku VARCHAR(191) NOT NULL,
+            'ext_prod_products' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, name VARCHAR(200) NOT NULL, sku VARCHAR(191) NOT NULL, code VARCHAR(4) NOT NULL DEFAULT \'\',
                 shelf_life_months INT NOT NULL DEFAULT 12, price DECIMAL(12,2) NULL, vat INT NOT NULL DEFAULT 23, min_stock INT NULL,
                 extra_cost DECIMAL(12,2) NULL, labor_minutes DECIMAL(8,2) NULL, notes TEXT NOT NULL, archived INT NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
@@ -84,6 +84,18 @@ final class Store
             } catch (\PDOException) {
                 // już jest
             }
+        }
+        // Wersja 2: kod wyrobu do numeru partii.
+        try {
+            $this->pdo->exec("ALTER TABLE ext_prod_products ADD COLUMN code VARCHAR(4) NOT NULL DEFAULT ''");
+        } catch (\PDOException) {
+            // już jest (nowa instalacja)
+        }
+        // Stary wzór Rejestru Partii (ilość do 999, bez wyrobu i formy) zamieniamy na nowy domyślny. Własny wzór zostaje.
+        $cfg = json_decode((string) $settings->get('EXT_PRODUKCJA', ''), true);
+        if (is_array($cfg) && in_array(trim((string) ($cfg['pattern'] ?? '')), [BatchCode::LEGACY_PATTERN, ''], true)) {
+            $cfg['pattern'] = BatchCode::DEFAULT_PATTERN;
+            $settings->setMany(['EXT_PRODUKCJA' => json_encode($cfg, JSON_UNESCAPED_UNICODE)]);
         }
         $settings->setMany(['EXT_PRODUKCJA_SCHEMA' => self::SCHEMA]);
     }
@@ -446,6 +458,7 @@ final class Store
         $row = [
             'name' => mb_substr($name, 0, 200),
             'sku' => mb_substr(trim((string) ($in['sku'] ?? '')), 0, 191),
+            'code' => substr(BatchCode::clean((string) ($in['code'] ?? '')), 0, 2),
             'shelf_life_months' => max(0, min(120, (int) ($in['shelf_life_months'] ?? 12))),
             'price' => self::num($in['price'] ?? ''),
             'vat' => in_array($vat, [0, 5, 8, 23], true) ? $vat : 23,
@@ -458,6 +471,10 @@ final class Store
         if ($row['sku'] !== '' && ($d = $this->one('SELECT name FROM ext_prod_products WHERE sku = ? AND archived = 0' . ($id !== null ? ' AND id <> ?' : ''),
             $id !== null ? [$row['sku'], $id] : [$row['sku']])) !== null) {
             throw new \RuntimeException('SKU ' . $row['sku'] . ' ma już wyrób „' . $d['name'] . '”.');
+        }
+        if ($row['code'] !== '' && ($d = $this->one('SELECT name FROM ext_prod_products WHERE code = ? AND archived = 0' . ($id !== null ? ' AND id <> ?' : ''),
+            $id !== null ? [$row['code'], $id] : [$row['code']])) !== null) {
+            throw new \RuntimeException('Kod ' . $row['code'] . ' ma już wyrób „' . $d['name'] . '”. Każdy wyrób potrzebuje innego kodu, żeby numery partii się nie powtarzały.');
         }
         $lines = [];
         foreach ((array) ($in['recipe'] ?? []) as $i => $l) {

@@ -12,17 +12,13 @@ final class BatchPages
     {
         $s->purge();
         $view = (string) ($_GET['widok'] ?? '');
-        $f = ['q' => mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100), 'product' => (string) ($_GET['wyrob'] ?? ''),
-            'from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['od'] ?? '')) ? (string) $_GET['od'] : '',
-            'to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['do'] ?? '')) ? (string) $_GET['do'] : ''];
-        if ($view === 'kosz') {
-            $f['trash'] = true;
-        } else {
-            $f['draft'] = $view === 'wyceny';
-        }
+        $f = self::filters();
         $rows = $s->batches($f, 300);
+        $q = array_filter(['widok' => $view, 'q' => $f['q'], 'wyrob' => $f['product'], 'od' => $f['from'], 'do' => $f['to']], static fn($v) => $v !== '');
         $html = U::style() . U::tabs('partie') . '<div class="pr-top"><p>Każda partia ma numer do śledzenia: z czego ją zrobiono i komu poszła.</p><div class="pr-actions">'
-            . ($ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('partia_nowa', ['wycena' => 1])) . '">Wycena robocza</a><a class="btn" href="' . U::h(U::url('partia_nowa')) . '">+ Nowa partia</a>' : '')
+            . '<a class="btn secondary" href="' . U::h(U::url('partie_eksport', $q)) . '" title="Partie z widoku poniżej (z filtrami) do pliku CSV dla Excela">⬇ Eksport CSV</a>'
+            . ($ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('import', ['co' => 'partie'])) . '">⬆ Import</a>'
+                . '<a class="btn secondary" href="' . U::h(U::url('partia_nowa', ['wycena' => 1])) . '">Wycena robocza</a><a class="btn" href="' . U::h(U::url('partia_nowa')) . '">+ Nowa partia</a>' : '')
             . '</div></div>';
 
         $prods = ['' => 'Wszystkie wyroby'];
@@ -44,6 +40,21 @@ final class BatchPages
                 : '<div class="card pr-muted">' . ($view === 'kosz' ? 'Kosz jest pusty. Usunięte partie leżą tu 30 dni.' : 'Nic nie pasuje do filtrów.') . '</div>');
         }
         return $html . '<div class="card pr-table" style="padding:6px 10px">' . self::table($rows, $view === 'kosz', $ctx) . '</div>';
+    }
+
+    /** Filtry listy partii z adresu (lista i eksport CSV). @return array<string,mixed> */
+    public static function filters(): array
+    {
+        $view = (string) ($_GET['widok'] ?? '');
+        $f = ['q' => mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100), 'product' => (string) ($_GET['wyrob'] ?? ''),
+            'from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['od'] ?? '')) ? (string) $_GET['od'] : '',
+            'to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($_GET['do'] ?? '')) ? (string) $_GET['do'] : ''];
+        if ($view === 'kosz') {
+            $f['trash'] = true;
+        } else {
+            $f['draft'] = $view === 'wyceny';
+        }
+        return $f;
     }
 
     public static function table(array $rows, bool $trash = false, array $ctx = []): string

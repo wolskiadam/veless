@@ -36,6 +36,18 @@ i sztuki. Sprzedaż zdejmuje stan jak dotąd, wtyczka niczego przy sprzedaży ni
 stają się materiałami (z kodami do numeru partii), pracownicy i zmiany słownikami, dostawy historią dostaw
 (bez stanu), a rekordy partiami z wyrobami. Ponowny import tego samego pliku niczego nie dubluje.
 
+## Eksport i import CSV
+
+- **Partie → ⬇ Eksport CSV**: partie z widoku (z filtrami: szukanie, wyrób, daty, wyceny, kosz) do pliku CSV dla Excela
+  (średnik, UTF-8): numer, data, produkt, SKU, ilość, ważne do, osoba, zmiana, zużyte materiały z numerami partii dostawców,
+  koszty, zamówienia, uwagi.
+- **Partie → ⬆ Import**: stare partie z CSV - z Excela, z eksportu „Partie CSV” Rejestru Partii albo z eksportu tej wtyczki.
+  Kolumny rozpoznawane po nagłówkach (numer partii/kod, data produkcji/data, produkt, SKU, ilość, ważne do/przydatność,
+  osoba/pracownik, zmiana, wosk, zapach, knot, pojemnik, koszt, uwagi), separator `;` `,` albo tabulator, daty 2025-03-14 albo
+  14.03.2025, kodowanie UTF-8 albo Windows-1250. Wymagana data. Partie wchodzą jako historia (bez zdejmowania materiałów i bez
+  dokładania sztuk), numer, który już jest, jest pomijany; brak numeru daje `IMP-RRRRMMDD-NN`.
+- **Materiały → ⬇ Eksport CSV**: materiały ze stanem w formacie importu materiałów.
+
 ## Ustawienia
 
 Konfiguracja → Wtyczki → Produkcja → ⚙: wzór numeru partii, gdzie dodać sztuki, stawka godzinowa, koszty stałe

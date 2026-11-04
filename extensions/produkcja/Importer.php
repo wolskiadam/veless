@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace PaseExt\Produkcja;
 
 /**
- * Import danych: kopia JSON z Rejestru Partii (WordPress) i lista materiałów z pliku CSV.
+ * Import danych: kopia JSON z Rejestru Partii (WordPress), partie z pliku CSV i lista materiałów z pliku CSV.
  *
  * Z Rejestru Partii bierzemy woski, zapachy, knoty i pojemniki (jako materiały z kodami do numeru partii), pracowników
  * i zmiany, dostawy (data, numer partii dostawcy, ważność, cena) i historię partii. Rejestr nie liczył stanu magazynu,
@@ -133,6 +133,187 @@ final class Importer
             }
             return $stat;
         });
+    }
+
+    /** Kolumny pliku z partiami: pole => początki nagłówków (bez polskich znaków, małe litery). Kolejność ma znaczenie. */
+    private const BATCH_COLS = [
+        'expires' => ['wazne do', 'waznosc', 'data waznosci', 'termin', 'expir', 'best before'],
+        'months' => ['przydatn', 'shelf', 'miesiac'],
+        'cost_labor' => ['koszt pracy', 'koszt robocizny', 'robocizna'],
+        'cost' => ['koszt', 'cost', 'wartosc'],
+        'hours' => ['godziny', 'czas pracy', 'hours'],
+        'sku' => ['sku', 'symbol', 'kod produktu'],
+        'code' => ['numer partii', 'nr partii', 'kod partii', 'partia', 'kod', 'numer', 'batch', 'lot'],
+        'date' => ['data produkcji', 'data', 'date', 'wyprodukowano', 'production'],
+        'product' => ['produkt', 'wyrob', 'nazwa', 'product', 'swieca'],
+        'qty' => ['ilosc', 'liczba', 'sztuk', 'szt', 'qty', 'quantity'],
+        'person' => ['osoba', 'pracownik', 'employee', 'wykonal'],
+        'shift' => ['zmiana', 'party', 'shift', 'seria'],
+        'wax' => ['wosk', 'wax'],
+        'scent' => ['zapach', 'scent', 'fragrance'],
+        'wick' => ['knot', 'wick'],
+        'container' => ['pojemnik', 'container', 'opakowanie'],
+        'concentration' => ['stezenie', 'koncentracja', 'concentration'],
+        'materials' => ['materialy', 'surowce', 'sklad'],
+        'draft' => ['wycena', 'szkic', 'draft'],
+        'notes' => ['uwagi', 'notatki', 'notes', 'komentarz', 'opis'],
+    ];
+
+    /**
+     * Partie z CSV: eksport z tej wtyczki, eksport „Partie CSV” z Rejestru Partii albo własna tabela z Excela. Pierwszy wiersz
+     * to nagłówki, kolumny rozpoznawane po nazwie. Wymagana data produkcji. Partie wchodzą jako historyczne (bez zdejmowania
+     * materiałów i bez dokładania sztuk), numer, który już jest, jest pomijany. Brak numeru = numer IMP-RRRRMMDD-NN.
+     * @return array{batches:int,products:int,duplicates:int,skipped:int,columns:list<string>,errors:list<string>}
+     */
+    public function batchesCsv(string $text, string $user): array
+    {
+        $text = preg_replace('/^\xEF\xBB\xBF/', '', $text) ?? $text;
+        if (!mb_check_encoding($text, 'UTF-8')) {
+            // Stary Excel zapisuje CSV w Windows-1250: polskie litery na UTF-8, reszta jak w Latin-1.
+            $pl = ["\xA5" => 'Ą', "\xC6" => 'Ć', "\xCA" => 'Ę', "\xA3" => 'Ł', "\xD1" => 'Ń', "\xD3" => 'Ó', "\x8C" => 'Ś', "\x8F" => 'Ź', "\xAF" => 'Ż',
+                "\xB9" => 'ą', "\xE6" => 'ć', "\xEA" => 'ę', "\xB3" => 'ł', "\xF1" => 'ń', "\xF3" => 'ó', "\x9C" => 'ś', "\x9F" => 'ź', "\xBF" => 'ż'];
+            $text = function_exists('iconv') && ($u = @iconv('CP1250', 'UTF-8//IGNORE', $text)) !== false ? $u
+                : (string) preg_replace_callback('/[\x80-\xFF]/', static fn(array $m): string => $pl[$m[0]] ?? mb_chr(ord($m[0]), 'UTF-8'), $text);
+        }
+        $first = strtok($text, "\r\n") ?: '';
+        $counts = [';' => substr_count($first, ';'), ',' => substr_count($first, ','), "\t" => substr_count($first, "\t")];
+        arsort($counts);
+        $sep = (string) array_key_first($counts);
+        $f = fopen('php://temp', 'w+');
+        fwrite($f, $text);
+        rewind($f);
+        $head = fgetcsv($f, 0, $sep, '"', '');
+        if (!is_array($head) || count(array_filter($head, static fn($h) => trim((string) $h) !== '')) === 0) {
+            fclose($f);
+            throw new \RuntimeException('Plik jest pusty.');
+        }
+        $cols = [];
+        $labels = [];
+        foreach ($head as $i => $h) {
+            $n = self::plain((string) $h);
+            foreach (self::BATCH_COLS as $field => $starts) {
+                if (isset($cols[$field])) {
+                    continue;
+                }
+                foreach ($starts as $st) {
+                    if ($n !== '' && str_starts_with($n, $st)) {
+                        $cols[$field] = $i;
+                        $labels[] = trim((string) $h);
+                        continue 3;
+                    }
+                }
+            }
+        }
+        if (!isset($cols['date'])) {
+            fclose($f);
+            throw new \RuntimeException('Nie znalazłem kolumny z datą produkcji. Pierwszy wiersz pliku musi mieć nagłówki, np. „Numer partii; Data produkcji; Produkt; Ilość”.');
+        }
+        $rows = [];
+        while (($r = fgetcsv($f, 0, $sep, '"', '')) !== false) {
+            if (count(array_filter($r, static fn($v) => trim((string) $v) !== '')) > 0) {
+                $rows[] = $r;
+            }
+        }
+        fclose($f);
+
+        $stat = ['batches' => 0, 'products' => 0, 'duplicates' => 0, 'skipped' => 0, 'columns' => $labels, 'errors' => []];
+        return $this->s->tx(function () use ($rows, $cols, $user, &$stat): array {
+            $byName = [];
+            $bySku = [];
+            foreach ($this->s->all('SELECT id, name, sku, shelf_life_months FROM ext_prod_products') as $p) {
+                $byName[mb_strtolower((string) $p['name'])] ??= $p;
+                if ((string) $p['sku'] !== '') {
+                    $bySku[mb_strtolower((string) $p['sku'])] ??= $p;
+                }
+            }
+            $codes = array_flip(array_map(static fn(array $r): string => strtoupper((string) $r['code']), $this->s->all('SELECT code FROM ext_prod_batches')));
+            $seq = [];
+            foreach ($rows as $n => $r) {
+                $get = static function (string $k) use ($cols, $r): string {
+                    $v = isset($cols[$k]) ? trim((string) ($r[$cols[$k]] ?? '')) : '';
+                    return preg_match("/^'[=+\-@]/", $v) ? substr($v, 1) : $v;
+                };
+                $line = $n + 2;
+                $date = self::date($get('date'));
+                if ($date === null) {
+                    $stat['skipped']++;
+                    if (count($stat['errors']) < 10) {
+                        $stat['errors'][] = 'Wiersz ' . $line . ': brak daty produkcji albo nieczytelna („' . mb_substr($get('date'), 0, 20) . '”).';
+                    }
+                    continue;
+                }
+                $code = strtoupper(mb_substr($get('code'), 0, 60));
+                if ($code === '') {
+                    $day = str_replace('-', '', $date);
+                    do {
+                        $seq[$day] = ($seq[$day] ?? 0) + 1;
+                        $code = 'IMP-' . $day . '-' . str_pad((string) $seq[$day], 2, '0', STR_PAD_LEFT);
+                    } while (isset($codes[$code]));
+                } elseif (isset($codes[$code])) {
+                    $stat['duplicates']++;
+                    continue;
+                }
+                $codes[$code] = true;
+
+                $name = mb_substr($get('product'), 0, 200);
+                $sku = mb_substr($get('sku'), 0, 191);
+                $prod = ($sku !== '' ? $bySku[mb_strtolower($sku)] ?? null : null) ?? ($name !== '' ? $byName[mb_strtolower($name)] ?? null : null);
+                $months = Store::num($get('months'));
+                if ($prod === null && ($name !== '' || $sku !== '')) {
+                    $prod = ['id' => Store::id(), 'name' => $name !== '' ? $name : $sku, 'sku' => $sku, 'shelf_life_months' => $months !== null ? (int) $months : 12];
+                    $this->s->insert('ext_prod_products', ['id' => $prod['id'], 'name' => $prod['name'], 'sku' => $sku, 'shelf_life_months' => $prod['shelf_life_months'],
+                        'price' => null, 'vat' => 23, 'min_stock' => null, 'extra_cost' => null, 'labor_minutes' => null, 'notes' => 'Z importu partii',
+                        'archived' => 0, 'created_at' => Store::now(), 'updated_at' => Store::now()]);
+                    $byName[mb_strtolower($prod['name'])] = $prod;
+                    if ($sku !== '') {
+                        $bySku[mb_strtolower($sku)] = $prod;
+                    }
+                    $stat['products']++;
+                }
+                $expires = self::date($get('expires'));
+                if ($expires === null && !isset($cols['expires'])) {
+                    $m = $months !== null ? (int) $months : (int) ($prod['shelf_life_months'] ?? 0);
+                    $expires = $m > 0 ? date('Y-m-d', (int) strtotime($date . ' +' . $m . ' months')) : null;
+                }
+                $notes = array_filter([
+                    $get('wax') !== '' ? 'Wosk: ' . $get('wax') : '',
+                    $get('scent') !== '' ? 'Zapach: ' . $get('scent') . ($get('concentration') !== '' ? ' (' . $get('concentration') . ')' : '') : '',
+                    $get('wick') !== '' ? 'Knot: ' . $get('wick') : '',
+                    $get('container') !== '' ? 'Pojemnik: ' . $get('container') : '',
+                    $get('materials') !== '' ? 'Materiały: ' . $get('materials') : '',
+                    $get('notes'),
+                ], static fn(string $x): bool => $x !== '');
+                $draft = in_array(self::plain($get('draft')), ['tak', 'yes', '1', 'true', 'x'], true);
+                $this->s->insert('ext_prod_batches', ['id' => Store::id(), 'code' => $code, 'product_id' => $prod['id'] ?? null,
+                    'product_name' => $prod['name'] ?? '-', 'produced_at' => $date, 'qty' => max(0, (int) round(Store::num($get('qty')) ?? 0)),
+                    'expires_at' => $expires, 'person' => mb_substr($get('person'), 0, 100), 'shift' => mb_substr($get('shift'), 0, 100),
+                    'work_hours' => Store::num($get('hours')), 'cost_materials' => Store::num(str_replace(['zł', 'zl', 'PLN'], '', $get('cost'))),
+                    'cost_labor' => Store::num(str_replace(['zł', 'zl', 'PLN'], '', $get('cost_labor'))), 'lines_json' => '[]', 'stock_json' => '{}',
+                    'is_draft' => $draft ? 1 : 0, 'imported' => 1, 'notes' => implode("\n", $notes), 'created_by' => $user,
+                    'created_at' => Store::now(), 'updated_at' => Store::now(), 'deleted_at' => null]);
+                $stat['batches']++;
+            }
+            return $stat;
+        });
+    }
+
+    /** Data z pliku: 2026-11-04, 04.11.2026, 4/11/2026, 2026-11-04 12:00 (Excel). */
+    private static function date(string $v): ?string
+    {
+        $v = trim($v);
+        if (preg_match('/^(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/', $v, $m)) {
+            [$y, $mo, $d] = [(int) $m[1], (int) $m[2], (int) $m[3]];
+        } elseif (preg_match('/^(\d{1,2})[-.\/](\d{1,2})[-.\/](\d{4})/', $v, $m)) {
+            [$y, $mo, $d] = [(int) $m[3], (int) $m[2], (int) $m[1]];
+        } else {
+            return null;
+        }
+        return checkdate($mo, $d, $y) ? sprintf('%04d-%02d-%02d', $y, $mo, $d) : null;
+    }
+
+    private static function plain(string $s): string
+    {
+        return trim(strtr(mb_strtolower(trim($s)), ['ą' => 'a', 'ć' => 'c', 'ę' => 'e', 'ł' => 'l', 'ń' => 'n', 'ó' => 'o', 'ś' => 's', 'ź' => 'z', 'ż' => 'z']));
     }
 
     /** Ilość z Rejestru (kg, l, g, ml, szt.) w jednostce materiału (g, ml, szt.). @return array{0:?float,1:?float} */

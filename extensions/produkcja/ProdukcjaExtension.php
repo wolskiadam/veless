@@ -191,6 +191,17 @@ final class ProdukcjaExtension extends AbstractExtension
                 }
                 return MaterialPages::inventory($s, $ctx);
             }]);
+        foreach (['partie_eksport' => 'partie', 'materialy_eksport' => 'materialy'] as $page => $what) {
+            Hooks::addPage($page, ['title' => 'Eksport CSV', 'menu' => false, 'role' => 'viewer', 'raw' => true,
+                'render' => function (PDO $pdo) use ($store, $what): void {
+                    $e = new Exporter($store());
+                    $csv = $what === 'partie' ? $e->batches(BatchPages::filters()) : $e->materials();
+                    header('Content-Type: text/csv; charset=utf-8');
+                    header('Content-Disposition: attachment; filename="' . $what . '-' . date('Y-m-d') . '.csv"');
+                    header('Cache-Control: no-store');
+                    echo $csv;
+                }]);
+        }
         Hooks::addPage('import', ['title' => 'Import do produkcji', 'menu' => false, 'role' => 'editor',
             'render' => fn(PDO $pdo, array $ctx): string => $this->importPage($store(), $ctx)]);
         Hooks::addPage('ludzie', ['title' => 'Osoby i zmiany', 'menu' => false, 'role' => 'editor',
@@ -503,7 +514,14 @@ final class ProdukcjaExtension extends AbstractExtension
                     throw new \RuntimeException('Wybierz plik albo wklej dane.');
                 }
                 $imp = new Importer($s);
-                if (($_POST['kind'] ?? '') === 'bne') {
+                if (($_POST['kind'] ?? '') === 'partie') {
+                    $r = $imp->batchesCsv($text, (string) $ctx['user']);
+                    flash('Partie z pliku: dodano ' . $r['batches'] . ($r['products'] > 0 ? ', nowych wyrobów ' . $r['products'] : '')
+                        . ($r['duplicates'] > 0 ? ', pominięto ' . $r['duplicates'] . ' z numerem, który już jest' : '')
+                        . ($r['skipped'] > 0 ? ', pominięto ' . $r['skipped'] . ' bez daty' : '') . '. Rozpoznane kolumny: ' . implode(', ', $r['columns']) . '.'
+                        . ($r['errors'] !== [] ? ' ' . implode(' ', $r['errors']) : ''), $r['batches'] > 0 ? 'ok' : 'err');
+                    header('Location: ' . U::url('partie'));
+                } elseif (($_POST['kind'] ?? '') === 'bne') {
                     $r = $imp->bne($text, (string) $ctx['user']);
                     flash('Zaimportowano z Rejestru Partii: ' . $r['materials'] . ' materiałów, ' . $r['deliveries'] . ' dostaw, ' . $r['products'] . ' wyrobów, '
                         . $r['batches'] . ' partii, ' . $r['people'] . ' osób, ' . $r['shifts'] . ' zmian.' . ($r['skipped'] > 0 ? ' Pominięto ' . $r['skipped'] . ' wpisów bez daty lub materiału.' : '')
@@ -523,12 +541,18 @@ final class ProdukcjaExtension extends AbstractExtension
             . '<h3 style="margin:0">' . $title . '</h3><p class="pr-muted" style="margin:0">' . $text . '</p>' . U::csrf($ctx) . '<input type="hidden" name="kind" value="' . $kind . '">'
             . '<label>Plik<input type="file" name="file" accept="' . $accept . '"></label><label>albo wklej treść<textarea name="text" rows="5" placeholder="' . U::h($ph) . '"></textarea></label>'
             . '<div class="pr-actions"><button class="btn" type="submit">Importuj</button></div></form>';
-        return U::style() . U::tabs('materialy') . U::back(U::url('materialy'), 'Materiały i magazyn') . '<div class="pr-two">'
-            . $form('csv', 'Materiały z pliku CSV (Excel)', 'Kolumny: <b>nazwa</b>; kategoria (wosk, zapach, knot, pojemnik...); jednostka (g, kg, ml, l, szt); kod; stan; cena (za cały stan); minimum; dostawca; ważne do. Wystarczy sama nazwa. W Excelu: Zapisz jako → CSV (rozdzielany średnikami).',
-                '.csv,text/csv,text/plain', "nazwa;kategoria;jednostka;kod;stan;cena;minimum\nGoldenwax 464;wosk;kg;01;20;380;5")
-            . $form('bne', 'Kopia z Rejestru Partii (WordPress)', 'Plik JSON z Rejestru Partii → Narzędzia → Kopia zapasowa. Przeniesie woski, zapachy, knoty, pojemniki, pracowników, zmiany, dostawy i historię partii. Ponowny import pomija to, co już jest.',
-                '.json,application/json', '{"batch_records": [...], "batch_waxes": [...]}')
-            . '</div>';
+        $batches = ($_GET['co'] ?? '') === 'partie';
+        $partie = $form('partie', 'Partie z pliku CSV (Excel)', 'Stare partie z arkusza albo z Rejestru Partii (Partie → Eksport CSV), a także plik z „⬇ Eksport CSV” tej wtyczki. '
+                . 'Pierwszy wiersz to nagłówki, kolumny rozpoznaję po nazwie: <b>numer partii</b> (albo kod), <b>data produkcji</b> (albo data), produkt, SKU, ilość, ważne do (albo przydatność w miesiącach), '
+                . 'osoba (pracownik), zmiana, wosk, zapach, knot, pojemnik, koszt, uwagi. Wymagana jest data. Partie wchodzą jako historia: nie zdejmują materiałów i nie dokładają sztuk. '
+                . 'Numer, który już jest, zostaje pominięty, więc ten sam plik można wczytać drugi raz.',
+                '.csv,text/csv,text/plain', "Numer partii;Data produkcji;Produkt;Ilość;Osoba\nAD010LX02ABBA;2025-03-14;Piernik 180 ml;10;Ola");
+        $mats = $form('csv', 'Materiały z pliku CSV (Excel)', 'Kolumny: <b>nazwa</b>; kategoria (wosk, zapach, knot, pojemnik...); jednostka (g, kg, ml, l, szt); kod; stan; cena (za cały stan); minimum; dostawca; ważne do. Wystarczy sama nazwa. W Excelu: Zapisz jako → CSV (rozdzielany średnikami).',
+                '.csv,text/csv,text/plain', "nazwa;kategoria;jednostka;kod;stan;cena;minimum\nGoldenwax 464;wosk;kg;01;20;380;5");
+        $bne = $form('bne', 'Kopia z Rejestru Partii (WordPress)', 'Plik JSON z Rejestru Partii → Narzędzia → Kopia zapasowa. Przeniesie woski, zapachy, knoty, pojemniki, pracowników, zmiany, dostawy i historię partii. Ponowny import pomija to, co już jest.',
+                '.json,application/json', '{"batch_records": [...], "batch_waxes": [...]}');
+        return U::style() . U::tabs($batches ? 'partie' : 'materialy') . U::back(U::url($batches ? 'partie' : 'materialy'), $batches ? 'Partie' : 'Materiały i magazyn')
+            . '<div class="pr-two">' . ($batches ? $partie . $bne . $mats : $mats . $partie . $bne) . '</div>';
     }
 
     private function peoplePage(Store $s, array $ctx): string

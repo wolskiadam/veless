@@ -411,8 +411,8 @@ final class ProdukcjaExtension extends AbstractExtension
         $prods = $s->products();
         $html = U::style() . U::tabs('pulpit');
         if ($mats === [] && $prods === []) {
-            return $html . '<div class="card" style="background:var(--ink);color:#fff;border:0"><h2 style="margin:0 0 6px;color:#fff">Zacznij od tego, co masz na półce</h2>'
-                . '<p style="margin:0;opacity:.8">Dodaj materiały, a policzymy koszt każdego wyrobu i powiemy, kiedy coś się kończy.</p></div>'
+            return $html . '<div class="card" style="background:var(--ink);color:#fff;border:0"><h2 style="margin:0 0 6px;color:#fff">Dodaj materiały</h2>'
+                . '<p style="margin:0;opacity:.8">Policzymy koszt każdego wyrobu i powiemy, kiedy coś się kończy.</p></div>'
                 . '<div class="pr-cards">'
                 . self::step(1, 'Materiały', 'Wosk, zapachy, knoty, słoiki. Wystarczy nazwa.', $ctx['canEdit'] ? '<a class="btn" href="' . U::h(U::url('material', ['nowy' => 1])) . '">+ Dodaj materiał</a>' : '')
                 . self::step(2, 'Wyroby z kosztem i ceną', 'Receptura świecy i SKU produktu w sklepie. Koszt sztuki policzy się sam.', $ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('wyrob', ['nowy' => 1])) . '">Nowy wyrób</a>' : '')

@@ -157,7 +157,7 @@ try {
     $home = request($vi, 'admin/index.php')['body'];
     ok(preg_match('#Produkcja\s*<svg#', $home) === 1 && str_contains($home, 'href="ext.php?page=produkcja.pulpit"') && str_contains($home, 'href="ext.php?page=produkcja.testy"'), 'Own menu tab with the pages');
     $d = request($ola, $url('pulpit'));
-    ok($d['status'] === 200 && str_contains($d['body'], 'Zacznij od tego, co masz na półce') && str_contains($d['body'], '+ Dodaj materiał')
+    ok($d['status'] === 200 && str_contains($d['body'], '>Dodaj materiały</h2>') && str_contains($d['body'], 'Policzymy koszt każdego wyrobu') && str_contains($d['body'], '+ Dodaj materiał')
         && !str_contains($d['body'], 'produkcja.import'), 'Empty dashboard shows the first steps (import only in settings)');
     $cfgPattern = static fn(): string => (string) (json_decode((string) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'EXT_PRODUKCJA'")->fetchColumn(), true)['pattern'] ?? '');
     ok($cfgPattern() === '{DC}{MC}{YC}{PR}{FC}{WC}{SC}{WK}{QTY}{PC}', 'Old Rejestr Partii pattern is upgraded to the new default');

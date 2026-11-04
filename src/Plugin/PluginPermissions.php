@@ -40,6 +40,7 @@ final class PluginPermissions
         $areas = [
             'orders.'         => ['Lista zamówień', 'Dodaje lub zmienia kolumny, ikony i przyciski na liście zamówień.'],
             'order_view.'     => ['Karta zamówienia', 'Dodaje sekcje na karcie zamówienia.'],
+            'order_new.'      => ['Nowe zamówienie', 'Wypełnia formularz nowego zamówienia i dowiaduje się o dodanym zamówieniu.'],
             'packing.'        => ['Pakowanie', 'Zmienia ekran pakowania i reaguje na spakowanie zamówienia.'],
             'asset.packing'   => ['Pakowanie', ''],
             'automation.'     => ['Automatyzacje', 'Dodaje akcje lub zdarzenia do automatyzacji i dostaje każde zdarzenie zamówienia.'],

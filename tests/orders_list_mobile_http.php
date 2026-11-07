@@ -136,8 +136,8 @@ try {
     foreach (['number', 'source', 'status', 'client', 'email', 'amount', 'delivery', 'date', 'actions'] as $col) {
         ok(substr_count($list['body'], '<td data-col="' . $col . '"') === 3, "Every order row has its {$col} cell marked");
     }
-    ok(substr_count($list['body'], 'class="returning-badge"') === 1 && preg_match('/Magdalena Woźniak(?:<\/a>)? <span class="returning-badge" title="Powracający klient: 2\. zamówienie, wcześniej 1 zamówienie\. Ostatnie: 2026-09-20\./u', $list['body']) === 1,
-        'Returning customer (earlier archived order) has the "Powracający" badge, others do not');
+    ok(substr_count($list['body'], 'class="returning-badge"') === 1 && preg_match('/Magdalena Woźniak(?:<\/a>)? <span class="returning-badge" tabindex="0" role="img" data-tip="Powracający klient · zamówień łącznie: 2\. Poprzednie: 2026-09-20\."/u', $list['body']) === 1,
+        'Returning customer (earlier archived order) has the returning icon with the count in its tooltip, others do not');
     ok(str_contains($list['body'], 'action="orders_sync_now.php"'), 'Order list has the "Pobierz teraz" button');
     ok(!str_contains(request(login('vi'), 'admin/index.php')['body'], 'orders_sync_now.php'), 'Viewer does not get the "Pobierz teraz" button');
     $get = request($boss, 'admin/orders_sync_now.php');

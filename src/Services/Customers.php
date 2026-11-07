@@ -315,6 +315,64 @@ final class Customers
     }
 
     /**
+     * Powracający klienci na liście zamówień: ile wcześniejszych zakupów ma klient danego zamówienia.
+     *
+     * Wcześniejszy zakup = inne zamówienie tego samego klienta (dopasowanie jak na kartach klientów:
+     * e-mail, konto Allegro, telefon, ręczne połączenia; maskowane @allegromail.pl się nie liczą)
+     * złożone wcześniejszego dnia, nieanulowane i nie w koszu. Dwa zamówienia z tego samego dnia
+     * (np. dokupiony produkt) nie robią z klienta powracającego.
+     *
+     * Zamówienia z listy, które jeszcze nie mają klienta, przypisuje od razu (gdy nikt inny nie liczy
+     * klientów w tej chwili), żeby nowe zamówienie dostało oznaczenie bez wchodzenia na stronę Klienci.
+     *
+     * @param list<int> $wooOrderIds
+     * @return array<int,array{count:int,last:?string}> tylko zamówienia powracających klientów
+     */
+    public function returningFor(array $wooOrderIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $wooOrderIds), static fn(int $id): bool => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("SELECT woo_order_id, customer_id FROM customer_orders WHERE woo_order_id IN ($in)");
+        $stmt->execute($ids);
+        $known = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $known[(int) $row['woo_order_id']] = $row['customer_id'];
+        }
+        $missing = array_values(array_diff($ids, array_keys($known)));
+        $unassigned = array_merge($missing, array_keys(array_filter($known, static fn($c): bool => $c === null)));
+        if ($unassigned !== [] && $this->lock()) {
+            try {
+                $this->atomic(function () use ($missing, $unassigned): void {
+                    $this->snapshot($missing);
+                    $this->assignPending(PHP_INT_MAX, $unassigned);
+                });
+            } finally {
+                $this->unlock();
+            }
+        }
+        $stmt = $this->pdo->prepare(
+            "SELECT t.woo_order_id, COUNT(p.woo_order_id) AS n, MAX(p.order_date) AS last
+             FROM customer_orders t
+             JOIN customer_orders p ON p.customer_id = t.customer_id AND p.woo_order_id <> t.woo_order_id
+                AND p.trashed = 0 AND (p.pase_status IS NULL OR p.pase_status <> 'cancelled')
+                AND SUBSTR(p.order_date, 1, 10) < SUBSTR(t.order_date, 1, 10)
+             WHERE t.woo_order_id IN ($in) AND t.customer_id IS NOT NULL
+             GROUP BY t.woo_order_id"
+        );
+        $stmt->execute($ids);
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            if ((int) $row['n'] > 0) {
+                $out[(int) $row['woo_order_id']] = ['count' => (int) $row['n'], 'last' => $row['last'] !== null ? (string) $row['last'] : null];
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Przelicza klientów od nowa z migawek (także zamówień już usuniętych z CRM).
      * Ręczne połączenia i anonimizacje zostają; migawki istniejących zamówień odświeżą się przy synchronizacji.
      */

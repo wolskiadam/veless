@@ -208,6 +208,8 @@ return [
     'orders.col.source'=> 'Źródło',
     'orders.col.status'=> 'Status',
     'orders.col.client'=> 'Klient',
+    'orders.returning.title' => 'Powracający klient · zamówień łącznie: {total}.',
+    'orders.returning.last'  => 'Poprzednie: {date}.',
     'orders.col.email' => 'E-mail',
     'orders.col.amount'=> 'Kwota',
     'orders.col.delivery'=> 'Dostawa',

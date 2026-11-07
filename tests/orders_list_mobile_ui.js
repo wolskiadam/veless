@@ -55,6 +55,24 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         if (!(top.search.top > top.title.bottom && top.firstCard.top > top.search.bottom && top.firstCard.top - top.search.bottom < 60)) fail('orders do not follow right after the search: ' + JSON.stringify(top));
         pass('top: title, refresh, "+", panel button, search and right after it the orders');
 
+        // Znaczek „Powracający” stoi w karcie przy nazwisku klienta i mieści się w ekranie.
+        const ret = await page.evaluate(() => {
+            const b = document.querySelector('.orders-table td[data-col="client"] .returning-badge');
+            if (!b) return null;
+            const r = b.getBoundingClientRect(), td = b.closest('td').getBoundingClientRect();
+            return { top: r.top, bottom: r.bottom, right: r.right, tdTop: td.top, tdBottom: td.bottom, tdRight: td.right, text: b.innerText.trim(), tip: getComputedStyle(b, '::after').content, w: r.width };
+        });
+        if (!ret || ret.text !== '' || ret.w > 24 || !ret.tip.includes('zamówień łącznie: 2') || ret.right > ret.tdRight + 0.5 || ret.top < ret.tdTop - 0.5 || ret.bottom > ret.tdBottom + 0.5) fail('returning badge missing or outside the client line: ' + JSON.stringify(ret));
+        pass('returning customer: icon only next to the name, count in the tooltip');
+        await page.focus('.returning-badge');
+        const tipBox = await page.evaluate(() => { const b = document.querySelector('.returning-badge'); const cs = getComputedStyle(b, '::after');
+            return { vis: cs.visibility, w: parseFloat(cs.width), vw: document.documentElement.clientWidth, tdW: b.closest('td').getBoundingClientRect().width }; });
+        if (tipBox.vis !== 'visible' || tipBox.w > tipBox.tdW + 0.5) fail('tooltip does not show on tap/focus: ' + JSON.stringify(tipBox));
+        await page.waitForTimeout(250);
+        if (process.env.SHOTS) await page.screenshot({ path: process.env.SHOTS + '/returning-tip.png', clip: { x: 0, y: 380, width: 390, height: 260 } });
+        await page.evaluate(() => document.activeElement.blur());
+        pass('returning customer tooltip shows on tap');
+
         // Lista nie przewija się w bok, a każda karta zamówienia mieści się w ekranie.
         const layout = await page.evaluate(() => {
             const scroll = document.querySelector('.orders-table-scroll');

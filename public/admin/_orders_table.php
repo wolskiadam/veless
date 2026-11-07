@@ -202,6 +202,12 @@ if (!function_exists('sourceBadge')) {
         $mergeInfo = (new \Pase\Services\OrderMerge($pdo))->listInfo(array_column($rows, 'woo_order_id'));
         // Nazwa klienta prowadzi do karty klienta, jeśli konto ma dostęp do strony Klienci.
         $canSeeCustomers = function_exists('canViewPage') && canViewPage('customers');
+        // Powracający klient: ma wcześniejsze zamówienia (dopasowanie jak na stronie Klienci - e-mail, konto Allegro, telefon).
+        try {
+            $returningByOrder = (new \Pase\Services\Customers($pdo))->returningFor(array_map('intval', array_column($rows, 'woo_order_id')));
+        } catch (\Throwable $e) {
+            $returningByOrder = [];
+        }
         // Rozszerzenia dostają całą stronę wierszy naraz (np. jedna kwerenda zamiast jednej na wiersz).
         \Pase\Plugin\Hooks::doAction('orders.rows', $rows);
         ?>
@@ -309,7 +315,12 @@ if (!function_exists('sourceBadge')) {
                     </div>
                 </td>
                 <?php $cells['status'] = ob_get_clean(); ob_start(); ?>
-                <td><?php if (($r['customer_name'] ?? '') !== '' && $canSeeCustomers): ?><a class="customer-link" href="customers.php?order=<?= (int)$r['woo_order_id'] ?>" title="Karta klienta: wszystkie zamówienia i kanały"><?= htmlspecialchars($r['customer_name']) ?></a><?php else: ?><?= htmlspecialchars($r['customer_name'] ?? '—') ?><?php endif; ?></td>
+                <td><?php if (($r['customer_name'] ?? '') !== '' && $canSeeCustomers): ?><a class="customer-link" href="customers.php?order=<?= (int)$r['woo_order_id'] ?>" title="Karta klienta: wszystkie zamówienia i kanały"><?= htmlspecialchars($r['customer_name']) ?></a><?php else: ?><?= htmlspecialchars($r['customer_name'] ?? '—') ?><?php endif; ?><?php
+                    $ret = $returningByOrder[(int)$r['woo_order_id']] ?? null;
+                    if ($ret !== null):
+                        $retN = $ret['count'];
+                        $retTitle = t('orders.returning.title', ['n' => $retN, 'total' => $retN + 1]) . ($ret['last'] ? ' ' . t('orders.returning.last', ['date' => substr($ret['last'], 0, 10)]) : '');
+                    ?> <span class="returning-badge" tabindex="0" role="img" data-tip="<?= htmlspecialchars($retTitle) ?>" aria-label="<?= htmlspecialchars($retTitle) ?>"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg></span><?php endif; ?></td>
                 <?php $cells['client'] = ob_get_clean(); ob_start(); ?>
                 <td style="font-size:12px"><?= htmlspecialchars($r['customer_email'] ?? '—') ?></td>
                 <?php $cells['email'] = ob_get_clean(); ob_start(); ?>

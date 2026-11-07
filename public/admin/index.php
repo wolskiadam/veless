@@ -223,6 +223,15 @@ $PAGE_HEAD = <<<'CSS'
     .customer-link { color:inherit; text-decoration:none; }
     .customer-link:hover { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
     .customer-link:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:2px; }
+    .returning-badge { position:relative; display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; margin-left:6px;
+        border-radius:50%; vertical-align:middle; cursor:help; background:#e7f0fb; color:#1f5a9e; border:1px solid #c9dcf3; }
+    .returning-badge:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    .returning-badge::after { content:attr(data-tip); position:absolute; left:50%; bottom:calc(100% + 6px); transform:translateX(-50%); z-index:20;
+        width:max-content; max-width:240px; padding:6px 9px; border-radius:6px; background:#1f2937; color:#fff; font-size:12px; font-weight:500;
+        line-height:1.35; white-space:normal; text-align:left; box-shadow:var(--shadow); pointer-events:none; opacity:0; visibility:hidden; transition:opacity .12s; }
+    .returning-badge:hover::after, .returning-badge:focus::after { opacity:1; visibility:visible; }
+    @media (max-width:820px) { .orders-table td[data-col="client"] { position:relative; } .returning-badge { position:static; }
+        .returning-badge::after { left:0; bottom:calc(100% + 4px); transform:none; max-width:100%; box-sizing:border-box; } }
     .order-shop-id { display:block; color:var(--ink-2); font-family:var(--font-num); font-size:11px; }
     .order-source-number { display:inline-block; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
     @media (max-width:1400px) { .orders-table th,.orders-table td { padding:9px 6px; } }

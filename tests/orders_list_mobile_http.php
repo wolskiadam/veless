@@ -114,6 +114,11 @@ try {
             'billing' => ['first_name' => 'Wiktoria', 'last_name' => 'Michalowicz', 'email' => $allegroMail], 'shipping' => ['first_name' => 'Wiktoria', 'last_name' => 'Michalowicz', 'city' => 'Kraków']])]);
     $pdo->exec("INSERT INTO shipments (woo_order_id, courier_code, waybill_no, status, tracking_status, created_at)
         VALUES (9000000700, 'InPost Paczkomaty', '620999673376004676945119', 'created', 'in_transit', '2026-10-16 11:00:00')");
+    // Magdalena kupowała już wcześniej (zamówienie w archiwum) - przy nazwisku pojawia się „Powracający”.
+    $oins->execute([92500, 1, 0, '92500', 'completed', 'shipped', 'PLN', 29.9, 'Magdalena Woźniak', 'mw.soyacandles@gmail.com', '2026-09-20 10:00:00', '2026-09-20 10:01:00', $order('mw.soyacandles@gmail.com', 'completed', 'PAR')]);
+    $pdo->exec("UPDATE woo_orders SET lifecycle = 'archived' WHERE woo_order_id = 92500");
+    $pdo->exec('UPDATE woo_orders SET updated_at = imported_at');
+    (new \Pase\Services\Customers($pdo))->syncPending(5.0); // jak Scheduler co minutę
     // Nieprzeczytana wiadomość od klienta - karta ma pomarańczowy pasek i znaczek ✉.
     $pdo->exec("INSERT INTO order_messages (woo_order_id, sender, author_name, body, is_read, created_at) VALUES (92600, 'customer', 'Magdalena', 'Czy mogę dopisać produkt?', 0, '2026-10-16 16:00:00')");
 
@@ -131,6 +136,8 @@ try {
     foreach (['number', 'source', 'status', 'client', 'email', 'amount', 'delivery', 'date', 'actions'] as $col) {
         ok(substr_count($list['body'], '<td data-col="' . $col . '"') === 3, "Every order row has its {$col} cell marked");
     }
+    ok(substr_count($list['body'], 'class="returning-badge"') === 1 && preg_match('/Magdalena Woźniak(?:<\/a>)? <span class="returning-badge" tabindex="0" role="img" data-tip="Powracający klient · zamówień łącznie: 2\. Poprzednie: 2026-09-20\."/u', $list['body']) === 1,
+        'Returning customer (earlier archived order) has the returning icon with the count in its tooltip, others do not');
     ok(str_contains($list['body'], 'action="orders_sync_now.php"'), 'Order list has the "Pobierz teraz" button');
     ok(!str_contains(request(login('vi'), 'admin/index.php')['body'], 'orders_sync_now.php'), 'Viewer does not get the "Pobierz teraz" button');
     $get = request($boss, 'admin/orders_sync_now.php');

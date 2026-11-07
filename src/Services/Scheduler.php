@@ -120,6 +120,13 @@ final class Scheduler
             Logger::warn('Scheduler[margins] błąd: ' . $e->getMessage());
         }
 
+        // Klienci: nowe zamówienia dopisane do kart klientów (oznaczenie „Powracający” na liście zamówień).
+        try {
+            (new Customers($this->pdo))->syncPending(5.0);
+        } catch (\Throwable $e) {
+            Logger::warn('Scheduler[customers] błąd: ' . $e->getMessage());
+        }
+
         // Zwroty klientów z Allegro - tylko pobranie i zapis; stan, korekty i zwroty pieniędzy robi operator.
         if (!$control->isPaused('allegro_returns')
             && $now - (int) ($this->settings->get(OrderReturns::SYNC_AT_KEY, '0') ?? '0') >= OrderReturns::SYNC_EVERY_MIN * 60) {

@@ -208,6 +208,8 @@ return [
     'orders.col.source'=> 'Source',
     'orders.col.status'=> 'Status',
     'orders.col.client'=> 'Customer',
+    'orders.returning.title' => 'Returning customer · orders in total: {total}.',
+    'orders.returning.last'  => 'Previous: {date}.',
     'orders.col.email' => 'Email',
     'orders.col.amount'=> 'Amount',
     'orders.col.delivery'=> 'Delivery',

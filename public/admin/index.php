@@ -223,6 +223,11 @@ $PAGE_HEAD = <<<'CSS'
     .customer-link { color:inherit; text-decoration:none; }
     .customer-link:hover { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
     .customer-link:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:2px; }
+    .returning-badge { display:inline-flex; align-items:center; gap:4px; margin-left:6px; padding:1px 8px 1px 6px; border-radius:999px;
+        font-size:11px; font-weight:700; line-height:18px; vertical-align:middle; white-space:nowrap; cursor:help;
+        background:#e7f0fb; color:#1f5a9e; border:1px solid #c9dcf3; }
+    .returning-badge svg { flex-shrink:0; }
+    .returning-count { font-weight:800; opacity:.85; }
     .order-shop-id { display:block; color:var(--ink-2); font-family:var(--font-num); font-size:11px; }
     .order-source-number { display:inline-block; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
     @media (max-width:1400px) { .orders-table th,.orders-table td { padding:9px 6px; } }

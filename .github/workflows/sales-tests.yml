@@ -89,6 +89,7 @@ jobs:
       - run: php tests/allegro_inbox.php
       - run: php tests/allegro_inbox_http.php
       - run: php tests/customers.php
+      - run: php tests/orders_returning.php
       - run: php tests/order_margins.php
       - run: php tests/order_margins_http.php
       - run: php tests/low_stock.php

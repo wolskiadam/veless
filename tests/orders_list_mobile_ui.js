@@ -55,6 +55,16 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         if (!(top.search.top > top.title.bottom && top.firstCard.top > top.search.bottom && top.firstCard.top - top.search.bottom < 60)) fail('orders do not follow right after the search: ' + JSON.stringify(top));
         pass('top: title, refresh, "+", panel button, search and right after it the orders');
 
+        // Znaczek „Powracający” stoi w karcie przy nazwisku klienta i mieści się w ekranie.
+        const ret = await page.evaluate(() => {
+            const b = document.querySelector('.orders-table td[data-col="client"] .returning-badge');
+            if (!b) return null;
+            const r = b.getBoundingClientRect(), td = b.closest('td').getBoundingClientRect();
+            return { top: r.top, bottom: r.bottom, right: r.right, tdTop: td.top, tdBottom: td.bottom, tdRight: td.right, text: b.innerText.trim() };
+        });
+        if (!ret || ret.text !== 'Powracający' || ret.right > ret.tdRight + 0.5 || ret.top < ret.tdTop - 0.5 || ret.bottom > ret.tdBottom + 0.5) fail('returning badge missing or outside the client line: ' + JSON.stringify(ret));
+        pass('returning customer badge next to the name on the card');
+
         // Lista nie przewija się w bok, a każda karta zamówienia mieści się w ekranie.
         const layout = await page.evaluate(() => {
             const scroll = document.querySelector('.orders-table-scroll');

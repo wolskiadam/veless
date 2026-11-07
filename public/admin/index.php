@@ -223,8 +223,9 @@ $PAGE_HEAD = <<<'CSS'
     .customer-link { color:inherit; text-decoration:none; }
     .customer-link:hover { color:var(--accent); text-decoration:underline; text-underline-offset:3px; }
     .customer-link:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:2px; }
-    .returning-badge { position:relative; display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; margin-left:6px;
-        border-radius:50%; vertical-align:middle; cursor:help; background:#e7f0fb; color:#1f5a9e; border:1px solid #c9dcf3; }
+    .returning-badge { position:relative; display:inline-flex; align-items:center; margin-left:6px; padding:0 7px; border-radius:999px;
+        font-size:11px; font-weight:700; line-height:18px; vertical-align:middle; white-space:nowrap; cursor:help; font-variant-numeric:tabular-nums;
+        background:#ecfdf3; color:#15803d; border:1px solid #bbf7d0; }
     .returning-badge:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
     .returning-badge::after { content:attr(data-tip); position:absolute; left:50%; bottom:calc(100% + 6px); transform:translateX(-50%); z-index:20;
         width:max-content; max-width:240px; padding:6px 9px; border-radius:6px; background:#1f2937; color:#fff; font-size:12px; font-weight:500;

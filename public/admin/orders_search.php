@@ -8,7 +8,7 @@ declare(strict_types=1);
  * index.php, patrz _orders_query.php (żeby wyniki się nie rozjeżdżały).
  *
  * GET: te same parametry co index.php (q, status, date_from, date_to,
- * total_min, total_max, unread, need_invoice, need_shipping (1 lub etap śledzenia), unpaid, need_receipt, view, p).
+ * total_min, total_max, unread, need_invoice, need_shipping (1 lub etap śledzenia), unpaid, need_receipt, delivery, view, p).
  */
 
 use Pase\Repository\OrderStatusRepository;

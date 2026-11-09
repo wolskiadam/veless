@@ -47,6 +47,8 @@ $page       = max(1, (int) ($_GET['p'] ?? 1));
 $fSource    = trim($_GET['source'] ?? '');   // źródło zamówienia - patrz budowa WHERE niżej
 $fInvoiceIssued = in_array($_GET['invoice_issued'] ?? '', ['1', '0'], true) ? $_GET['invoice_issued'] : '';
 $fReceiptIssued = in_array($_GET['receipt_issued'] ?? '', ['1', '0'], true) ? $_GET['receipt_issued'] : '';
+// Dostawa: przewoźnik (c:inpost), dokładna metoda dostawy (m:<nazwa>) albo none - Services\OrderChannelIcons::filterSql().
+$fDelivery = is_string($_GET['delivery'] ?? null) ? trim($_GET['delivery']) : '';
 $invoiceExists = "EXISTS (SELECT 1 FROM order_documents od WHERE od.woo_order_id = wo.woo_order_id AND od.status = 'issued' AND od.document_type = 'normal')";
 $receiptExists = "EXISTS (SELECT 1 FROM order_documents od WHERE od.woo_order_id = wo.woo_order_id AND od.status = 'issued' AND od.document_type IN ('receipt', 'receipt_fiscal'))";
 // ID paragonu w wFirma - zielona ikona paragonu na liście otwiera go w wFirma.
@@ -162,6 +164,11 @@ if ($fSource !== '') {
     }
 }
 
+if ($fDelivery !== '') {
+    $deliverySql = \Pase\Services\OrderChannelIcons::filterSql($fDelivery, $view, (string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME), $params);
+    if ($deliverySql !== null) { $where[] = $deliverySql; } else { $fDelivery = ''; }
+}
+
 $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
 // Sortowanie po kliknięciu nagłówka kolumny (?sort=&dir=) - patrz Services\OrderListSort.
@@ -203,6 +210,9 @@ try {
 } catch (\Throwable $e) {
     $sourceAccounts = [];
 }
+
+// Opcje filtra „Dostawa”: przewoźnicy i metody dostawy z zamówień tego widoku.
+$deliveryOptions = \Pase\Services\OrderChannelIcons::filterOptions($pdo, $view);
 
 // Czy w ogóle są zamówienia bez źródła - bez tego nie ma po co pokazywać opcji.
 $hasOrdersWithoutSource = false;
@@ -377,4 +387,4 @@ $perPageLink = static function (int $n) use ($qs): string {
 
 $hasActiveFilters = $q !== '' || $fStatus !== '' || $fDateFrom !== '' || $fDateTo !== ''
     || $fTotalMin !== '' || $fTotalMax !== '' || $fUnread || $fIndicators
-    || $fInvoiceIssued !== '' || $fReceiptIssued !== '';
+    || $fInvoiceIssued !== '' || $fReceiptIssued !== '' || $fDelivery !== '';

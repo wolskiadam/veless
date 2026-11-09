@@ -183,29 +183,112 @@ final class OrderChannelIcons
      */
     public static function sortJoinSql(string $driver): string
     {
+        return "LEFT JOIN (SELECT DISTINCT d.woo_order_id, LOWER(TRIM(" . self::courierSql('d') . ")) AS courier_txt, LOWER(TRIM("
+            . self::methodSql('d', $driver) . ")) AS method_txt FROM woo_orders d) dsort ON dsort.woo_order_id = wo.woo_order_id";
+    }
+
+    /** SQL: metoda dostawy wybrana przez klienta (jak deliveryMethod()) dla zamówienia o aliasie $alias. */
+    public static function methodSql(string $alias, string $driver): string
+    {
         $json = static fn(string $path): string => $driver === 'sqlite'
-            ? "json_extract(d.payload, '{$path}')"
-            : "NULLIF(JSON_UNQUOTE(JSON_EXTRACT(d.payload, '{$path}')), 'null')";
-        $method = "CASE WHEN d.payload IS NOT NULL AND JSON_VALID(d.payload) THEN COALESCE(NULLIF(TRIM("
+            ? "json_extract({$alias}.payload, '{$path}')"
+            : "NULLIF(JSON_UNQUOTE(JSON_EXTRACT({$alias}.payload, '{$path}')), 'null')";
+        return "CASE WHEN {$alias}.payload IS NOT NULL AND JSON_VALID({$alias}.payload) THEN COALESCE(NULLIF(TRIM("
             . $json('$.shipping_lines[0].method_title') . "), ''), " . $json('$.delivery.method.name') . ") END";
-        $courier = "(SELECT s.courier_code FROM shipments s WHERE s.woo_order_id = d.woo_order_id AND s.courier_code IS NOT NULL"
+    }
+
+    /** SQL: kurier ostatniej aktywnej przesyłki zamówienia o aliasie $alias (jak w delivery()). */
+    public static function courierSql(string $alias): string
+    {
+        return "(SELECT s.courier_code FROM shipments s WHERE s.woo_order_id = {$alias}.woo_order_id AND s.courier_code IS NOT NULL"
             . " AND TRIM(s.courier_code) <> '' AND COALESCE(s.status, '') NOT IN ('cancelled', 'canceled', 'failed') ORDER BY s.id DESC LIMIT 1)";
-        return "LEFT JOIN (SELECT DISTINCT d.woo_order_id, LOWER(TRIM({$courier})) AS courier_txt, LOWER(TRIM({$method})) AS method_txt"
-            . " FROM woo_orders d) dsort ON dsort.woo_order_id = wo.woo_order_id";
+    }
+
+    /** SQL: klucz przewoźnika (CARRIERS) z tekstu - jak carrierKey(); NULL = nie rozpoznano. $col musi być już małymi literami. */
+    private static function carrierCaseSql(string $col): string
+    {
+        $sql = 'CASE';
+        foreach (self::CARRIERS as $key => [, $words]) {
+            $likes = array_map(static fn(string $w): string => "{$col} LIKE '%" . str_replace("'", "''", $w) . "%'", $words);
+            $sql .= ' WHEN ' . implode(' OR ', $likes) . " THEN '{$key}'";
+        }
+        return $sql . ' END';
+    }
+
+    /**
+     * Filtr „Dostawa” na liście zamówień. Wartość:
+     *   c:<klucz>   -> przewoźnik jak logo w kolumnie „Dostawa” (z przesyłki, a bez niej z metody dostawy),
+     *   m:<nazwa>   -> dokładnie ta metoda dostawy wybrana przez klienta („Allegro Paczkomaty InPost”),
+     *   none        -> bez metody dostawy i bez przesyłki.
+     * @param array<string,mixed> $params parametry zapytania (dopisujemy swoje)
+     * @return string|null warunek WHERE dla aliasu wo albo null, gdy wartość nieprawidłowa
+     */
+    public static function filterSql(string $value, string $view, string $driver, array &$params): ?string
+    {
+        if ($value === 'none') {
+            $cond = "COALESCE(x.m, '') = '' AND x.c IS NULL";
+        } elseif (str_starts_with($value, 'c:') && isset(self::CARRIERS[substr($value, 2)])) {
+            $params[':dlv_key'] = substr($value, 2);
+            $cond = 'COALESCE(' . self::carrierCaseSql('LOWER(x.c)') . ', ' . self::carrierCaseSql('LOWER(x.m)') . ') = :dlv_key';
+        } elseif (str_starts_with($value, 'm:') && trim(substr($value, 2)) !== '') {
+            $params[':dlv_method'] = trim(substr($value, 2));
+            $cond = 'x.m = :dlv_method';
+        } else {
+            return null;
+        }
+        $params[':dlv_life'] = $view;
+        // Tekst metody i kuriera liczony raz na zamówienie (DISTINCT = materializacja, jak w sortJoinSql) - payload to duży JSON.
+        return 'wo.woo_order_id IN (SELECT x.woo_order_id FROM (SELECT DISTINCT d.woo_order_id, TRIM(' . self::courierSql('d') . ') AS c, TRIM('
+            . self::methodSql('d', $driver) . ") AS m FROM woo_orders d WHERE d.lifecycle = :dlv_life) x WHERE {$cond})";
+    }
+
+    /**
+     * Opcje filtra „Dostawa”: przewoźnicy obecni w zamówieniach widoku, pod każdym metody dostawy klientów,
+     * a metody bez rozpoznanego przewoźnika w grupie „Inne”.
+     * @return array{carriers: array<string,array{label:string,methods:list<string>}>, other: list<string>}
+     */
+    public static function filterOptions(\PDO $pdo, string $view): array
+    {
+        $driver = (string) $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME);
+        $out = ['carriers' => [], 'other' => []];
+        try {
+            $stmt = $pdo->prepare('SELECT DISTINCT TRIM(' . self::methodSql('wo', $driver) . ') FROM woo_orders wo WHERE wo.lifecycle = ?');
+            $stmt->execute([$view]);
+            $methods = array_values(array_filter(array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: []),
+                static fn(string $m): bool => $m !== '' && $m !== 'null'));
+            $stmt = $pdo->prepare("SELECT DISTINCT s.courier_code FROM shipments s JOIN woo_orders wo ON wo.woo_order_id = s.woo_order_id
+                WHERE wo.lifecycle = ? AND s.courier_code IS NOT NULL AND TRIM(s.courier_code) <> ''
+                AND COALESCE(s.status, '') NOT IN ('cancelled', 'canceled', 'failed')");
+            $stmt->execute([$view]);
+            $couriers = array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN) ?: []);
+        } catch (\Throwable) {
+            return $out;
+        }
+        $found = [];
+        foreach ($couriers as $c) {
+            if (($k = self::carrierKey($c)) !== null) { $found[$k] = []; }
+        }
+        $byKey = [];
+        foreach ($methods as $m) {
+            $k = self::carrierKey($m);
+            if ($k === null) { $out['other'][] = $m; continue; }
+            $byKey[$k][] = $m;
+        }
+        foreach (self::CARRIERS as $key => [$label]) {
+            if (!isset($found[$key]) && !isset($byKey[$key])) { continue; }
+            $list = array_values(array_unique($byKey[$key] ?? []));
+            sort($list, SORT_NATURAL | SORT_FLAG_CASE);
+            $out['carriers'][$key] = ['label' => $label, 'methods' => $list];
+        }
+        $out['other'] = array_values(array_unique($out['other']));
+        sort($out['other'], SORT_NATURAL | SORT_FLAG_CASE);
+        return $out;
     }
 
     /** Wyrażenie sortujące (po sortJoinSql): klucz przewoźnika jak w carrierKey(), nierozpoznane - po nazwie metody. */
     public static function sortKeySql(): string
     {
-        $case = static function (string $col): string {
-            $sql = 'CASE';
-            foreach (self::CARRIERS as $key => [, $words]) {
-                $likes = array_map(static fn(string $w): string => "{$col} LIKE '%" . str_replace("'", "''", $w) . "%'", $words);
-                $sql .= ' WHEN ' . implode(' OR ', $likes) . " THEN '{$key}'";
-            }
-            return $sql . ' END';
-        };
-        return 'COALESCE(' . $case('dsort.courier_txt') . ', ' . $case('dsort.method_txt')
+        return 'COALESCE(' . self::carrierCaseSql('dsort.courier_txt') . ', ' . self::carrierCaseSql('dsort.method_txt')
             . ", dsort.method_txt, dsort.courier_txt, '')";
     }
 }

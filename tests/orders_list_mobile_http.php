@@ -152,6 +152,19 @@ try {
     ok($rows(request($boss, 'admin/orders_search.php?q=' . urlencode('#9'))) === 0, 'Search for #9 (no such CRM number) finds nothing');
     ok(str_contains(request($boss, 'admin/index.php?q=' . urlencode('#3'))['body'], 'Wiktoria'), 'Order list page finds #3 too');
 
+    // Filtr „Dostawa”: przewoźnik jak logo w kolumnie (z przesyłki albo z metody), dokładna metoda dostawy, bez dostawy.
+    ok(preg_match('/<select name="delivery">.*?<optgroup label="InPost">\s*<option value="c:inpost" >Wszystkie: InPost<\/option>.*?<optgroup label="Inne">\s*<option value="m:Kurier" >Kurier<\/option>.*?<option value="none" >Bez metody dostawy<\/option>/s', $list['body']) === 1,
+        'Filter panel has "Dostawa": carriers found in orders with their methods, other methods, and "no delivery"');
+    $byDelivery = static fn(string $v): array => request($boss, 'admin/orders_search.php?delivery=' . urlencode($v));
+    $inpost = $byDelivery('c:inpost');
+    ok($rows($inpost) === 1 && str_contains((string) $inpost['json']['html'], 'Wiktoria'), 'Delivery c:inpost finds the order shipped with InPost (no method, carrier from the shipment)');
+    ok($rows($byDelivery('m:Kurier')) === 2, 'Delivery m:Kurier finds both shop orders with that exact method');
+    ok($rows($byDelivery('c:dpd')) === 0 && $rows($byDelivery('none')) === 0, 'No DPD orders and no orders without any delivery');
+    ok($rows($byDelivery('c:nonsense')) === 3, 'Unknown delivery value is ignored');
+    $page = request($boss, 'admin/index.php?delivery=c%3Ainpost');
+    ok(str_contains($page['body'], '<option value="c:inpost" selected>') && !str_contains($page['body'], 'id="ordersFilterBar" hidden'),
+        'Order page keeps the delivery filter selected and the filter panel open');
+
     $node = trim((string) shell_exec('command -v node'));
     $hasPw = $node !== '' && trim((string) shell_exec('NODE_PATH=' . escapeshellarg((string) getenv('NODE_PATH')) . ' ' . escapeshellarg($node)
         . ' -e "require.resolve(\'playwright\'); console.log(1)" 2>/dev/null')) === '1';

@@ -705,6 +705,21 @@ unset($searchHidden['q'], $searchHidden['p']);
                 <input type="number" step="0.01" name="total_max" value="<?= htmlspecialchars($fTotalMax) ?>" style="width:100%">
             </div>
         </div>
+        <?php
+        // Dostawa: przewoźnik („Wszystkie: InPost” - jak logo w kolumnie „Dostawa”) i pod nim metody dostawy klientów.
+        $deliveryFilter = ['' => 'Wszystkie'];
+        foreach ($deliveryOptions['carriers'] as $carrierKey => $carrier) {
+            $group = ['c:' . $carrierKey => 'Wszystkie: ' . $carrier['label']];
+            foreach ($carrier['methods'] as $method) { $group['m:' . $method] = $method; }
+            $deliveryFilter[$carrier['label']] = $group;
+        }
+        if ($deliveryOptions['other'] !== []) {
+            $otherGroup = [];
+            foreach ($deliveryOptions['other'] as $method) { $otherGroup['m:' . $method] = $method; }
+            $deliveryFilter['Inne'] = $otherGroup;
+        }
+        $deliveryFilter['none'] = 'Bez metody dostawy';
+        ?>
         <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:14px">
             <?php foreach ([
                 'invoice_issued' => ['Faktura', $fInvoiceIssued, ['' => 'Wszystkie', '1' => 'Wystawiona', '0' => 'Niewystawiona']],
@@ -713,6 +728,7 @@ unset($searchHidden['q'], $searchHidden['p']);
                 'need_invoice' => ['Żądanie faktury', $fNeedInvoice ? '1' : '', ['' => 'Wszystkie', '1' => 'Wymagana i niewystawiona']],
                 'need_shipping' => ['Wysyłka', $fShipping, ['' => 'Wszystkie', '1' => 'Wymaga wysyłki']
                     + array_map(static fn(array $f): string => $f[0], \Pase\Services\OrderIndicators::TRACKING_FILTERS)],
+                'delivery' => ['Dostawa', $fDelivery, $deliveryFilter],
                 'unpaid' => ['Płatność', $fUnpaid ? '1' : '', ['' => 'Wszystkie', '1' => 'Nieopłacone / pobranie']],
                 'need_receipt' => ['Paragon do wystawienia', $fNeedReceipt ? '1' : '', ['' => 'Wszystkie', '1' => 'Bez faktury i bez paragonu']],
             ] as $filterName => [$filterLabel, $filterValue, $filterOptions]): ?>
@@ -720,7 +736,15 @@ unset($searchHidden['q'], $searchHidden['p']);
                     <?= htmlspecialchars($filterLabel) ?>
                     <select name="<?= $filterName ?>">
                         <?php foreach ($filterOptions as $value => $label): ?>
+                            <?php if (is_array($label)): /* grupa opcji, np. przewoźnik i jego metody dostawy */ ?>
+                                <optgroup label="<?= htmlspecialchars((string) $value) ?>">
+                                    <?php foreach ($label as $groupValue => $groupLabel): ?>
+                                        <option value="<?= htmlspecialchars((string) $groupValue) ?>" <?= (string) $groupValue === $filterValue ? 'selected' : '' ?>><?= htmlspecialchars($groupLabel) ?></option>
+                                    <?php endforeach; ?>
+                                </optgroup>
+                            <?php else: ?>
                             <option value="<?= htmlspecialchars((string) $value) ?>" <?= (string) $value === $filterValue ? 'selected' : '' ?>><?= htmlspecialchars($label) ?></option>
+                            <?php endif; ?>
                         <?php endforeach; ?>
                     </select>
                 </label>

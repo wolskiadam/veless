@@ -16,8 +16,9 @@ use Pase\Support\TrackingText;
  *
  * Odbiór rozpoznajemy po opisie zdarzenia (przetłumaczonym jak w panelu - Allegro One opisuje po angielsku):
  *   - dokładnie: „Kurier odebrał przesyłkę z automatu", „Odebrana od nadawcy", „Odebrana przez kuriera"...,
- *   - w przybliżeniu (gdy przewoźnik nie podaje odbioru): pierwsze zdarzenie po „Czeka na nadanie",
- *     które nie jest wrzuceniem paczki przez nadawcę ani przyjęciem w sortowni/oddziale (np. „Przesyłka nadana").
+ *     „W transporcie do ekspedycji u kuriera" (ORLEN) - każda wzmianka o kurierze poza doręczeniem/awizo,
+ *   - w przybliżeniu (gdy przewoźnik nie podaje odbioru): pierwsze zdarzenie „w drodze" po wrzuceniu paczki,
+ *     które nie jest przyjęciem w sortowni/oddziale. „Nadana", „W kiosku" to wrzucenie przez nadawcę, nie odbiór.
  * Wrzucenie paczki do automatu/punktu przez nadawcę zapamiętujemy osobno - pokazuje, czy kurier zabrał ją tego samego dnia.
  */
 final class CourierPickupStats
@@ -43,9 +44,15 @@ final class CourierPickupStats
     /** Kody zdarzeń oznaczające odbiór od nadawcy (spoza CODE_MAP). */
     private const PICKUP_CODES = ['PICKED_UP_FROM_SENDER', 'COLLECTED_FROM_SENDER', 'TAKEN_BY_COURIER'];
 
-    /** Wrzucenie paczki przez nadawcę (to jeszcze nie kurier). */
-    private const DROPOFF = ['nadana w automacie', 'nadana w paczkomacie', 'nadana w punkcie', 'nadana w one box',
-                             'nadana w automacie paczkowym', 'umieszczona w automacie', 'nadana w urzędzie'];
+    /**
+     * Wrzucenie paczki przez nadawcę (to jeszcze nie kurier): automat, punkt, kiosk ORLEN („W kiosku”),
+     * a także samo „nadana” / „sent” - przewoźnicy (ORLEN, Allegro One) piszą tak, gdy paczka trafi do automatu.
+     */
+    private const DROPOFF = ['nadan', 'w kiosku', 'w automacie', 'w paczkomacie', 'w punkcie nadania', 'umieszczona w',
+                             'przyjęta w punkcie'];
+
+    /** Wzmianka o kurierze, która NIE jest odbiorem od nadawcy (doręczenie, awizo, zwrot). */
+    private const COURIER_NOT_PICKUP = ['doręcz', 'wydana', 'awiz', 'nie zast', 'zwrot', 'zwróc', 'odbiorc'];
 
     /** Dalsze etapy - nie mogą udawać odbioru, gdy szukamy go w przybliżeniu. */
     private const LATER = ['sortowni', 'oddzia', 'magazyn', 'terminal', 'docelow', 'doręcz', 'czeka na odbiór', 'odbiorc', 'awizo', 'zwrot', 'zwrócon'];
@@ -80,10 +87,12 @@ final class CourierPickupStats
         $guess = null;
         foreach ($list as $e) {
             $has = static fn(array $words): bool => array_filter($words, static fn($w) => str_contains($e['pl'], $w)) !== [];
-            if (in_array($e['code'], self::PICKUP_CODES, true) || $has(self::PICKUP)) {
+            // „W transporcie do ekspedycji u kuriera” (ORLEN), „odebrana przez kuriera”, „Kurier odebrał…”.
+            $courier = str_contains($e['pl'], 'kurier') && !$has(self::COURIER_NOT_PICKUP);
+            if (in_array($e['code'], self::PICKUP_CODES, true) || $has(self::PICKUP) || $courier) {
                 return ['at' => $e['at'], 'exact' => true, 'dropoff' => $dropoff];
             }
-            if ($has(self::DROPOFF)) {
+            if ($has(self::DROPOFF) && !str_contains($e['pl'], 'nienadan') && !str_contains($e['pl'], 'nie nadan')) {
                 $dropoff ??= $e['at'];
                 continue;
             }
@@ -130,22 +139,66 @@ final class CourierPickupStats
             if ($p === null) {
                 continue;
             }
-            $name = self::serviceName($r);
+            $raw = self::serviceName($r);
+            $name = self::group($raw, (string) ($r['courier_code'] ?? ''), (string) ($r['tracking_carrier'] ?? ''));
             $key = mb_strtolower($name);
-            $groups[$key] ??= ['name' => $name, 'carriers' => [], 'pickups' => []];
-            $carrier = trim((string) ($r['tracking_carrier'] ?? ''));
-            if ($carrier !== '' && $carrier !== ShipmentTracking::NO_CARRIER) {
-                $groups[$key]['carriers'][$carrier] = true;
-            }
+            $groups[$key] ??= ['name' => $name, 'variants' => [], 'pickups' => []];
+            $groups[$key]['variants'][$raw] = ($groups[$key]['variants'][$raw] ?? 0) + 1;
             $groups[$key]['pickups'][] = $p;
         }
 
         $out = [];
         foreach ($groups as $g) {
-            $out[] = ['name' => $g['name'], 'carriers' => array_keys($g['carriers'])] + self::summarize($g['pickups']);
+            arsort($g['variants']);
+            $out[] = ['name' => $g['name'], 'variants' => array_keys($g['variants'])] + self::summarize($g['pickups']);
         }
         usort($out, static fn($a, $b) => $b['count'] <=> $a['count'] ?: strcmp($a['name'], $b['name']));
         return $out;
+    }
+
+    /**
+     * Wspólna nazwa usługi: ta sama firma i ten sam sposób nadania = jedna grupa, bez względu na to, jak nazwał ją
+     * sklep czy Allegro („Allegro Paczkomaty InPost”, „InPost Paczkomat (Bezpłatnie)”, „Paczkomat” -> „InPost Paczkomat”).
+     * Rozpoznajemy przewoźnika (nazwa metody, kurier z przesyłki, przewoźnik ze śledzenia) i rodzaj: automat/punkt/kurier.
+     * Nierozpoznane zostają pod własną nazwą.
+     */
+    public static function group(string $name, string $courier = '', string $carrier = ''): string
+    {
+        $n = mb_strtolower($name);
+        $all = mb_strtolower($name . ' ' . $courier . ' ' . $carrier);
+        // Krótkie skróty (DPD, UPS, GLS, POP...) tylko jako osobne słowa - „zakupu” to nie UPS.
+        $has = static fn(string $hay, string ...$w): bool => array_filter($w, static fn($x) => mb_strlen($x) > 3
+            ? str_contains($hay, $x) : preg_match('/(?<![\\p{L}\\d])' . preg_quote($x, '/') . '(?![\\p{L}\\d])/u', $hay) === 1) !== [];
+        $box = $has($n, 'paczkomat', 'automat', 'locker', 'box', 'skrytk');
+        $point = $has($n, 'punkt', 'pickup', 'pick-up', 'odbiór w', 'odbior w', 'pop', 'kiosk', 'żabk', 'zabk');
+
+        $company = match (true) {
+            $has($all, 'allegro one', 'one box', 'one punkt', 'one kurier') => 'Allegro One',
+            $has($all, 'inpost', 'paczkomat') => 'InPost',
+            $has($all, 'orlen', 'ruch', 'paczka_w_ruchu') => 'ORLEN Paczka',
+            $has($all, 'dpd') => 'DPD',
+            $has($all, 'dhl') => 'DHL',
+            $has($all, 'gls') => 'GLS',
+            $has($all, 'ups') => 'UPS',
+            $has($all, 'fedex') => 'FedEx',
+            $has($all, 'pocztex', 'poczta', 'envelo', 'poczta_polska') => 'Poczta Polska',
+            default => null,
+        };
+        if ($company === null) {
+            return $name;
+        }
+        if ($company === 'ORLEN Paczka') {
+            return $company;
+        }
+        $kind = match (true) {
+            $company === 'InPost' && ($box || str_contains($all, 'paczkomat')) => 'Paczkomat',
+            $company === 'Allegro One' && ($has($n, 'one box') || $box) => 'Box',
+            $company === 'Allegro One' && $has($n, 'one punkt') => 'Punkt',
+            $box => 'Automat',
+            $point => 'Punkt',
+            default => 'Kurier',
+        };
+        return $company . ' ' . $kind;
     }
 
     /** Usługa: metoda dostawy z zamówienia, a bez niej nazwa kuriera z przesyłki. */

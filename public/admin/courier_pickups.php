@@ -71,7 +71,10 @@ require __DIR__ . '/header.php';
     <header class="cp-head">
         <div>
             <h2 class="cp-name"><?= htmlspecialchars($s['name']) ?></h2>
-            <div class="cp-dim"><?= $s['count'] ?> <?= $plural($s['count']) ?><?= $s['carriers'] ? ' · ' . htmlspecialchars(implode(', ', $s['carriers'])) : '' ?> · ostatni odbiór <?= htmlspecialchars($dateFmt($s['last'])) ?></div>
+            <div class="cp-dim"><?= $s['count'] ?> <?= $plural($s['count']) ?> · ostatni odbiór <?= htmlspecialchars($dateFmt($s['last'])) ?></div>
+            <?php if (count($s['variants']) > 1 || ($s['variants'][0] ?? '') !== $s['name']): ?>
+                <div class="cp-dim cp-variants">Razem: <?= htmlspecialchars(implode(', ', array_slice($s['variants'], 0, 6))) ?><?= count($s['variants']) > 6 ? ' i ' . (count($s['variants']) - 6) . ' inne' : '' ?></div>
+            <?php endif; ?>
         </div>
         <div class="cp-tiles">
             <div class="cp-tile">
@@ -125,7 +128,7 @@ require __DIR__ . '/header.php';
                 — najpóźniej wrzucona i zabrana tego dnia o <b><?= $hm((int) $drop['latest_same_day']) ?></b><?php endif; ?></li>
         <?php endif; ?>
         <?php if ($s['exact'] < $s['count']): ?>
-            <li class="cp-dim"><?= $s['count'] - $s['exact'] ?> z <?= $s['count'] ?> odbiorów w przybliżeniu (przewoźnik podaje tylko „nadana”, bez odbioru przez kuriera).</li>
+            <li class="cp-dim"><?= $s['count'] - $s['exact'] ?> z <?= $s['count'] ?> odbiorów w przybliżeniu (w historii nie ma odbioru przez kuriera — liczymy pierwsze „w drodze” po wrzuceniu paczki).</li>
         <?php endif; ?>
     </ul>
 </section>
@@ -143,6 +146,7 @@ require __DIR__ . '/header.php';
     .cp-head { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; }
     .cp-name { margin:0 0 4px; font-size:18px; }
     .cp-dim { color:var(--ink-2); font-size:12.5px; }
+    .cp-variants { margin-top:2px; }
     .cp-tiles { display:flex; gap:10px; }
     .cp-tile { border:1px solid var(--line); border-radius:10px; padding:10px 14px; min-width:130px; }
     .cp-tile-accent { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 8%, transparent); }

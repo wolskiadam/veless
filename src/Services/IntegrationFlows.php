@@ -130,6 +130,13 @@ final class IntegrationFlows
                 $out[] = $this->flag('Numery przesyłek', $ok && ($cfg['push_tracking'] ?? 'on') !== 'off', 'Numer przesyłki z CRM oznacza zamówienie w TikTok jako wysłane.', $edit);
                 break;
 
+            case 'vonhalsky':
+                $ok = !empty($acc['refresh_token']) || !empty($acc['access_token']);
+                $in[]  = $this->flag('Zamówienia', $ok, $ok ? 'Pobierane co ' . \Pase\Services\Vonhalsky::RUN_EVERY_MIN . ' min, zdejmują stan w CRM' . (($cfg['auto_accept'] ?? 'on') !== 'off' ? ' i są od razu przyjmowane w InPost.' : '; przyjmujesz je na stronie zamówienia.') : 'Konto niepołączone — kliknij „Połącz z InPost vonHalsky” w ustawieniach.', $edit);
+                $out[] = $this->flag('Stany', $ok && ($cfg['push_stock'] ?? 'on') !== 'off', 'Stan CRM do ofert vonHalsky o tym samym SKU, gdy się zmieni.', $edit);
+                $out[] = $this->flag('Ceny', $ok && ($cfg['push_price'] ?? 'off') === 'on', 'Cena z magazynu CRM (razy mnożnik) do ofert vonHalsky o tym samym SKU.', $edit);
+                break;
+
             case 'erli':
                 $ok = !empty($cfg['api_key']);
                 $in[]  = $this->flag('Zamówienia', $ok, $ok ? 'Pobierane co ' . \Pase\Services\Erli::RUN_EVERY_MIN . ' min, opłacone zdejmują stan w CRM.' : 'Brak klucza API — uzupełnij w ustawieniach.', $edit);

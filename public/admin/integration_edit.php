@@ -236,6 +236,10 @@ if ($id && $existing && ($_GET['action'] ?? '') === 'test') {
         $allegroCfg = (require PASE_ROOT . '/config/config.php')['allegro'] ?? [];
         [$ok, $msg] = \PasePlugin\Allegro\AllegroPlugin::makeClient($pdo, $allegroCfg)->checkConnection();
         $wooTest = ['ok' => $ok, 'message' => $msg];
+    } elseif ($existing['type'] === 'vonhalsky' && \Pase\Services\Vonhalsky::available()) {
+        // Token sprzedawcy jest w bazie - test przez usługę (lista organizacji z tokenem).
+        \Pase\Services\Vonhalsky::migrate($pdo);
+        $wooTest = (new \Pase\Services\Vonhalsky($pdo))->test($existing);
     } elseif ($existing['type'] === 'tiktokshop' && \Pase\Services\TiktokShop::available()) {
         // Token sprzedawcy jest w bazie - test przez usługę (lista sklepów z tokenem).
         \Pase\Services\TiktokShop::migrate($pdo);
@@ -301,6 +305,38 @@ if ($id && $existing && $existing['type'] === 'erli' && \Pase\Services\Erli::ava
         }
     }
     $erliStatus = $erli->status($existing);
+}
+
+// InPost vonHalsky: komunikat po powrocie ze strony zgody + „Synchronizuj teraz” / „Pobierz oferty” (Services\Vonhalsky).
+if (!empty($_SESSION['vonhalsky_flash'])) {
+    $wooTest = $_SESSION['vonhalsky_flash'];
+    unset($_SESSION['vonhalsky_flash']);
+}
+$vonhalskyStatus = null;
+if ($id && $existing && $existing['type'] === 'vonhalsky' && \Pase\Services\Vonhalsky::available()) {
+    \Pase\Services\Vonhalsky::migrate($pdo);
+    $vh = new \Pase\Services\Vonhalsky($pdo, null, new \Pase\Queue\Queue($pdo));
+    if (in_array($_GET['action'] ?? '', ['vonhalsky_sync', 'vonhalsky_catalog'], true) && canEdit()) {
+        try {
+            $client = $vh->client($existing);
+            if ($vh->organizationId($existing) === '') {
+                throw new \RuntimeException('Nie wybrano organizacji (sklepu) - połącz konto jeszcze raz albo wpisz ID organizacji.');
+            }
+            if ($_GET['action'] === 'vonhalsky_catalog') {
+                $n = $vh->refreshCatalog($existing, $client, true);
+                $wooTest = ['ok' => true, 'message' => 'Pobrano ' . $n . ' ofert z InPost vonHalsky.'];
+            } else {
+                $o = $vh->syncOrders($existing, $client);
+                $ac = $vh->acceptPending($existing, $client);
+                $st = $vh->pushStock($existing, $client);
+                $wooTest = ['ok' => true, 'message' => "Zamówienia: {$o}, przyjęte: {$ac}, wysłane zmiany stanów/cen: {$st}."];
+            }
+        } catch (\Throwable $e) {
+            $wooTest = ['ok' => false, 'message' => $e->getMessage()];
+        }
+        $existing = $repo->find($id) ?? $existing;
+    }
+    $vonhalskyStatus = $vh->status($existing);
 }
 
 $settingsRepo = new SettingsRepository($pdo);
@@ -502,7 +538,7 @@ require __DIR__ . '/header.php';
 
         <p style="margin-top:18px">
             <button class="btn" type="submit"><?= $existing ? 'Zapisz' : 'Dodaj integrację' ?></button>
-            <?php if ($id && (in_array($type, ['woocommerce', 'blpaczka', 'allegro', 'wfirma', 'tiktokshop', 'orlenpaczka', 'inpost', 'erli'], true))): ?>
+            <?php if ($id && (in_array($type, ['woocommerce', 'blpaczka', 'allegro', 'wfirma', 'tiktokshop', 'orlenpaczka', 'inpost', 'erli', 'vonhalsky'], true))): ?>
                 <a class="btn secondary" href="?id=<?= $id ?>&action=test">Testuj połączenie</a>
             <?php endif; ?>
             <?php if ($id && $type === 'allegro'): ?>
@@ -510,6 +546,9 @@ require __DIR__ . '/header.php';
             <?php endif; ?>
             <?php if ($id && $type === 'tiktokshop'): ?>
                 <a class="btn" href="tiktokshop_connect.php?id=<?= (int) $id ?>" style="background:#111">🔗 Połącz z TikTok Shop</a>
+            <?php endif; ?>
+            <?php if ($id && $type === 'vonhalsky'): ?>
+                <a class="btn" href="vonhalsky_connect.php?id=<?= (int) $id ?>" style="background:#ffcd00;color:#1d1d1b">🔗 Połącz z InPost vonHalsky</a>
             <?php endif; ?>
         </p>
     </form>
@@ -641,6 +680,48 @@ require __DIR__ . '/header.php';
             <li>Kliknij <strong>„Testuj połączenie”</strong> - CRM pokaże nazwę sklepu ERLI.</li>
             <li>Produkty łączą się po SKU: <strong>SKU</strong> produktu w ERLI (a gdy go brak - jego identyfikator zewnętrzny) musi być takie samo jak SKU w magazynie CRM.</li>
             <li>Numer przesyłki dodany w CRM trafia do ERLI razem z przewoźnikiem rozpoznanym po nazwie kuriera, a zamówienie dostaje status „wysłane”.</li>
+        </ol>
+    <?php endif; ?>
+
+    <?php if ($id && $type === 'vonhalsky' && $vonhalskyStatus !== null): $vs = $vonhalskyStatus; ?>
+        <hr style="margin:16px 0;border:0;border-top:1px solid #eee">
+        <strong style="font-size:13px">Połączenie z InPost vonHalsky</strong>
+        <?php if ($vs['connected']): ?>
+            <p style="font-size:13px;margin:8px 0 0">✅ Połączono ze sklepem <strong><?= htmlspecialchars($vs['org_name'] !== '' ? $vs['org_name'] : $vs['organization']) ?></strong>
+                <span style="color:#888">(organizacja <?= htmlspecialchars($vs['organization']) ?>)</span>. CRM sam odnawia token.</p>
+            <p style="font-size:13px;color:#555;margin:6px 0 0">
+                Ostatnia synchronizacja: <?= $vs['last_run'] !== '' ? htmlspecialchars($vs['last_run']) : 'jeszcze nie było (worker co ' . \Pase\Services\Vonhalsky::RUN_EVERY_MIN . ' min)' ?>.
+                Zamówień z vonHalsky w CRM: <strong><?= (int) $vs['orders'] ?></strong><?= $vs['waiting'] > 0 ? ', w tym czeka na przyjęcie: <strong>' . (int) $vs['waiting'] . '</strong>' : '' ?>.
+                Ofert w vonHalsky: <strong><?= (int) $vs['offers'] ?></strong>, w tym z tym samym SKU w magazynie CRM: <strong><?= (int) $vs['offers_linked'] ?></strong>.
+            </p>
+            <?php if ($vs['last_error'] !== ''): ?><div class="flash err" style="margin-top:8px"><?= htmlspecialchars($vs['last_error']) ?></div><?php endif; ?>
+            <?php if (canEdit()): ?>
+            <p style="margin:10px 0 0">
+                <a class="btn secondary" href="?id=<?= (int) $id ?>&action=vonhalsky_sync">↻ Synchronizuj teraz</a>
+                <a class="btn secondary" href="?id=<?= (int) $id ?>&action=vonhalsky_catalog">Pobierz oferty z vonHalsky</a>
+            </p>
+            <?php endif; ?>
+            <?php if ($vs['offer_errors']): ?>
+                <p style="font-size:13px;margin:12px 0 4px"><strong>Stany i ceny, których InPost nie przyjął</strong> (kolejna próba przy następnej synchronizacji):</p>
+                <table><tr><th>SKU</th><th>Oferta</th><th>Błąd</th></tr>
+                <?php foreach ($vs['offer_errors'] as $r): ?><tr><td><?= htmlspecialchars((string) $r['match_sku']) ?></td><td><?= htmlspecialchars((string) $r['product_name']) ?></td><td><?= htmlspecialchars((string) $r['error']) ?></td></tr><?php endforeach; ?>
+                </table>
+            <?php endif; ?>
+            <?php if ($vs['accept_errors']): ?>
+                <p style="font-size:13px;margin:12px 0 4px"><strong>Zamówienia, których nie udało się przyjąć</strong>:</p>
+                <table><tr><th>Zamówienie</th><th>Błąd</th></tr>
+                <?php foreach ($vs['accept_errors'] as $r): ?><tr><td><a href="order_view.php?id=<?= (int) $r['woo_order_id'] ?>">#<?= htmlspecialchars((string) ($r['pase_number'] ?? $r['woo_order_id'])) ?></a></td><td><?= htmlspecialchars((string) $r['accept_error']) ?></td></tr><?php endforeach; ?>
+                </table>
+            <?php endif; ?>
+        <?php else: ?>
+            <p style="font-size:13px;color:#b45309;margin:8px 0 0">Konto nie jest jeszcze połączone.</p>
+        <?php endif; ?>
+        <ol style="font-size:13px;color:#555;line-height:1.7;margin:10px 0 0;padding-left:18px">
+            <li>API vonHalsky jest tylko dla zgłoszonych integratorów: napisz do InPost (<a href="mailto:apiportal@inpost.pl">apiportal@inpost.pl</a>) po <strong>Client ID</strong> i <strong>Client Secret</strong>. Jako adres powrotu (redirect URI) podaj:
+                <code style="display:block;background:#f1f3f4;padding:8px;border-radius:6px;margin-top:4px;word-break:break-all"><?= htmlspecialchars(rtrim((string) $appBaseUrl, '/') . '/admin/vonhalsky_connect.php') ?></code></li>
+            <li>Wpisz powyżej Client ID i Client Secret (sekret jest zapisywany zaszyfrowany), wybierz środowisko, zapisz, potem kliknij <strong>„Połącz z InPost vonHalsky”</strong> i zaloguj się kontem sprzedawcy.</li>
+            <li>Oferty łączą się po SKU: <strong>SKU</strong> produktu w ofercie vonHalsky (a gdy go brak - identyfikator zewnętrzny oferty) musi być takie samo jak SKU w magazynie CRM.</li>
+            <li>Wysyłkę zamówień obsługuje InPost (paczkomat albo kurier InPost) - numery paczek widać na stronie zamówienia.</li>
         </ol>
     <?php endif; ?>
 

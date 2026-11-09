@@ -161,6 +161,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         \Pase\Services\Erli::migrate($pdo);
         (new \Pase\Services\Erli($pdo))->retryTracking($wooOrderId);
         $flashOk = 'Numer przesyłki zostanie wysłany do ERLI przy najbliższej synchronizacji (do ' . \Pase\Services\Erli::RUN_EVERY_MIN . ' min).';
+    } elseif (in_array($act, ['vonhalsky_accept', 'vonhalsky_refuse'], true) && \Pase\Services\Vonhalsky::isVonhalsky($wooOrderId)) {
+        // Przyjęcie / odrzucenie zamówienia w InPost vonHalsky (gdy nie przyjmujemy automatycznie).
+        \Pase\Services\Vonhalsky::migrate($pdo);
+        $vhRes = (new \Pase\Services\Vonhalsky($pdo, null, new \Pase\Queue\Queue($pdo)))->decideOrder($wooOrderId, $act === 'vonhalsky_accept');
+        if ($vhRes['ok']) {
+            $flashOk = $vhRes['message'];
+        } else {
+            $flashErr = $vhRes['message'];
+        }
     } elseif ($act === 'tiktok_retry_tracking' && \Pase\Services\TiktokShop::isTiktok($wooOrderId)) {
         // Numer przesyłki nie przeszedł do TikTok (np. nierozpoznany kurier) - worker spróbuje od nowa.
         \Pase\Services\TiktokShop::migrate($pdo);
@@ -574,6 +583,16 @@ if (\Pase\Services\TiktokShop::isTiktok($wooOrderId)) {
         $tiktokLink = (new \Pase\Services\TiktokShop($pdo))->orderLink($wooOrderId);
     } catch (\Throwable $e) {
         $tiktokLink = null;
+    }
+}
+// InPost vonHalsky: status zamówienia w InPost (przyjęcie/odrzucenie) i paczki (Services\Vonhalsky).
+$vonhalskyLink = null;
+if (\Pase\Services\Vonhalsky::isVonhalsky($wooOrderId)) {
+    try {
+        \Pase\Services\Vonhalsky::migrate($pdo);
+        $vonhalskyLink = (new \Pase\Services\Vonhalsky($pdo))->orderLink($wooOrderId);
+    } catch (\Throwable $e) {
+        $vonhalskyLink = null;
     }
 }
 // ERLI: czy numer przesyłki poszedł do ERLI (Services\Erli::pushTracking).
@@ -1679,6 +1698,26 @@ foreach ($absorbedOrders as $ab) {
         </div>
     <?php endif; ?>
 
+    <?php if ($vonhalskyLink !== null):
+        $vhStatus = (string) ($vonhalskyLink['vh_status'] ?? '');
+        $vhParcels = \Pase\Services\Vonhalsky::parcels($o);
+        $vhBad = ($vonhalskyLink['accept_state'] ?? '') === 'error' && $vhStatus === 'CREATED';
+    ?>
+        <div style="font-size:13px;margin-top:8px;padding:8px 10px;border-radius:8px;background:<?= $vhBad ? '#fdecea' : ($vhStatus === 'CREATED' ? '#fff8db' : '#f4f5f7') ?>">
+            📦 InPost vonHalsky: <?= htmlspecialchars(\Pase\Services\Vonhalsky::STATUS_LABELS[$vhStatus] ?? $vhStatus) ?>.
+            <?php if ($vhBad): ?><?= htmlspecialchars((string) $vonhalskyLink['accept_error']) ?><?php endif; ?>
+            <?php if ($vhStatus === 'CREATED' && canEdit()): ?>
+                <form method="post" style="display:inline;margin-left:6px"><input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="action" value="vonhalsky_accept"><button class="btn" type="submit" style="padding:2px 10px;font-size:12px">Przyjmij</button></form>
+                <form method="post" style="display:inline;margin-left:4px" onsubmit="return confirm('Odrzucić zamówienie w InPost vonHalsky? Klient dostanie zwrot pieniędzy, a stan wróci do magazynu.')"><input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="action" value="vonhalsky_refuse"><button class="btn secondary" type="submit" style="padding:2px 10px;font-size:12px">Odrzuć</button></form>
+            <?php endif; ?>
+            <?php if ($vhParcels): ?>
+                <div style="margin-top:4px">Paczki InPost:
+                <?php foreach ($vhParcels as $i => $p): ?><?= $i ? ', ' : '' ?><strong><?= htmlspecialchars($p['number']) ?></strong><?= $p['status'] !== '' ? ' (' . htmlspecialchars($p['status']) . ')' : '' ?><?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    <?php endif; ?>
+
     <?php if ($erliLink !== null):
         $erState = (string) ($erliLink['tracking_state'] ?? '');
     ?>
@@ -2005,7 +2044,7 @@ foreach ($absorbedOrders as $ab) {
             <?php else: ?>
             <tr><th>Numer w sklepie</th><td><?= $g($row, 'order_number', (string)$wooOrderId) ?> <span style="color:#aaa">(Woo #<?= (int)$wooOrderId ?>)</span></td></tr>
             <?php endif; ?>
-            <?php if (!$isManualOrder): ?><tr><th>Status w <?= $sourceType === 'allegro' ? 'Allegro' : ($sourceType === 'tiktokshop' ? 'TikTok Shop' : ($sourceType === 'erli' ? 'ERLI' : 'sklepie')) ?></th><td><span class="pill muted" title="<?= htmlspecialchars((string) ($o['status'] ?? $row['status'] ?? '')) ?>"><?= htmlspecialchars(\Pase\Domain\OrderStatus::channelLabel($o, $row['status'] ?? null)) ?></span></td></tr><?php endif; ?>
+            <?php if (!$isManualOrder): ?><tr><th>Status w <?= $sourceType === 'allegro' ? 'Allegro' : ($sourceType === 'tiktokshop' ? 'TikTok Shop' : ($sourceType === 'erli' ? 'ERLI' : ($sourceType === 'vonhalsky' ? 'InPost vonHalsky' : 'sklepie'))) ?></th><td><span class="pill muted" title="<?= htmlspecialchars((string) ($o['status'] ?? $row['status'] ?? '')) ?>"><?= htmlspecialchars(\Pase\Domain\OrderStatus::channelLabel($o, $row['status'] ?? null)) ?></span></td></tr><?php endif; ?>
             <tr>
                 <th>E-mail</th>
                 <td>

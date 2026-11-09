@@ -29,6 +29,9 @@ jak Allegro deklaruje `ORDER_SOURCE` bez interfejsu `OrderSource`, bo zamówieni
 `integrations/erli/` (ERLI: klient Shop API z kluczem API (Bearer) zapisanym zaszyfrowanym w configu konta; import zamówień,
 stany CRM do produktów ERLI i numery przesyłek robi rdzeń w `Pase\Services\Erli`, uruchamiany z workera - ten sam wzorzec
 co TikTok Shop, bez OAuth).
+`integrations/vonhalsky/` (InPost vonHalsky - marketplace InPost: OAuth2 z PKCE przez `vonhalsky_connect.php` (Client ID/Secret od InPost),
+import zamówień z paczkomatem, przyjmowanie/odrzucanie zamówień, stany i ceny CRM do ofert po SKU robi rdzeń w `Pase\Services\Vonhalsky`,
+uruchamiany z workera - wzorzec ERLI/TikTok Shop).
 
 Gdy wtyczka ma logikę specyficzną dla kanału, której nie pokrywa znormalizowany kontrakt
 (np. import stronami z filtrem, tryby diagnostyczne, tworzenie zamówień), może wystawić publiczną

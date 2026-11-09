@@ -139,22 +139,66 @@ final class CourierPickupStats
             if ($p === null) {
                 continue;
             }
-            $name = self::serviceName($r);
+            $raw = self::serviceName($r);
+            $name = self::group($raw, (string) ($r['courier_code'] ?? ''), (string) ($r['tracking_carrier'] ?? ''));
             $key = mb_strtolower($name);
-            $groups[$key] ??= ['name' => $name, 'carriers' => [], 'pickups' => []];
-            $carrier = trim((string) ($r['tracking_carrier'] ?? ''));
-            if ($carrier !== '' && $carrier !== ShipmentTracking::NO_CARRIER) {
-                $groups[$key]['carriers'][$carrier] = true;
-            }
+            $groups[$key] ??= ['name' => $name, 'variants' => [], 'pickups' => []];
+            $groups[$key]['variants'][$raw] = ($groups[$key]['variants'][$raw] ?? 0) + 1;
             $groups[$key]['pickups'][] = $p;
         }
 
         $out = [];
         foreach ($groups as $g) {
-            $out[] = ['name' => $g['name'], 'carriers' => array_keys($g['carriers'])] + self::summarize($g['pickups']);
+            arsort($g['variants']);
+            $out[] = ['name' => $g['name'], 'variants' => array_keys($g['variants'])] + self::summarize($g['pickups']);
         }
         usort($out, static fn($a, $b) => $b['count'] <=> $a['count'] ?: strcmp($a['name'], $b['name']));
         return $out;
+    }
+
+    /**
+     * Wspólna nazwa usługi: ta sama firma i ten sam sposób nadania = jedna grupa, bez względu na to, jak nazwał ją
+     * sklep czy Allegro („Allegro Paczkomaty InPost”, „InPost Paczkomat (Bezpłatnie)”, „Paczkomat” -> „InPost Paczkomat”).
+     * Rozpoznajemy przewoźnika (nazwa metody, kurier z przesyłki, przewoźnik ze śledzenia) i rodzaj: automat/punkt/kurier.
+     * Nierozpoznane zostają pod własną nazwą.
+     */
+    public static function group(string $name, string $courier = '', string $carrier = ''): string
+    {
+        $n = mb_strtolower($name);
+        $all = mb_strtolower($name . ' ' . $courier . ' ' . $carrier);
+        // Krótkie skróty (DPD, UPS, GLS, POP...) tylko jako osobne słowa - „zakupu” to nie UPS.
+        $has = static fn(string $hay, string ...$w): bool => array_filter($w, static fn($x) => mb_strlen($x) > 3
+            ? str_contains($hay, $x) : preg_match('/(?<![\\p{L}\\d])' . preg_quote($x, '/') . '(?![\\p{L}\\d])/u', $hay) === 1) !== [];
+        $box = $has($n, 'paczkomat', 'automat', 'locker', 'box', 'skrytk');
+        $point = $has($n, 'punkt', 'pickup', 'pick-up', 'odbiór w', 'odbior w', 'pop', 'kiosk', 'żabk', 'zabk');
+
+        $company = match (true) {
+            $has($all, 'allegro one', 'one box', 'one punkt', 'one kurier') => 'Allegro One',
+            $has($all, 'inpost', 'paczkomat') => 'InPost',
+            $has($all, 'orlen', 'ruch', 'paczka_w_ruchu') => 'ORLEN Paczka',
+            $has($all, 'dpd') => 'DPD',
+            $has($all, 'dhl') => 'DHL',
+            $has($all, 'gls') => 'GLS',
+            $has($all, 'ups') => 'UPS',
+            $has($all, 'fedex') => 'FedEx',
+            $has($all, 'pocztex', 'poczta', 'envelo', 'poczta_polska') => 'Poczta Polska',
+            default => null,
+        };
+        if ($company === null) {
+            return $name;
+        }
+        if ($company === 'ORLEN Paczka') {
+            return $company;
+        }
+        $kind = match (true) {
+            $company === 'InPost' && ($box || str_contains($all, 'paczkomat')) => 'Paczkomat',
+            $company === 'Allegro One' && ($has($n, 'one box') || $box) => 'Box',
+            $company === 'Allegro One' && $has($n, 'one punkt') => 'Punkt',
+            $box => 'Automat',
+            $point => 'Punkt',
+            default => 'Kurier',
+        };
+        return $company . ' ' . $kind;
     }
 
     /** Usługa: metoda dostawy z zamówienia, a bez niej nazwa kuriera z przesyłki. */

@@ -59,7 +59,39 @@ require __DIR__ . '/header.php';
         (śledzenie przesyłek musi być włączone — Konfiguracja → Synchronizacja).</p></div>
 <?php endif; ?>
 
-<?php foreach ($services as $s):
+<?php
+// Jedna karta na firmę; sposób nadania (automat/punkt albo kurier od nadawcy) wybiera się przełącznikiem.
+$companies = [];
+foreach ($services as $s) {
+    $companies[$s['name']]['modes'][$s['handover']] = $s;
+    $companies[$s['name']]['count'] = ($companies[$s['name']]['count'] ?? 0) + $s['count'];
+}
+uasort($companies, static fn($a, $b) => $b['count'] <=> $a['count']);
+$ci = 0;
+foreach ($companies as $company => $c):
+    $ci++;
+    $modes = array_intersect_key([Stats::DROP => null, Stats::DOOR => null], $c['modes']);
+    $modes = array_replace($modes, $c['modes']);
+?>
+<section class="card cp-card">
+    <header class="cp-company">
+        <span class="cp-logo"><?= \Pase\Services\OrderChannelIcons::carrierLogo($company) ?></span>
+        <h2 class="cp-name"><?= htmlspecialchars($company) ?></h2>
+        <span class="cp-dim"><?= $c['count'] ?> <?= $plural($c['count']) ?></span>
+        <?php if (count($modes) > 1): ?>
+            <div class="cp-switch" role="tablist" aria-label="Sposób nadania">
+                <?php foreach ($modes as $mode => $s): ?>
+                    <label for="cp<?= $ci ?>-<?= $mode ?>" role="tab"><?= $mode === Stats::DROP ? 'Automat / punkt' : 'Kurier od nadawcy' ?> <small><?= $s['count'] ?></small></label>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <span class="cp-how cp-how-<?= array_key_first($modes) ?>"><?= htmlspecialchars(Stats::HANDOVER[array_key_first($modes)]) ?></span>
+        <?php endif; ?>
+    </header>
+    <?php $first = true; foreach ($modes as $mode => $s): ?>
+        <input type="radio" class="cp-radio" name="cp<?= $ci ?>" id="cp<?= $ci ?>-<?= $mode ?>"<?= $first ? ' checked' : '' ?>>
+    <?php $first = false; endforeach; ?>
+    <?php foreach ($modes as $mode => $s):
     $hoursWithData = array_keys(array_filter($s['hours']));
     $hFrom = max(0, min($hoursWithData) - 1);
     $hTo   = min(23, max($hoursWithData) + 1);
@@ -68,11 +100,10 @@ require __DIR__ . '/header.php';
     $few = $s['count'] < Stats::FEW;
     $drop = $s['dropoff'];
 ?>
-<section class="card cp-card">
+    <div class="cp-panel">
     <header class="cp-head">
         <div>
-            <h2 class="cp-name"><?= htmlspecialchars($s['name']) ?> <span class="cp-how cp-how-<?= $s['handover'] ?>"><?= htmlspecialchars(Stats::HANDOVER[$s['handover']]) ?></span></h2>
-            <div class="cp-dim"><?= $s['count'] ?> <?= $plural($s['count']) ?> · ostatni odbiór <?= htmlspecialchars($dateFmt($s['last'])) ?></div>
+            <div class="cp-dim"><b><?= $s['count'] ?> <?= $plural($s['count']) ?></b> <?= htmlspecialchars(Stats::HANDOVER[$s['handover']]) ?> · ostatni odbiór <?= htmlspecialchars($dateFmt($s['last'])) ?></div>
             <?php if ($s['variants'] !== [] && ($s['variants'] !== [$s['name']])): ?>
                 <div class="cp-dim cp-variants">Metody dostawy: <?= htmlspecialchars(implode(', ', array_slice($s['variants'], 0, 6))) ?><?= count($s['variants']) > 6 ? ' i ' . (count($s['variants']) - 6) . ' inne' : '' ?></div>
             <?php endif; ?>
@@ -132,6 +163,8 @@ require __DIR__ . '/header.php';
             <li class="cp-dim"><?= $s['count'] - $s['exact'] ?> z <?= $s['count'] ?> odbiorów w przybliżeniu (w historii nie ma odbioru przez kuriera — liczymy pierwsze „w drodze” po wrzuceniu paczki).</li>
         <?php endif; ?>
     </ul>
+    </div>
+    <?php endforeach; ?>
 </section>
 <?php endforeach; ?>
 
@@ -144,6 +177,19 @@ require __DIR__ . '/header.php';
     .cp-range { display:flex; gap:8px; align-items:center; }
     .cp-range label { font-size:11px; color:var(--ink-2); font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
     .cp-card { margin-top:16px; }
+    .cp-company { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+    .cp-company .cp-name { margin:0; }
+    .cp-logo svg { width:52px; height:26px; display:block; }
+    .cp-logo svg[viewBox="0 0 24 24"] { width:26px; color:var(--ink-2); }
+    .cp-switch { margin-left:auto; display:inline-flex; border:1px solid var(--line); border-radius:999px; padding:3px; gap:2px; }
+    .cp-switch label { padding:5px 12px; border-radius:999px; font-size:13px; font-weight:600; color:var(--ink-2); cursor:pointer; white-space:nowrap; }
+    .cp-switch small { font-weight:500; opacity:.7; margin-left:2px; }
+    .cp-radio { position:absolute; opacity:0; pointer-events:none; }
+    .cp-panel { display:none; }
+    .cp-radio:nth-of-type(1):checked ~ .cp-panel:nth-of-type(1), .cp-radio:nth-of-type(2):checked ~ .cp-panel:nth-of-type(2) { display:block; }
+    .cp-card:has(.cp-radio:nth-of-type(1):checked) .cp-switch label:nth-of-type(1),
+    .cp-card:has(.cp-radio:nth-of-type(2):checked) .cp-switch label:nth-of-type(2) { background:color-mix(in srgb, var(--accent) 16%, transparent); color:var(--ink); }
+    .cp-company .cp-how { margin-left:auto; }
     .cp-head { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; }
     .cp-name { margin:0 0 4px; font-size:18px; }
     .cp-dim { color:var(--ink-2); font-size:12.5px; }

@@ -16,8 +16,9 @@ use Pase\Support\TrackingText;
  *
  * Odbiór rozpoznajemy po opisie zdarzenia (przetłumaczonym jak w panelu - Allegro One opisuje po angielsku):
  *   - dokładnie: „Kurier odebrał przesyłkę z automatu", „Odebrana od nadawcy", „Odebrana przez kuriera"...,
- *   - w przybliżeniu (gdy przewoźnik nie podaje odbioru): pierwsze zdarzenie po „Czeka na nadanie",
- *     które nie jest wrzuceniem paczki przez nadawcę ani przyjęciem w sortowni/oddziale (np. „Przesyłka nadana").
+ *     „W transporcie do ekspedycji u kuriera" (ORLEN) - każda wzmianka o kurierze poza doręczeniem/awizo,
+ *   - w przybliżeniu (gdy przewoźnik nie podaje odbioru): pierwsze zdarzenie „w drodze" po wrzuceniu paczki,
+ *     które nie jest przyjęciem w sortowni/oddziale. „Nadana", „W kiosku" to wrzucenie przez nadawcę, nie odbiór.
  * Wrzucenie paczki do automatu/punktu przez nadawcę zapamiętujemy osobno - pokazuje, czy kurier zabrał ją tego samego dnia.
  */
 final class CourierPickupStats
@@ -43,9 +44,15 @@ final class CourierPickupStats
     /** Kody zdarzeń oznaczające odbiór od nadawcy (spoza CODE_MAP). */
     private const PICKUP_CODES = ['PICKED_UP_FROM_SENDER', 'COLLECTED_FROM_SENDER', 'TAKEN_BY_COURIER'];
 
-    /** Wrzucenie paczki przez nadawcę (to jeszcze nie kurier). */
-    private const DROPOFF = ['nadana w automacie', 'nadana w paczkomacie', 'nadana w punkcie', 'nadana w one box',
-                             'nadana w automacie paczkowym', 'umieszczona w automacie', 'nadana w urzędzie'];
+    /**
+     * Wrzucenie paczki przez nadawcę (to jeszcze nie kurier): automat, punkt, kiosk ORLEN („W kiosku”),
+     * a także samo „nadana” / „sent” - przewoźnicy (ORLEN, Allegro One) piszą tak, gdy paczka trafi do automatu.
+     */
+    private const DROPOFF = ['nadan', 'w kiosku', 'w automacie', 'w paczkomacie', 'w punkcie nadania', 'umieszczona w',
+                             'przyjęta w punkcie'];
+
+    /** Wzmianka o kurierze, która NIE jest odbiorem od nadawcy (doręczenie, awizo, zwrot). */
+    private const COURIER_NOT_PICKUP = ['doręcz', 'wydana', 'awiz', 'nie zast', 'zwrot', 'zwróc', 'odbiorc'];
 
     /** Dalsze etapy - nie mogą udawać odbioru, gdy szukamy go w przybliżeniu. */
     private const LATER = ['sortowni', 'oddzia', 'magazyn', 'terminal', 'docelow', 'doręcz', 'czeka na odbiór', 'odbiorc', 'awizo', 'zwrot', 'zwrócon'];
@@ -80,10 +87,12 @@ final class CourierPickupStats
         $guess = null;
         foreach ($list as $e) {
             $has = static fn(array $words): bool => array_filter($words, static fn($w) => str_contains($e['pl'], $w)) !== [];
-            if (in_array($e['code'], self::PICKUP_CODES, true) || $has(self::PICKUP)) {
+            // „W transporcie do ekspedycji u kuriera” (ORLEN), „odebrana przez kuriera”, „Kurier odebrał…”.
+            $courier = str_contains($e['pl'], 'kurier') && !$has(self::COURIER_NOT_PICKUP);
+            if (in_array($e['code'], self::PICKUP_CODES, true) || $has(self::PICKUP) || $courier) {
                 return ['at' => $e['at'], 'exact' => true, 'dropoff' => $dropoff];
             }
-            if ($has(self::DROPOFF)) {
+            if ($has(self::DROPOFF) && !str_contains($e['pl'], 'nienadan') && !str_contains($e['pl'], 'nie nadan')) {
                 $dropoff ??= $e['at'];
                 continue;
             }

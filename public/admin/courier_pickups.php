@@ -125,7 +125,7 @@ require __DIR__ . '/header.php';
                 — najpóźniej wrzucona i zabrana tego dnia o <b><?= $hm((int) $drop['latest_same_day']) ?></b><?php endif; ?></li>
         <?php endif; ?>
         <?php if ($s['exact'] < $s['count']): ?>
-            <li class="cp-dim"><?= $s['count'] - $s['exact'] ?> z <?= $s['count'] ?> odbiorów w przybliżeniu (przewoźnik podaje tylko „nadana”, bez odbioru przez kuriera).</li>
+            <li class="cp-dim"><?= $s['count'] - $s['exact'] ?> z <?= $s['count'] ?> odbiorów w przybliżeniu (w historii nie ma odbioru przez kuriera — liczymy pierwsze „w drodze” po wrzuceniu paczki).</li>
         <?php endif; ?>
     </ul>
 </section>

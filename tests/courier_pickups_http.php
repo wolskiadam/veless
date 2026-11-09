@@ -189,13 +189,21 @@ try {
             ['at' => $date->setTime(14, 10 + $day)->format(DATE_ATOM), 'code' => 'IN_TRANSIT', 'desc' => 'Przesyłka odebrana przez Kuriera'],
         ]), $date->format('Y-m-d 08:00:00')]);
     }
+    // InPost odebrany przez kuriera od nadawcy (bez wrzucenia) - ta sama firma, drugi sposób nadania.
+    foreach ([5, 6] as $day) {
+        $date = (new DateTimeImmutable("-$day days", $tz));
+        $ship->execute([null, 'InPost Kurier', 'K' . $day, 'INPOST', json_encode([
+            ['at' => $date->setTime(8, 0)->format(DATE_ATOM), 'code' => 'PENDING', 'desc' => 'Przygotowana przez nadawcę'],
+            ['at' => $date->setTime(10, 20)->format(DATE_ATOM), 'code' => 'IN_TRANSIT', 'desc' => 'Odebrana od nadawcy'],
+        ]), $date->format('Y-m-d 08:00:00')]);
+    }
     // Stara przesyłka poza okresem - nie liczy się.
     $ship->execute([null, 'Stary kurier', 'OLD', 'DPD', json_encode([['at' => '2025-01-02T10:00:00+01:00', 'code' => 'IN_TRANSIT', 'desc' => 'Przesyłka odebrana przez Kuriera']]), '2025-01-02 08:00:00']);
 
     date_default_timezone_set('Europe/Warsaw');
     $report = (new Stats($pdo))->report(date('Y-m-d', strtotime('-89 days')));
     $names = array_column($report, 'name');
-    ok($names === ['Allegro One', 'InPost', 'DPD'] && array_column($report, 'handover') === [Stats::DROP, Stats::DROP, Stats::DOOR], 'Grouped by company and handover, drop-off first: ' . implode(' | ', $names));
+    ok($names === ['Allegro One', 'InPost', 'DPD', 'InPost'] && array_column($report, 'handover') === [Stats::DROP, Stats::DROP, Stats::DOOR, Stats::DOOR], 'Grouped by company and handover, drop-off first: ' . implode(' | ', $names));
     ok(count($report[1]['variants']) === 2, 'InPost Paczkomat and InPost Kurier methods merged when dropped in machine');
     $box = $report[0];
     ok($box['from'] >= 11 * 60 - 60 && $box['to'] <= 12 * 60 + 10 && $box['exact'] === $box['count'], 'One Box window around 11–12: ' . Stats::hm($box['from']) . '–' . Stats::hm($box['to']));
@@ -215,6 +223,9 @@ try {
     $boss = login('boss');
     $page = request($boss, 'admin/courier_pickups.php');
     ok($page['status'] === 200 && str_contains($page['body'], 'nadane w automacie / punkcie') && str_contains($page['body'], 'Metody dostawy: ') && str_contains($page['body'], 'kurier odebrał od nadawcy'), 'Page shows services');
+    ok(substr_count($page['body'], '<h2 class="cp-name">InPost</h2>') === 1 && str_contains($page['body'], 'Kurier od nadawcy <small>2</small>')
+        && str_contains($page['body'], 'Automat / punkt <small>14</small>'), 'One card per company with handover switch');
+    ok(str_contains($page['body'], '<svg viewBox="0 0 48 24"'), 'Carrier logos shown');
     ok(str_contains($page['body'], 'Kurier odbiera zwykle') && str_contains($page['body'], 'Wrzuć do'), 'Page shows window and drop-by time');
     ok(str_contains($page['body'], 'Mało danych'), 'Few pickups flagged as approximate');
     ok(str_contains($page['body'], 'href="courier_pickups.php"'), 'Page is in the menu');

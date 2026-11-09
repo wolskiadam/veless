@@ -106,6 +106,15 @@ final class OrderChannelIcons
         return ['key' => $key, 'name' => $name, 'method' => $detail];
     }
 
+    /** Samo logo przewoźnika (znacznik <svg>) po nazwie firmy, np. „InPost”; nierozpoznana firma = neutralna ciężarówka. */
+    public static function carrierLogo(string $name): string
+    {
+        $key = self::carrierKey($name);
+        return $key !== null && isset(self::CARRIER_SVG[$key])
+            ? '<svg viewBox="0 0 48 24" aria-hidden="true">' . self::CARRIER_SVG[$key] . '</svg>'
+            : '<svg viewBox="0 0 24 24" aria-hidden="true">' . self::TRUCK_SVG . '</svg>';
+    }
+
     /** HTML komórki „Dostawa”: logo przewoźnika, neutralna ciężarówka z nazwą albo „—”. */
     public static function deliveryCell(array $delivery): string
     {

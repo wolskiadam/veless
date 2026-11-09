@@ -62,7 +62,7 @@ final class OrdersSyncNow
             $out['message'] = I18n::t('orders.sync_now.error', ['error' => $e->getMessage()]);
             return $out;
         }
-        $this->settings->setMany(['ERLI_RUN_AT' => '0', 'TIKTOKSHOP_RUN_AT' => '0']);
+        $this->settings->setMany(['ERLI_RUN_AT' => '0', 'TIKTOKSHOP_RUN_AT' => '0', 'VONHALSKY_RUN_AT' => '0']);
 
         if (!$control->isPaused('queue')) {
             $jobs = new JobRunner($this->pdo, $this->config);

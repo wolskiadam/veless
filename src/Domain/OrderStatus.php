@@ -190,6 +190,11 @@ final class OrderStatus
             return $out;
         }
 
+        if (isset($payload['vonhalsky'])) { // zamówienie z InPost vonHalsky
+            $st = strtoupper((string) ($payload['status'] ?? $fallback ?? ''));
+            return \Pase\Services\Vonhalsky::STATUS_LABELS[$st] ?? $st;
+        }
+
         if (isset($payload['tiktok'])) { // zamówienie z TikTok Shop
             $st = (string) ($payload['status'] ?? $fallback ?? '');
             return \Pase\Services\TiktokShop::STATUS_LABELS[$st] ?? $st;

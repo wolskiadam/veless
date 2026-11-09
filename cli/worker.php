@@ -224,6 +224,21 @@ try {
     Logger::warn('ERLI: synchronizacja nie powiodła się: ' . $e->getMessage());
 }
 
+// --- InPost vonHalsky: co kilka minut zamówienia, przyjmowanie, stany i ceny CRM do ofert (Services\Vonhalsky) ---
+try {
+    if (\Pase\Services\Vonhalsky::available() && !$control->isPaused('vonhalsky')
+        && time() - (int) $settings->get('VONHALSKY_RUN_AT', '0') >= \Pase\Services\Vonhalsky::RUN_EVERY_MIN * 60) {
+        $settings->setMany(['VONHALSKY_RUN_AT' => (string) time()]);
+        \Pase\Services\Vonhalsky::migrate($pdo);
+        $r = (new \Pase\Services\Vonhalsky($pdo, null, $queue, $ruleEngine))->run();
+        if (array_sum($r) > 0) {
+            Logger::info('vonHalsky: zamówienia ' . $r['orders'] . ', przyjęte ' . $r['accepted'] . ', stany/ceny ' . $r['stock']);
+        }
+    }
+} catch (\Throwable $e) {
+    Logger::warn('vonHalsky: synchronizacja nie powiodła się: ' . $e->getMessage());
+}
+
 // --- Wtyczki rozszerzające: hak cron.tick co minutę (np. KSeF sam pobiera nowe faktury); każda pilnuje swojego interwału ---
 if (!$control->isPaused('extensions')) {
     try {

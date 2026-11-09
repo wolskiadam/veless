@@ -254,6 +254,7 @@ return [
 
     // Statystyki
     'nav.statistics'      => '📊 Statystyki',
+    'nav.courier_pickups' => '🚚 Odbiory kurierów',
     'nav.email_log'       => '📨 Wysłane e-maile',
     'nav.payu'            => '💰 PayU - saldo i wypłaty',
     'nav.users'            => '👥 Użytkownicy',

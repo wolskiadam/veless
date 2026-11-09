@@ -112,7 +112,7 @@ final class PagePermissions
 
             // --- System ---
             'dashboard' => ['label' => 'Pulpit / stan', 'group' => 'System', 'legacy' => 'viewer', 'files' => ['dashboard.php']],
-            'statistics' => ['label' => 'Statystyki', 'group' => 'System', 'legacy' => 'viewer', 'files' => ['statistics.php']],
+            'statistics' => ['label' => 'Statystyki', 'group' => 'System', 'legacy' => 'viewer', 'files' => ['statistics.php', 'courier_pickups.php']],
             'email_log' => ['label' => 'Wysłane e-maile (monitoring wysyłki)', 'group' => 'System', 'legacy' => 'editor', 'files' => ['email_log.php']],
             'help' => ['label' => 'Baza wiedzy', 'group' => 'System', 'legacy' => 'viewer', 'files' => ['help.php', 'help_content.php']],
             'server_usage' => ['label' => 'Obciążenie serwera', 'group' => 'System', 'legacy' => 'admin', 'files' => ['server_usage.php']],

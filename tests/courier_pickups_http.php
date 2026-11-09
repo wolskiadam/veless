@@ -65,19 +65,26 @@ ok(Stats::pickupOf([
 ok(Stats::pickupOf([['at' => '2026-11-05T08:00:00+01:00', 'code' => 'PENDING', 'desc' => 'Przesyłka utworzona']]) === null, 'Waiting parcel has no pickup');
 ok(Stats::pickupOf([['at' => '2026-11-05T08:00:00Z', 'code' => 'MANUAL', 'desc' => 'W drodze — ustawiono ręcznie']]) === null, 'Manual status is ignored');
 
-// --- Łączenie nazw usług ---
+// --- Firma (bez względu na nazwę metody dostawy) ---
 foreach ([
-    ['Allegro Paczkomaty InPost', 'InPost Paczkomat'], ['InPost Paczkomat (Bezpłatnie)', 'InPost Paczkomat'],
-    ['Paczkomat', 'InPost Paczkomat'], ['Paczkomaty InPost 24/7', 'InPost Paczkomat'], ['Allegro Kurier24 InPost', 'InPost Kurier'],
-    ['Allegro One Box, One Kurier', 'Allegro One Box'], ['Allegro One Punkt, One Kurier', 'Allegro One Punkt'],
-    ['Allegro Kurier DPD', 'DPD Kurier'], ['Kurier DPD', 'DPD Kurier'], ['Allegro Odbiór w Punkcie DPD Pickup', 'DPD Punkt'],
-    ['Allegro Automat DHL BOX 24/7', 'DHL Automat'], ['Allegro Kurier DHL', 'DHL Kurier'],
-    ['Allegro Odbiór w Punkcie Orlen Paczka', 'ORLEN Paczka'], ['Orlen Paczka', 'ORLEN Paczka'],
-    ['Allegro Pocztex Kurier 48', 'Poczta Polska Kurier'], ['Odbiór osobisty', 'Odbiór osobisty'], ['Dostawa do zakupu', 'Dostawa do zakupu'],
+    ['Allegro Paczkomaty InPost', 'InPost'], ['InPost Paczkomat (Bezpłatnie)', 'InPost'], ['Paczkomat', 'InPost'],
+    ['Allegro Kurier24 InPost', 'InPost'], ['Allegro One Box, One Kurier', 'Allegro One'], ['Allegro One Punkt, One Kurier', 'Allegro One'],
+    ['Allegro Kurier DPD', 'DPD'], ['Allegro Odbiór w Punkcie DPD Pickup', 'DPD'], ['Allegro Automat DHL BOX 24/7', 'DHL'], ['Allegro Kurier DHL', 'DHL'],
+    ['Allegro Odbiór w Punkcie Orlen Paczka', 'ORLEN Paczka'], ['Allegro Pocztex Kurier 48', 'Poczta Polska'],
+    ['Odbiór osobisty', 'Odbiór osobisty'], ['Dostawa do zakupu', 'Dostawa do zakupu'],
 ] as [$in, $want]) {
-    ok(Stats::group($in) === $want, "Group „{$in}” -> {$want} (" . Stats::group($in) . ')');
+    ok(Stats::company($in) === $want, "Company „{$in}” -> {$want} (" . Stats::company($in) . ')');
 }
-ok(Stats::group('Allegro · ALLEGRO', '', 'INPOST') === 'InPost Kurier' && Stats::group('Wysyłka', 'InPost', 'INPOST') === 'InPost Kurier', 'Company from courier/carrier when method name has none');
+ok(Stats::company('Allegro Paczkomaty InPost', 'Allegro · DPD', 'DPD') === 'DPD', 'Carrier from tracking wins over method name');
+ok(Stats::company('Wysyłka', 'InPost', '') === 'InPost', 'Company from courier name when method has none');
+
+// --- Sposób nadania ---
+ok(Stats::pickupOf($inpost)['handover'] === Stats::DROP, 'Dropped in parcel machine = nadane w automacie');
+ok(Stats::pickupOf($one)['handover'] === Stats::DROP, 'Picked up from locker by courier = nadane w automacie');
+ok(Stats::pickupOf([
+    ['at' => '2026-11-05T08:00:00+01:00', 'code' => 'PENDING', 'desc' => 'Zarejestrowano dane przesyłki'],
+    ['at' => '2026-11-05T14:10:00+01:00', 'code' => 'IN_TRANSIT', 'desc' => 'Przesyłka odebrana przez Kuriera'],
+])['handover'] === Stats::DOOR, 'Courier pickup without drop-off = kurier odebrał od nadawcy');
 
 // --- Okno godzin ---
 $w = Stats::window([11 * 60 + 2, 11 * 60 + 10, 11 * 60 + 15, 11 * 60 + 20, 11 * 60 + 30, 11 * 60 + 41, 11 * 60 + 50, 12 * 60 + 5, 10 * 60 + 35, 13 * 60]);
@@ -166,9 +173,10 @@ try {
         // InPost Paczkomat (Woo, polskie opisy)
         if ($dow <= 5 && $day % 2 === 0) {
             $mins = mt_rand(15 * 60, 16 * 60 + 30);
-            $order->execute([++$id, json_encode(['shipping_lines' => [['method_title' => 'Paczkomaty InPost']]])]);
+            $order->execute([++$id, json_encode(['shipping_lines' => [['method_title' => $day % 4 === 0 ? 'Paczkomaty InPost' : 'InPost Kurier (Bezpłatnie)']]])]);
             $ship->execute([$id, 'InPost', 'I' . $id, 'INPOST', json_encode([
                 ['at' => $date->setTime(9, 0)->format(DATE_ATOM), 'code' => 'PENDING', 'desc' => 'Przygotowana przez nadawcę'],
+                ['at' => $date->setTime(13, 0)->format(DATE_ATOM), 'code' => 'IN_TRANSIT', 'desc' => 'Paczka nadana w automacie'],
                 ['at' => $date->setTime(intdiv($mins, 60), $mins % 60)->format(DATE_ATOM), 'code' => 'IN_TRANSIT', 'desc' => 'Odebrana od nadawcy'],
             ]), $date->format('Y-m-d 08:00:00')]);
         }
@@ -187,7 +195,8 @@ try {
     date_default_timezone_set('Europe/Warsaw');
     $report = (new Stats($pdo))->report(date('Y-m-d', strtotime('-89 days')));
     $names = array_column($report, 'name');
-    ok($names === ['Allegro One Box', 'InPost Paczkomat', 'DPD Kurier'], 'Grouped by delivery method, most used first: ' . implode(' | ', $names));
+    ok($names === ['Allegro One', 'InPost', 'DPD'] && array_column($report, 'handover') === [Stats::DROP, Stats::DROP, Stats::DOOR], 'Grouped by company and handover, drop-off first: ' . implode(' | ', $names));
+    ok(count($report[1]['variants']) === 2, 'InPost Paczkomat and InPost Kurier methods merged when dropped in machine');
     $box = $report[0];
     ok($box['from'] >= 11 * 60 - 60 && $box['to'] <= 12 * 60 + 10 && $box['exact'] === $box['count'], 'One Box window around 11–12: ' . Stats::hm($box['from']) . '–' . Stats::hm($box['to']));
     ok($box['scope'] === 'Pn–Pt' && $box['drop_by'] >= 10 * 60 + 45, 'Headline uses weekdays, Saturday does not pull drop-by down: ' . Stats::hm($box['drop_by']));
@@ -205,7 +214,7 @@ try {
 
     $boss = login('boss');
     $page = request($boss, 'admin/courier_pickups.php');
-    ok($page['status'] === 200 && str_contains($page['body'], 'Allegro One Box') && str_contains($page['body'], 'Razem: Paczkomaty InPost'), 'Page shows services');
+    ok($page['status'] === 200 && str_contains($page['body'], 'nadane w automacie / punkcie') && str_contains($page['body'], 'Metody dostawy: ') && str_contains($page['body'], 'kurier odebrał od nadawcy'), 'Page shows services');
     ok(str_contains($page['body'], 'Kurier odbiera zwykle') && str_contains($page['body'], 'Wrzuć do'), 'Page shows window and drop-by time');
     ok(str_contains($page['body'], 'Mało danych'), 'Few pickups flagged as approximate');
     ok(str_contains($page['body'], 'href="courier_pickups.php"'), 'Page is in the menu');

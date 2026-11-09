@@ -47,7 +47,8 @@ require __DIR__ . '/header.php';
         </select>
         <noscript><button class="btn secondary" type="submit">Pokaż</button></noscript>
     </form>
-    <p>O której kurier zabiera paczki — liczone z historii śledzenia przesyłek nadanych w wybranym okresie.
+    <p>O której kurier zabiera paczki — liczone z historii śledzenia przesyłek nadanych w wybranym okresie, osobno dla każdej firmy
+        i sposobu nadania (wrzucone do automatu/punktu albo odebrane przez kuriera od Ciebie). Nazwa metody dostawy u klienta nie ma znaczenia.
         <b>Wrzuć do</b> to godzina, przed którą kurier zabierał paczkę tego samego dnia w 9 na 10 przypadków.</p>
 </div>
 
@@ -70,10 +71,10 @@ require __DIR__ . '/header.php';
 <section class="card cp-card">
     <header class="cp-head">
         <div>
-            <h2 class="cp-name"><?= htmlspecialchars($s['name']) ?></h2>
+            <h2 class="cp-name"><?= htmlspecialchars($s['name']) ?> <span class="cp-how cp-how-<?= $s['handover'] ?>"><?= htmlspecialchars(Stats::HANDOVER[$s['handover']]) ?></span></h2>
             <div class="cp-dim"><?= $s['count'] ?> <?= $plural($s['count']) ?> · ostatni odbiór <?= htmlspecialchars($dateFmt($s['last'])) ?></div>
-            <?php if (count($s['variants']) > 1 || ($s['variants'][0] ?? '') !== $s['name']): ?>
-                <div class="cp-dim cp-variants">Razem: <?= htmlspecialchars(implode(', ', array_slice($s['variants'], 0, 6))) ?><?= count($s['variants']) > 6 ? ' i ' . (count($s['variants']) - 6) . ' inne' : '' ?></div>
+            <?php if ($s['variants'] !== [] && ($s['variants'] !== [$s['name']])): ?>
+                <div class="cp-dim cp-variants">Metody dostawy: <?= htmlspecialchars(implode(', ', array_slice($s['variants'], 0, 6))) ?><?= count($s['variants']) > 6 ? ' i ' . (count($s['variants']) - 6) . ' inne' : '' ?></div>
             <?php endif; ?>
         </div>
         <div class="cp-tiles">
@@ -82,7 +83,7 @@ require __DIR__ . '/header.php';
                 <div class="cp-num"><?= $hm($s['from']) ?>–<?= $hm($s['to']) ?></div>
             </div>
             <div class="cp-tile cp-tile-accent">
-                <div class="cp-lbl">Wrzuć do<?= $s['scope'] !== '' ? ' (' . $s['scope'] . ')' : '' ?></div>
+                <div class="cp-lbl"><?= $s['handover'] === Stats::DROP ? 'Wrzuć do' : 'Przygotuj do' ?><?= $s['scope'] !== '' ? ' (' . $s['scope'] . ')' : '' ?></div>
                 <div class="cp-num"><?= $hm($s['drop_by']) ?></div>
             </div>
         </div>
@@ -96,7 +97,7 @@ require __DIR__ . '/header.php';
                     <th></th>
                     <?php for ($h = $hFrom; $h <= $hTo; $h++): ?><th class="cp-h"><?= $h ?></th><?php endfor; ?>
                     <th class="cp-win">Zwykle</th>
-                    <th class="cp-win">Wrzuć do</th>
+                    <th class="cp-win"><?= $s['handover'] === Stats::DROP ? 'Wrzuć do' : 'Przygotuj do' ?></th>
                 </tr>
             </thead>
             <tbody>
@@ -147,6 +148,9 @@ require __DIR__ . '/header.php';
     .cp-name { margin:0 0 4px; font-size:18px; }
     .cp-dim { color:var(--ink-2); font-size:12.5px; }
     .cp-variants { margin-top:2px; }
+    .cp-how { display:inline-block; vertical-align:middle; margin-left:6px; padding:2px 9px; border-radius:999px; font-size:12px; font-weight:600;
+              background:color-mix(in srgb, var(--accent) 14%, transparent); color:var(--ink); }
+    .cp-how-door { background:color-mix(in srgb, var(--ink-2) 12%, transparent); color:var(--ink-2); }
     .cp-tiles { display:flex; gap:10px; }
     .cp-tile { border:1px solid var(--line); border-radius:10px; padding:10px 14px; min-width:130px; }
     .cp-tile-accent { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 8%, transparent); }

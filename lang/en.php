@@ -254,6 +254,7 @@ return [
 
     // Statistics
     'nav.statistics'      => '📊 Statistics',
+    'nav.courier_pickups' => '🚚 Courier pickups',
     'nav.email_log'       => '📨 Sent emails',
     'nav.payu'            => '💰 PayU balance and payouts',
     'nav.users'            => '👥 Users',

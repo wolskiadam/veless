@@ -244,6 +244,7 @@ $chart = renderOrdersStatsChart($daily, $plMonths, t('stats.legend.count'), t('s
 
 $PAGE_TITLE = t('stats.title');
 $PAGE_KEY   = 'statistics';
+$PAGE_TITLE_ACTIONS = '<a class="btn secondary" href="courier_pickups.php" title="O której kurierzy odbierają paczki">🚚 Odbiory kurierów</a>';
 require __DIR__ . '/header.php';
 ?>
 

@@ -123,6 +123,7 @@ final class AdminMenu
                 'items' => [
                     ['href' => 'dashboard.php',  'label' => t('nav.dashboard'), 'desc' => ''],
                     ['href' => 'statistics.php', 'label' => t('nav.statistics'), 'desc' => ''],
+                    ['href' => 'courier_pickups.php', 'label' => t('nav.courier_pickups'), 'desc' => ''],
                     ['href' => 'payu.php',       'label' => t('nav.payu'), 'desc' => ''],
                     ['href' => 'help.php',       'label' => t('nav.help'), 'desc' => ''],
                 ],

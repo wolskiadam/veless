@@ -1208,17 +1208,19 @@ final class Pages
             $html .= $accounts === [] ? '<div class="card kg-muted">Brak konta bankowego (13x) w planie kont bieżącego roku.</div>'
                 : '<form method="post" enctype="multipart/form-data" action="' . U::h(U::url('wyciag_import')) . '" class="kg-form card">' . U::csrf($this->ctx)
                     . '<div class="kg-grid">' . U::select('account', $accounts, (string) array_key_first($accounts), 'Konto bankowe')
-                    . '<label>Plik wyciągu<input type="file" name="file" accept=".sta,.mt940,.txt,.csv,.940" required><small>MT940 (.sta, .txt) albo CSV z historii rachunku. Operacje już wczytane są pomijane.</small></label></div>'
+                    . '<label>Plik wyciągu<input type="file" name="file" accept=".sta,.mt940,.txt,.csv,.940" required><small>MT940 (.sta, .txt) albo CSV z historii rachunku. Operacje już wczytane są pomijane.</small></label>'
+                    . '<label>PDF wyciągu z banku (nieobowiązkowo)<input type="file" name="pdf" accept=".pdf,application/pdf"><small>Zostaje w archiwum przy wyciągu, do podglądu. Można go dodać też później.</small></label></div>'
                     . '<div><button class="btn" type="submit">Wczytaj wyciąg</button></div></form>';
         }
         $rows = $bank->statements();
         if ($rows === []) {
             return $html . U::empty('Nie ma jeszcze wyciągów', 'Pobierz z banku historię rachunku (MT940 albo CSV) i wczytaj ją tutaj.');
         }
+        $pdfs = (new Files($this->db))->pdfCounts('bank');
         $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Okres</th><th>Konto</th><th>Plik</th><th class="kg-num">Operacje</th><th class="kg-num">Wpływy</th><th class="kg-num">Wydatki</th><th>Status</th></tr></thead><tbody>';
         foreach ($rows as $s) {
             $html .= '<tr><td><a href="' . U::h(U::url('wyciag', ['id' => $s['id']])) . '">' . U::date($s['date_from']) . ($s['date_to'] !== $s['date_from'] ? ' - ' . U::date($s['date_to']) : '') . '</a></td>'
-                . '<td class="kg-acc">' . U::h($s['account']) . '</td><td>' . U::h($s['file_name']) . '</td><td class="kg-num">' . (int) $s['n'] . '</td>'
+                . '<td class="kg-acc">' . U::h($s['account']) . '</td><td>' . U::h($s['file_name']) . (isset($pdfs[(string) $s['id']]) ? ' <span title="Jest PDF z banku">📎</span>' : '') . '</td><td class="kg-num">' . (int) $s['n'] . '</td>'
                 . '<td class="kg-num">' . U::money((int) $s['inflow']) . '</td><td class="kg-num">' . U::money(-(int) $s['outflow']) . '</td>'
                 . '<td><span class="kg-pill ' . ($s['status'] === 'booked' ? 'posted' : 'draft') . '">' . U::h(Bank::STATUSES[$s['status']] ?? $s['status']) . '</span></td></tr>';
         }
@@ -1230,7 +1232,14 @@ final class Pages
         $this->need(Access::BOOK);
         try {
             [$name, $content] = $this->uploaded(5);
+            $pdf = $this->uploaded(10, 'pdf', false);
+            if ($pdf !== null) {
+                Files::mime('pdf', $pdf[1]); // zły PDF zatrzymuje cały import, zanim cokolwiek się zapisze
+            }
             $s = (new Bank($this->db))->import((string) ($_POST['account'] ?? ''), $name, $content, $this->user());
+            if ($pdf !== null) {
+                (new Files($this->db))->save('bank', (string) $s['id'], 'pdf', $pdf[0], $pdf[1], $this->user());
+            }
             flash('Wczytano wyciąg' . ($s['skipped'] > 0 ? ', pominięto ' . $s['skipped'] . ' operacji wczytanych wcześniej' : '') . '. Sprawdź konta i zaksięguj.');
             $this->go('wyciag', ['id' => $s['id']]);
         } catch (\RuntimeException $e) {
@@ -1277,7 +1286,7 @@ final class Pages
         if (!$open && $s['doc_id'] !== null && ($doc = $this->ledger->doc((string) $s['doc_id'])) !== null) {
             $html .= '<a class="btn secondary" href="' . U::h(U::url('dokument', ['id' => $doc['id']])) . '">Dokument ' . U::h($doc['number']) . '</a>';
         }
-        $html .= '</div></div>';
+        $html .= '</div></div>' . $this->statementFiles($s);
         $year = $this->ledger->currentYear();
         $opts = '';
         if ($year !== null) {
@@ -1336,6 +1345,78 @@ final class Pages
         $this->go('wyciag', ['id' => $id]);
     }
 
+    /** Archiwum przy wyciągu: oryginalny plik i PDF z banku (podgląd, pobranie, dołączenie PDF). */
+    private function statementFiles(array $s): string
+    {
+        $files = (new Files($this->db))->forOwner('bank', (string) $s['id']);
+        $html = '<div class="card"><h3 style="margin-top:0">Pliki wyciągu</h3>';
+        if ($files === []) {
+            $html .= '<p class="kg-muted">Brak plików (wyciąg wczytany przed archiwum).</p>';
+        } else {
+            $html .= '<ul style="margin:0 0 8px;padding-left:18px">';
+            foreach ($files as $f) {
+                $html .= '<li>' . U::h(Files::KINDS[$f['kind']] ?? $f['kind']) . ': <a href="' . U::h(U::url('plik', ['id' => $f['id']])) . '"' . ($f['kind'] === 'pdf' ? ' target="_blank" rel="noopener"' : '') . '>'
+                    . U::h($f['name']) . '</a> <span class="kg-small">' . number_format((int) $f['size'] / 1024, 0, ',', ' ') . ' KB · ' . U::h(substr((string) $f['created_at'], 0, 16)) . ' · ' . U::h($f['created_by']) . '</span>'
+                    . ($f['kind'] === 'pdf' && $this->can(Access::BOOK) ? ' ' . U::postButton($this->ctx, 'plik_usun', ['id' => $f['id']], 'Usuń', 'btn secondary', 'Usunąć ten PDF z archiwum?') : '') . '</li>';
+            }
+            $html .= '</ul>';
+        }
+        if ($this->can(Access::BOOK)) {
+            $html .= '<form method="post" enctype="multipart/form-data" action="' . U::h(U::url('wyciag_pdf')) . '" class="kg-filter">' . U::csrf($this->ctx)
+                . '<input type="hidden" name="id" value="' . U::h($s['id']) . '"><input type="file" name="pdf" accept=".pdf,application/pdf" required> <button class="btn secondary" type="submit">Dołącz PDF z banku</button></form>';
+        }
+        return $html . '</div>';
+    }
+
+    public function statementPdf(): void
+    {
+        $this->need(Access::BOOK);
+        $id = (string) ($_POST['id'] ?? '');
+        try {
+            (new Bank($this->db))->statement($id) ?? throw new \RuntimeException('Nie ma takiego wyciągu.');
+            [$name, $content] = $this->uploaded(10, 'pdf');
+            (new Files($this->db))->save('bank', $id, 'pdf', $name, $content, $this->user());
+            flash('Dołączono PDF do wyciągu.');
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+        }
+        $this->go('wyciag', ['id' => $id]);
+    }
+
+    /** Pobranie / podgląd pliku z archiwum (surowa odpowiedź). */
+    public function fileDownload(): void
+    {
+        $f = (new Files($this->db))->get((string) ($_GET['id'] ?? ''));
+        if ($f === null) {
+            http_response_code(404);
+            echo 'Nie ma takiego pliku.';
+            return;
+        }
+        $pdf = $f['mime'] === 'application/pdf';
+        $name = str_replace(['"', '\\', "\r", "\n"], '', (string) $f['name']);
+        header('Content-Type: ' . ($pdf ? 'application/pdf' : 'text/plain; charset=UTF-8'));
+        header('X-Content-Type-Options: nosniff');
+        if (!$pdf) {
+            header("Content-Security-Policy: default-src 'none'; sandbox"); // przeglądarkowy podgląd PDF nie działa w trybie sandbox
+        }
+        header('Content-Disposition: ' . ($pdf ? 'inline' : 'attachment') . '; filename="' . $name . '"; filename*=UTF-8\'\'' . rawurlencode((string) $f['name']));
+        header('Content-Length: ' . strlen((string) $f['content']));
+        echo $f['content'];
+    }
+
+    public function fileDelete(): void
+    {
+        $this->need(Access::BOOK);
+        $f = (new Files($this->db))->get((string) ($_POST['id'] ?? ''));
+        try {
+            (new Files($this->db))->delete((string) ($_POST['id'] ?? ''), $this->user());
+            flash('Usunięto plik.');
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+        }
+        $this->go('wyciag', ['id' => (string) ($f['owner_id'] ?? '')]);
+    }
+
     public function statementDelete(): void
     {
         $this->need(Access::BOOK);
@@ -1352,9 +1433,13 @@ final class Pages
     // ============================================================== import z innego programu (JPK)
 
     /** Treść przesłanego pliku (pole „file”). @return array{0:string,1:string} [nazwa, treść] */
-    private function uploaded(int $maxMb): array
+    /** @return array{0:string,1:string}|null null tylko dla pola nieobowiązkowego bez pliku */
+    private function uploaded(int $maxMb, string $field = 'file', bool $required = true): ?array
     {
-        $f = $_FILES['file'] ?? null;
+        $f = $_FILES[$field] ?? null;
+        if (!$required && (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE)) {
+            return null;
+        }
         if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $f['tmp_name'])) {
             throw new \RuntimeException('Wybierz plik.');
         }
@@ -1706,7 +1791,7 @@ final class Pages
             'company.update' => 'Dane firmy', 'contractor.create' => 'Nowy kontrahent', 'contractor.update' => 'Zmiana kontrahenta',
             'contractor.activate' => 'Włączenie kontrahenta', 'contractor.deactivate' => 'Wyłączenie kontrahenta',
             'settle.link' => 'Rozliczenie', 'settle.unlink' => 'Cofnięcie rozliczenia', 'bank.import' => 'Wczytanie wyciągu', 'bank.update' => 'Poprawa wyciągu',
-            'bank.book' => 'Zaksięgowanie wyciągu', 'bank.delete' => 'Usunięcie wyciągu', 'import.jpk_kr' => 'Import JPK_KR', 'import.jpk_v7' => 'Import JPK_V7', 'import.wfirma' => 'Pobranie z wFirma (API)'];
+            'bank.book' => 'Zaksięgowanie wyciągu', 'bank.delete' => 'Usunięcie wyciągu', 'import.jpk_kr' => 'Import JPK_KR', 'import.jpk_v7' => 'Import JPK_V7', 'import.wfirma' => 'Pobranie z wFirma (API)', 'file.add' => 'Dodanie pliku', 'file.delete' => 'Usunięcie pliku'];
         $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Kiedy</th><th>Kto</th><th>Co</th><th>Szczegóły</th></tr></thead><tbody>';
         foreach ($rows as $r) {
             $link = $r['object_type'] === 'doc' && $r['action'] !== 'doc.delete' ? U::url('dokument', ['id' => $r['object_id']])

@@ -110,6 +110,7 @@ Zakładka Import (poziom zarządzanie) wczytuje pliki JPK, a z wFirma pobiera te
 | `Access.php` | poziomy dostępu |
 | `Inbox.php`, `Api.php` | jedyne wejście z CRM i jedyne wyjście do CRM |
 | `ChartTemplate.php`, `Money.php` | wzorcowy plan kont, kwoty w groszach |
+| `Files.php` | archiwum plików w bazie (`ext_ksg_files`): oryginał wyciągu i PDF z banku, podgląd `ext.php?page=ksiegowosc.plik` |
 | `JpkImport.php`, `Wfirma.php` | import JPK_KR / JPK_V7, pobieranie z wFirma po API, porównania |
 | `Pages.php`, `Ui.php` | strony panelu |
 

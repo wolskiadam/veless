@@ -18,7 +18,7 @@ use PDO;
  */
 final class Db
 {
-    public const SCHEMA = '5';
+    public const SCHEMA = '6';
 
     /** @var array<int,bool> spl_object_id(PDO) => schemat sprawdzony */
     private static array $ready = [];
@@ -90,6 +90,9 @@ final class Db
                 number VARCHAR(60) NOT NULL, doc_date VARCHAR(10) NOT NULL, period VARCHAR(7) NOT NULL, due_date VARCHAR(10) NULL, name VARCHAR(200) NOT NULL,
                 nip VARCHAR(30) NOT NULL, currency VARCHAR(3) NOT NULL, net_gr BIGINT NOT NULL, vat_gr BIGINT NOT NULL, gross_gr BIGINT NOT NULL, paid_gr BIGINT NOT NULL,
                 doc_id VARCHAR(16) NULL, data TEXT NOT NULL, fetched_at DATETIME NOT NULL',
+            'ext_ksg_files' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, owner_type VARCHAR(20) NOT NULL, owner_id VARCHAR(16) NOT NULL, kind VARCHAR(10) NOT NULL,
+                name VARCHAR(200) NOT NULL, mime VARCHAR(60) NOT NULL, size INT NOT NULL, sha1 VARCHAR(40) NOT NULL, content LONGTEXT NOT NULL,
+                created_by VARCHAR(100) NOT NULL, created_at DATETIME NOT NULL',
             'ext_ksg_inbox' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, event VARCHAR(60) NOT NULL, ref_type VARCHAR(20) NOT NULL, ref_id VARCHAR(40) NOT NULL,
                 payload TEXT NOT NULL, received_at DATETIME NOT NULL, processed_at DATETIME NULL, result VARCHAR(255) NOT NULL',
         ];
@@ -107,7 +110,7 @@ final class Db
         foreach (['ext_ksg_accounts (year_id, number)', 'ext_ksg_docs (year_id, posting_date)', 'ext_ksg_docs (year_id, journal_no)',
             'ext_ksg_entries (doc_id)', 'ext_ksg_entries (account_id)', 'ext_ksg_log (object_id)', 'ext_ksg_inbox (ref_type, ref_id)',
             'ext_ksg_vat (doc_id)', 'ext_ksg_vat (register, period)', 'ext_ksg_docs (contractor_id)', 'ext_ksg_contractors (nip)',
-            'ext_ksg_settle (debt_entry_id)', 'ext_ksg_settle (pay_entry_id)', 'ext_ksg_bank_lines (statement_id)', 'ext_ksg_bank_lines (hash)', 'ext_ksg_wf_docs (kind, remote_id)', 'ext_ksg_wf_docs (doc_date)'] as $i => $idx) {
+            'ext_ksg_settle (debt_entry_id)', 'ext_ksg_settle (pay_entry_id)', 'ext_ksg_bank_lines (statement_id)', 'ext_ksg_bank_lines (hash)', 'ext_ksg_wf_docs (kind, remote_id)', 'ext_ksg_wf_docs (doc_date)', 'ext_ksg_files (owner_type, owner_id)'] as $i => $idx) {
             try {
                 $this->pdo->prepare('CREATE INDEX ext_ksg_idx' . $i . ' ON ' . $idx)->execute();
             } catch (\PDOException) {

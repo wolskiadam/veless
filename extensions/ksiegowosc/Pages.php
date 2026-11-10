@@ -1390,7 +1390,7 @@ final class Pages
 
     private function wf(): Wfirma
     {
-        return $this->wfirma !== null ? ($this->wfirma)() : new Wfirma($this->db, []);
+        return $this->wfirma !== null ? ($this->wfirma)() : new Wfirma($this->db);
     }
 
     /** Karta „wFirma po API” na stronie importu: stan, pobranie za okres, sprawdzenie kluczy. */
@@ -1403,8 +1403,8 @@ final class Pages
             . 'pozycje VAT (gdy dokument ich nie ma - JPK_V7 ma pierwszeństwo) i stan zapłaty do porównania z naszymi rozrachunkami. '
             . 'Dziennika księgowań API wFirma nie wydaje, więc księgi dalej przychodzą z pliku JPK_KR.</p>';
         if (!$wf->configured()) {
-            return $html . '<p class="flash err">Brak kluczy API. Wpisz accessKey, secretKey, appKey i ID firmy w ustawieniach wtyczki Księgowość (Wtyczki → Księgowość). '
-                . 'Klucze zapisują się zaszyfrowane.</p></div>';
+            return $html . '<p class="flash err">W CRM nie ma aktywnej integracji wFirma z kluczami API. Pobieranie korzysta z kluczy tej integracji '
+                . '(Integracje → wFirma) - Księgowość ich nie widzi, dostaje tylko dokumenty.</p></div>';
         }
         if (($last['ok'] ?? null) === false) {
             $html .= '<p class="flash err">Ostatnie automatyczne pobranie (' . U::h($last['at'] ?? '') . ') nie udało się: ' . U::h($last['error'] ?? '') . '</p>';

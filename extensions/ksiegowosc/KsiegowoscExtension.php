@@ -6,6 +6,7 @@ namespace PaseExt\Ksiegowosc;
 use Pase\Plugin\AbstractExtension;
 use Pase\Plugin\ExtensionManifest;
 use Pase\Plugin\Hooks;
+use Pase\Support\WfirmaBridge;
 use PDO;
 
 /**
@@ -37,24 +38,17 @@ final class KsiegowoscExtension extends AbstractExtension
                 ['key' => 'firma', 'label' => 'Dane firmy i zdarzenia z CRM', 'type' => 'link', 'url' => Hooks::pageUrl('ksiegowosc.firma')],
                 ['key' => 'dostep', 'label' => 'Dostęp do księgowości', 'type' => 'link', 'url' => Hooks::pageUrl('ksiegowosc.dostep'),
                  'help' => 'Księgowość ma własne uprawnienia, niezależne od ról CRM.'],
-                ['key' => 'wf_access_key', 'label' => 'wFirma API: accessKey', 'type' => 'password', 'secret' => true,
-                 'help' => 'Do pobierania faktur, wydatków i zapłat z wFirma (Import → wFirma po API). Możesz wpisać te same klucze, co w integracji wFirma w CRM (wtyczka nie ma do nich dostępu). Zapisywane zaszyfrowane.'],
-                ['key' => 'wf_secret_key', 'label' => 'wFirma API: secretKey', 'type' => 'password', 'secret' => true],
-                ['key' => 'wf_app_key', 'label' => 'wFirma API: appKey', 'type' => 'password', 'secret' => true],
-                ['key' => 'wf_company_id', 'label' => 'wFirma: ID firmy', 'type' => 'text'],
-                ['key' => 'wf_auto', 'label' => 'wFirma: pobieraj automatycznie', 'type' => 'select', 'default' => '1440', 'options' => Wfirma::AUTO_EVERY,
-                 'help' => 'Okres od początku poprzedniego miesiąca do dziś, żeby złapać też zapłaty starszych faktur.'],
+                ['key' => 'wf_auto', 'label' => 'wFirma: pobieraj faktury i wydatki automatycznie', 'type' => 'select', 'default' => '1440', 'options' => Wfirma::AUTO_EVERY,
+                 'help' => 'Na kluczach z integracji wFirma w CRM (wtyczka ich nie widzi). Okres od początku poprzedniego miesiąca do dziś, żeby złapać też zapłaty starszych faktur.'],
             ],
         );
     }
 
     private function wfirma(Db $db): Wfirma
     {
-        $cfg = [];
-        foreach (['access_key', 'secret_key', 'app_key', 'company_id'] as $k) {
-            $cfg[$k] = (string) $this->setting('wf_' . $k, '');
-        }
-        return new Wfirma($db, $cfg);
+        $crm = $this->pdo();
+        return new Wfirma($db, static fn(string $path, ?array $body): array => WfirmaBridge::call($crm, $path, $body),
+            static fn(): bool => WfirmaBridge::available($crm));
     }
 
     private function db(): Db

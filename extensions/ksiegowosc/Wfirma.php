@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace PaseExt\Ksiegowosc;
 
-use Pase\Support\Http;
-
 /**
  * Pobieranie dokumentów z wFirma po API (tylko odczyt): faktury sprzedaży (invoices/find) i wydatki (expenses/find)
  * z kontrahentami, rozbiciem VAT, terminem i stanem zapłaty.
@@ -14,59 +12,42 @@ use Pase\Support\Http;
  * po numerze (kontrahent, termin, pozycje VAT, gdy dokument ich nie ma). Stan zapłaty z wFirma porównujemy
  * z naszymi rozrachunkami na stronie Porównanie.
  *
- * Klucze API leżą w ustawieniach wtyczki (pola secret - rdzeń trzyma je zaszyfrowane); rozszerzenie nie czyta
- * kluczy integracji wFirma z CRM.
+ * Połączenie idzie przez rdzeń (Pase\Support\WfirmaBridge) na kluczach integracji wFirma w CRM - rozszerzenie
+ * nie widzi kluczy, dostaje tylko odpowiedzi API, i to wyłącznie z zapytań do odczytu.
  */
 final class Wfirma
 {
-    public const BASE_URL = 'https://api2.wfirma.pl';
     public const AUTO_EVERY = ['0' => 'Nie, tylko przyciskiem', '60' => 'Co godzinę', '360' => 'Co 6 godzin', '1440' => 'Raz na dobę'];
     /** Typy faktur, które są w rejestrze sprzedaży; proformy, szkice i paragony pomijamy (paragony idą do JPK zbiorczo). */
     private const SALE_TYPES = ['normal', 'margin', 'bill', 'correction'];
     private const PAGE = 100;
     private const MAX_PAGES = 100;
 
-    /** @var \Closure(string,string,array<string,string>,?array):array{status:int,json:array} */
-    private \Closure $http;
-
     /**
-     * @param array{access_key?:string,secret_key?:string,app_key?:string,company_id?:string} $cfg
-     * @param ?\Closure $http testy podstawiają odpowiedzi bez sieci
+     * @param ?\Closure(string,?array):array{status:int,json:array} $call zapytanie do API (ścieżka, treść) - z rdzenia albo z testu
+     * @param ?\Closure():bool $ready czy w CRM jest integracja wFirma z kluczami
      */
-    public function __construct(private readonly Db $db, private readonly array $cfg, ?\Closure $http = null)
+    public function __construct(private readonly Db $db, private readonly ?\Closure $call = null, private readonly ?\Closure $ready = null)
     {
-        $this->http = $http ?? static function (string $method, string $url, array $headers, ?array $body): array {
-            $r = Http::request($method, $url, $headers, $body, 60);
-            return ['status' => $r->status, 'json' => $r->json()];
-        };
     }
 
     public function configured(): bool
     {
-        foreach (['access_key', 'secret_key', 'app_key', 'company_id'] as $k) {
-            if (trim((string) ($this->cfg[$k] ?? '')) === '') {
-                return false;
-            }
-        }
-        return true;
+        return $this->call !== null && ($this->ready === null || ($this->ready)());
     }
 
     /** @return array{status:int,json:array} */
-    private function call(string $method, string $path, ?array $body = null): array
+    private function call(string $path, ?array $body = null): array
     {
         if (!$this->configured()) {
-            throw new \RuntimeException('Wpisz klucze API wFirma (accessKey, secretKey, appKey) i ID firmy w ustawieniach wtyczki Księgowość.');
+            throw new \RuntimeException('W CRM nie ma aktywnej integracji wFirma z kluczami API (Integracje → wFirma).');
         }
-        $url = self::BASE_URL . '/' . $path . '?inputFormat=json&outputFormat=json&company_id=' . rawurlencode(trim((string) $this->cfg['company_id']));
-        $r = ($this->http)($method, $url, [
-            'accessKey' => trim((string) $this->cfg['access_key']), 'secretKey' => trim((string) $this->cfg['secret_key']),
-            'appKey' => trim((string) $this->cfg['app_key']), 'Content-Type' => 'application/json', 'Accept' => 'application/json',
-        ], $body);
+        $r = ($this->call)($path, $body);
         if ($r['status'] === 0) {
             throw new \RuntimeException('Brak połączenia z wFirma.');
         }
         if ($r['status'] === 401 || $r['status'] === 403) {
-            throw new \RuntimeException('wFirma odrzuciła klucze API - sprawdź accessKey, secretKey i appKey.');
+            throw new \RuntimeException('wFirma odrzuciła klucze API - sprawdź je w integracji wFirma w CRM.');
         }
         $code = (string) ($r['json']['status']['code'] ?? '');
         if ($code !== 'OK' && $code !== 'NOT FOUND') {
@@ -90,10 +71,10 @@ final class Wfirma
         return $msgs !== [] ? implode('; ', array_unique($msgs)) : null;
     }
 
-    /** Sprawdzenie kluczy: dane firmy. */
+    /** Sprawdzenie połączenia: dane firmy. */
     public function test(): string
     {
-        $r = $this->call('GET', 'companies/get/' . rawurlencode(trim((string) ($this->cfg['company_id'] ?? ''))));
+        $r = $this->call('companies/get');
         $c = $r['json']['companies'][0]['company'] ?? $r['json']['companies']['company'] ?? [];
         return 'Połączenie z wFirma działa' . (is_array($c) && ($c['name'] ?? '') !== '' ? ': ' . $c['name'] : '') . '.';
     }
@@ -106,7 +87,7 @@ final class Wfirma
     {
         $out = [];
         for ($page = 1; $page <= self::MAX_PAGES; $page++) {
-            $r = $this->call('POST', $module . '/find', [$module => ['parameters' => [
+            $r = $this->call($module . '/find', [$module => ['parameters' => [
                 'page' => $page, 'limit' => self::PAGE,
                 'conditions' => (object) [
                     '0' => ['condition' => ['field' => $field, 'operator' => 'ge', 'value' => $from]],

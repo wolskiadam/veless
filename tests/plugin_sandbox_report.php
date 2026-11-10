@@ -49,4 +49,10 @@ ok($code === 0 && !str_contains($md, 'ODRZUCONA'), 'AdminDirectory user list doe
 [$code, $md] = $run([], ['SELECT id, username, password_hash FROM admin_users WHERE is_active = 1'], 'ksiegowosc extension extensions');
 ok($code === 1 && str_contains($md, 'Rozszerzenie czyta tabele z sekretami: admin_users'), 'Other admin_users reads still reject an extension');
 
+// Konto wFirma przez WfirmaBridge (klucze zostają w rdzeniu) nie blokuje rozszerzenia; inne odczyty integration_accounts dalej tak.
+[$code, $md] = $run([], ["SELECT config FROM integration_accounts WHERE type = 'wfirma' AND is_active = 1 ORDER BY id LIMIT 1"], 'ksiegowosc extension extensions');
+ok($code === 0 && str_contains($md, 'WfirmaBridge') && !str_contains($md, 'ODRZUCONA'), 'WfirmaBridge account read does not reject an extension');
+[$code, $md] = $run([], ["SELECT config FROM integration_accounts WHERE type = 'allegro' AND is_active = 1"], 'ksiegowosc extension extensions');
+ok($code === 1 && str_contains($md, 'Rozszerzenie czyta tabele z sekretami: integration_accounts'), 'Other integration_accounts reads still reject an extension');
+
 echo "plugin_sandbox_report: {$checks} checks passed\n";

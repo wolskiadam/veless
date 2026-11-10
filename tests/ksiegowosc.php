@@ -489,6 +489,7 @@ ok($calls === [] && !(new Wfirma($db))->configured(), 'No request without the in
 fails(fn() => \Pase\Support\WfirmaBridge::call($pdo, 'invoices/add', ['invoices' => []]), 'tylko czytać', 'CRM bridge allows only read requests to wFirma');
 ok(!\Pase\Support\WfirmaBridge::available($pdo), 'CRM bridge: no wFirma integration, not available');
 $wf = new Wfirma($db, $wfFake, static fn(): bool => true);
+$db->setMeta('wf_book', '0'); // najpierw samo przypinanie; księgowanie niżej
 ok($wf->test() === 'Połączenie z wFirma działa: Klub Testowy.' && $calls[0] === ['url' => 'companies/get', 'body' => null], 'wFirma connection test (company data)');
 $n = Wfirma::normalize('purchase', ['id' => '9', 'fullnumber' => 'X', 'date' => '2028-02-03', 'netto' => '100.00', 'tax' => '0.00', 'paid' => '1',
     'vat_contents' => [['vat_content' => ['netto' => '100.00', 'tax' => '0.00', 'vat_code' => ['code' => 'ZW']]]]]);
@@ -526,6 +527,35 @@ $r30 = $ji->importKr('jpk_kr_2030.xml', str_replace('2028', '2030', $kr), 'adam'
 $fv30 = $db->one("SELECT id, due_date FROM ext_ksg_docs WHERE number = 'FV/1/2030'");
 ok($r30['wfirma']['matched'] >= 1 && $fv30['due_date'] === '2030-01-31' && $db->one("SELECT doc_id FROM ext_ksg_wf_docs WHERE remote_id = '30'")['doc_id'] === $fv30['id'],
     'JPK_KR import attaches documents fetched from wFirma earlier');
+// Księgowanie dokumentów z wFirma bez odpowiednika w księgach (firma bez VAT).
+$wfDoc = static fn(string $kind, string $id, string $no, string $date, string $gross, string $name, string $nip = ''): array => Wfirma::normalize($kind,
+    ['id' => $id, 'type' => 'normal', 'fullnumber' => $no, 'date' => $date, 'netto' => $gross, 'tax' => '0.00', 'total' => $gross, 'brutto' => $gross, 'alreadypaid' => '0.00',
+     'contractor_detail' => ['name' => $name, 'nip' => $nip], 'contractor' => ['name' => $name, 'nip' => $nip]]);
+$db->setMeta('wf_book', '1');
+$wf->store([$wfDoc('sale', '501', 'FBV 1/2026', '2026-07-10', '50.00', 'Lucyna Bagińska'), $wfDoc('purchase', '601', '1/2026', '2026-07-11', '123.00', 'Dostawca A'),
+    $wfDoc('purchase', '602', '1/2026', '2026-07-12', '77.00', 'Dostawca B'), $wfDoc('sale', '502', 'KOR 1/2026', '2026-07-20', '-20.00', 'Lucyna Bagińska'),
+    $wfDoc('sale', '503', 'FBV 9/2031', '2031-01-05', '10.00', 'Ktoś')], 'adam');
+$bk = $wf->book('adam');
+ok($bk['booked'] === 5 && count($bk['skipped']) === 1 && str_contains($bk['skipped'][0], 'brak roku obrotowego'), 'wFirma documents booked (also FZ/404/2028 fetched earlier); one without a fiscal year reported');
+$wfIds = array_column($db->all("SELECT remote_id, doc_id FROM ext_ksg_wf_docs WHERE remote_id IN ('501', '502', '601', '602')"), 'doc_id', 'remote_id');
+$fbv = $l->doc($wfIds['501']);
+$ent = static fn(string $id): array => array_map(static fn(array $e): string => $e['account_number'] . ':' . $e['debit_gr'] . '/' . $e['credit_gr'], $l->entries($id));
+$e501 = $ent($fbv['id']);
+ok($fbv['status'] === 'posted' && $fbv['type'] === 'FS' && $fbv['number'] === 'FBV 1/2026' && $fbv['source'] === 'wfirma' && str_starts_with($e501[0], '200-') && str_ends_with($e501[0], ':5000/0')
+    && $e501[1] === '700:0/5000' && (new Vat($db))->forDoc($fbv['id']) === [], 'Sale booked gross on the customer account and 700, without VAT (analytic created since 200 has one)');
+$e502 = $ent($wfIds['502']);
+ok($e502[0] === '700:2000/0' && str_ends_with($e502[1], ':0/2000'), 'Correction books the reverse way');
+ok($wfIds['601'] !== $wfIds['602'] && $ent($wfIds['601'])[0] === '401:12300/0' && $ent($wfIds['602'])[0] === '401:7700/0' && str_ends_with($ent($wfIds['602'])[1], ':0/7700'),
+    'Two suppliers with the same invoice number get separate cost documents');
+$wf->store([$wfDoc('sale', '501', 'FBV 1/2026', '2026-07-10', '50.00', 'Lucyna Bagińska'), $wfDoc('purchase', '602', '1/2026', '2026-07-12', '77.00', 'Dostawca B')], 'adam');
+$wf->book('adam');
+ok((int) $db->one("SELECT COUNT(*) AS n FROM ext_ksg_docs WHERE source = 'wfirma'")['n'] === 5 && $db->one("SELECT doc_id FROM ext_ksg_wf_docs WHERE remote_id = '602'")['doc_id'] === $wfIds['602']
+    && (new Vat($db))->forDoc($wfIds['501']) === [], 'Next fetch finds booked documents by source, books nothing twice, adds no VAT');
+$cw26 = array_column($wf->compare('2026-07-01', '2026-07-31'), null, 'remote_id');
+ok($cw26['501']['ok'] && $cw26['501']['ours_left'] === 5000 && $cw26['601']['ok'], 'Payment comparison works on booked documents');
+$db->setMeta('wf_cost', '409');
+$wf->store([$wfDoc('purchase', '603', 'X/9', '2026-07-15', '10.00', 'Dostawca A')], 'adam');
+ok($wf->book('adam')['booked'] === 1 && $ent((string) $db->one("SELECT doc_id FROM ext_ksg_wf_docs WHERE remote_id = '603'")['doc_id'])[0] === '409:1000/0', 'Cost account from the setting');
 // Automatyczne pobieranie: interwał z ustawień, błąd zapisany do pokazania.
 $db->setMeta('wf_last_try', '');
 $calls = [];

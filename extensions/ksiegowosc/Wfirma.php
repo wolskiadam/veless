@@ -254,12 +254,93 @@ final class Wfirma
         }
         $purchases = count($docs) - $sales;
         $r = $this->store($docs, $user);
+        $r['booked'] = 0;
+        if ($this->db->meta('wf_book', '1') === '1' && $r['unmatched'] !== []) {
+            $b = $this->book($user);
+            $r['booked'] = $b['booked'];
+            $r['unmatched'] = $b['skipped'];
+        }
         $this->db->setMeta('wf_last_sync', Db::now());
         $this->db->setMeta('wf_last_result', (string) json_encode(['ok' => true, 'from' => $from, 'to' => $to, 'sales' => $sales, 'purchases' => $purchases,
-            'matched' => $r['matched'], 'unmatched' => count($r['unmatched'])], JSON_UNESCAPED_UNICODE));
+            'matched' => $r['matched'], 'booked' => $r['booked'], 'unmatched' => count($r['unmatched'])], JSON_UNESCAPED_UNICODE));
         $this->db->log($user, 'import.wfirma', 'wfirma', '', $from . ' - ' . $to . ': faktur ' . $sales . ', wydatków ' . $purchases . ', przypiętych ' . $r['matched']
-            . ($r['unmatched'] !== [] ? ', bez dokumentu w księgach ' . count($r['unmatched']) : ''));
+            . ', zaksięgowanych ' . $r['booked'] . ($r['unmatched'] !== [] ? ', bez dokumentu w księgach ' . count($r['unmatched']) : ''));
         return ['from' => $from, 'to' => $to, 'sales' => $sales, 'purchases' => $purchases, 'skipped' => $skipped] + $r;
+    }
+
+    /** Znacznik źródła dokumentu w księgach: rodzaj i ID w wFirma (ID faktur i wydatków mogą się powtarzać). */
+    private static function ref(array $r): string
+    {
+        return ($r['kind'] === 'sale' ? 's:' : 'p:') . $r['remote_id'];
+    }
+
+    /** Konta do księgowania dokumentów z wFirma: [przychód, koszt]. @return array{0:string,1:string} */
+    public function bookAccounts(): array
+    {
+        return [$this->db->meta('wf_sale', '700'), $this->db->meta('wf_cost', '401')];
+    }
+
+    /**
+     * Księguje dokumenty z wFirma, które nie mają odpowiednika w księgach, jako FS (sprzedaż) i FZ (wydatek), bez VAT
+     * (firma nie jest płatnikiem VAT): sprzedaż Wn rozrachunki z odbiorcą / Ma przychód, wydatek Wn koszt / Ma rozrachunki
+     * z dostawcą, zawsze kwotą brutto; korekta in minus odwrotnie. Numer dokumentu = numer z wFirma, więc kolejne pobranie
+     * znajdzie go po numerze i nie zaksięguje drugi raz. Dokument bez roku obrotowego albo w zamkniętym okresie zostaje
+     * na liście do sprawdzenia.
+     * @return array{booked:int,skipped:list<string>}
+     */
+    public function book(string $user): array
+    {
+        [$saleAcc, $costAcc] = $this->bookAccounts();
+        $ledger = new Ledger($this->db);
+        $cs = new Contractors($this->db);
+        $imp = new JpkImport($this->db);
+        $booked = 0;
+        $made = 0;
+        $skipped = [];
+        foreach ($this->db->all('SELECT * FROM ext_ksg_wf_docs WHERE doc_id IS NULL ORDER BY doc_date, kind DESC, number') as $r) {
+            $sale = $r['kind'] === 'sale';
+            $label = ($sale ? 'sprzedaż ' : 'zakup ') . $r['number'] . ($r['name'] !== '' ? ' (' . $r['name'] . ')' : '');
+            $gross = (int) $r['gross_gr'];
+            $year = Ledger::validDate((string) $r['doc_date']) ? $ledger->yearFor((string) $r['doc_date']) : null;
+            if ($year === null || $gross === 0 || $r['currency'] !== 'PLN') {
+                $skipped[] = $label . ($year === null ? ' - brak roku obrotowego' : ($gross === 0 ? ' - zerowa kwota' : ' - waluta ' . $r['currency']));
+                continue;
+            }
+            $data = (array) json_decode((string) $r['data'], true);
+            try {
+                $this->db->tx(function () use ($r, $sale, $gross, $year, $data, $saleAcc, $costAcc, $ledger, $cs, $imp, $user, &$made): void {
+                    $cid = $r['name'] !== '' ? $imp->contractorFor(['nip' => $r['nip'], 'country' => (string) ($data['country'] ?? ''), 'name' => $r['name']],
+                        $sale ? 'S' : 'Z', $user, $made, 'Z wFirma (API)') : null;
+                    $parent = $sale ? Contractors::RECEIVABLE : Contractors::PAYABLE;
+                    $c = $cid !== null ? $cs->get($cid) : null;
+                    $settle = $c !== null ? $cs->settlementAccount($c, (string) $year['id'], $parent) : null;
+                    if ($settle === null && $c !== null) {
+                        // Konto 200/202 ma już analitykę - kontrahent dostaje własną.
+                        $cs->ensureAccounts($c, $user);
+                        $settle = $cs->settlementAccount($c, (string) $year['id'], $parent);
+                    }
+                    $settle ??= $parent;
+                    $counter = $sale ? $saleAcc : $costAcc;
+                    $amount = Money::input(abs($gross));
+                    // Wn / Ma według rodzaju; ujemna kwota (korekta) zamienia strony.
+                    [$wn, $ma] = $sale ? [$settle, $counter] : [$counter, $settle];
+                    if ($gross < 0) {
+                        [$wn, $ma] = [$ma, $wn];
+                    }
+                    $doc = $ledger->saveDraft(null, ['type' => $sale ? 'FS' : 'FZ', 'number' => (string) $r['number'], 'posting_date' => (string) $r['doc_date'],
+                        'doc_date' => (string) $r['doc_date'], 'due_date' => (string) ($r['due_date'] ?? ''), 'contractor_id' => $cid ?? '',
+                        'description' => mb_substr(($sale ? 'Sprzedaż' : 'Zakup') . ' wg wFirma ' . $r['number'] . ($r['name'] !== '' ? ' - ' . $r['name'] : ''), 0, 255),
+                        'lines' => [['account' => $wn, 'debit' => $amount, 'credit' => '', 'description' => ''], ['account' => $ma, 'debit' => '', 'credit' => $amount, 'description' => '']]],
+                        $user, 'wfirma', self::ref($r));
+                    $ledger->post((string) $doc['id'], $user);
+                    $this->db->update('ext_ksg_wf_docs', (string) $r['id'], ['doc_id' => $doc['id']]);
+                });
+                ++$booked;
+            } catch (\RuntimeException $e) {
+                $skipped[] = $label . ' - ' . $e->getMessage();
+            }
+        }
+        return ['booked' => $booked, 'skipped' => $skipped];
     }
 
     /**
@@ -302,7 +383,7 @@ final class Wfirma
             $rows = array_values(array_filter($rows, static fn(array $r): bool => isset($want[$r['kind'] . ':' . $r['remote_id']])));
         }
         $index = [];
-        foreach ($this->db->all("SELECT id, year_id, number, type, contractor_id, due_date FROM ext_ksg_docs WHERE status = 'posted' AND reversal_of IS NULL") as $d) {
+        foreach ($this->db->all("SELECT id, year_id, number, type, contractor_id, due_date, source, source_ref FROM ext_ksg_docs WHERE status = 'posted' AND reversal_of IS NULL") as $d) {
             $index[Settlements::norm((string) $d['number'])][] = $d;
         }
         $vat = new Vat($this->db);
@@ -313,14 +394,16 @@ final class Wfirma
         foreach ($rows as $r) {
             $key = Settlements::norm((string) $r['number']);
             $want = $r['kind'] === 'sale' ? 'FS' : 'FZ';
+            // Dokument zaksięgowany z wFirma należy tylko do swojego źródła (dwóch dostawców może mieć fakturę „1/2026”).
+            $cands = array_values(array_filter($index[$key] ?? [], static fn(array $d): bool => $d['source'] !== 'wfirma' || $d['source_ref'] === self::ref($r)));
             $pick = null;
-            foreach ($index[$key] ?? [] as $d) {
-                if ($d['type'] === $want) {
+            foreach ($cands as $d) {
+                if ($d['source'] === 'wfirma' || $d['type'] === $want) {
                     $pick = $d;
                     break;
                 }
             }
-            $pick ??= ($index[$key] ?? [])[0] ?? null;
+            $pick ??= $cands[0] ?? null;
             if ($key === '' || $pick === null) {
                 if ($r['doc_id'] !== null) {
                     $this->db->update('ext_ksg_wf_docs', (string) $r['id'], ['doc_id' => null]);
@@ -347,7 +430,8 @@ final class Wfirma
                 $this->db->update('ext_ksg_docs', (string) $pick['id'], $set + ['updated_at' => Db::now()]);
             }
             $lines = (array) ($data['lines'] ?? []);
-            if ($lines !== [] && $vat->forDoc((string) $pick['id']) === []) {
+            // Dokumentom zaksięgowanym z wFirma nie dopisujemy VAT - księgujemy je bez VAT (firma nie jest płatnikiem VAT).
+            if ($lines !== [] && $pick['source'] !== 'wfirma' && $vat->forDoc((string) $pick['id']) === []) {
                 $vat->replace((string) $pick['id'], $lines);
             }
         }

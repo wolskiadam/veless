@@ -348,6 +348,9 @@ try {
     $pdo->exec("INSERT INTO integration_accounts (type, name, is_active, config) VALUES ('wfirma', 'wFirma', 1, '{\"access_key\":\"a\",\"secret_key\":\"b\",\"app_key\":\"c\",\"company_id\":\"1\"}')");
     $ip = request($boss, $url('import'))['body'];
     ok(str_contains($ip, 'Pobierz z wFirma') && !str_contains($ip, 'nie ma aktywnej integracji') && !str_contains($ip, '\"secret_key'), 'With the CRM integration the fetch form appears (no keys on the page)');
+    ok(str_contains($ip, 'Zapisz i zaksięguj pobrane') && str_contains($ip, 'name="cost"'), 'Booking settings for wFirma documents');
+    $r = $post($boss, 'wfirma_ksieguj', ['book' => '1', 'sale' => '700', 'cost' => '402']);
+    ok($r['status'] === 302 && str_contains(request($boss, $url('import'))['body'], 'Zaksięgowano dokumentów z wFirma: 0') && $one("SELECT v FROM ext_ksg_meta WHERE k = 'wf_cost'") === '402', 'Booking settings saved, nothing to book');
     $pdo->exec("DELETE FROM integration_accounts WHERE type = 'wfirma'");
     $r = $post($ola, 'wfirma_pobierz', ['from' => '2025-01-01', 'to' => '2025-01-31']);
     ok($r['status'] === 403 || str_contains($r['body'], 'Brak dostępu'), 'Book level cannot fetch from wFirma');

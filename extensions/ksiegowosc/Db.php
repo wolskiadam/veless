@@ -18,7 +18,7 @@ use PDO;
  */
 final class Db
 {
-    public const SCHEMA = '2';
+    public const SCHEMA = '3';
 
     /** @var array<int,bool> spl_object_id(PDO) => schemat sprawdzony */
     private static array $ready = [];
@@ -63,7 +63,7 @@ final class Db
                 kind VARCHAR(4) NOT NULL, active INT NOT NULL DEFAULT 1, notes TEXT NOT NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
             'ext_ksg_docs' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, year_id VARCHAR(16) NOT NULL, type VARCHAR(4) NOT NULL, number VARCHAR(60) NOT NULL,
                 journal_no INT NULL, doc_date VARCHAR(10) NOT NULL, op_date VARCHAR(10) NOT NULL, posting_date VARCHAR(10) NOT NULL,
-                description VARCHAR(255) NOT NULL, counterparty VARCHAR(200) NOT NULL, contractor_id VARCHAR(16) NULL, status VARCHAR(10) NOT NULL,
+                description VARCHAR(255) NOT NULL, counterparty VARCHAR(200) NOT NULL, contractor_id VARCHAR(16) NULL, due_date VARCHAR(10) NULL, status VARCHAR(10) NOT NULL,
                 total_gr BIGINT NOT NULL DEFAULT 0, reversal_of VARCHAR(16) NULL, reversed_by VARCHAR(16) NULL,
                 source VARCHAR(20) NOT NULL, source_ref VARCHAR(100) NOT NULL, created_by VARCHAR(100) NOT NULL, created_at DATETIME NOT NULL,
                 posted_by VARCHAR(100) NULL, posted_at DATETIME NULL, updated_at DATETIME NOT NULL',
@@ -76,6 +76,14 @@ final class Db
             'ext_ksg_vat' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, doc_id VARCHAR(16) NOT NULL, position INT NOT NULL, register VARCHAR(1) NOT NULL,
                 period VARCHAR(7) NOT NULL, rate VARCHAR(4) NOT NULL, net_gr BIGINT NOT NULL, vat_gr BIGINT NOT NULL, kind VARCHAR(10) NOT NULL,
                 deduct VARCHAR(4) NOT NULL',
+            'ext_ksg_settle' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, debt_entry_id VARCHAR(16) NOT NULL, pay_entry_id VARCHAR(16) NOT NULL,
+                amount_gr BIGINT NOT NULL, source VARCHAR(10) NOT NULL, created_by VARCHAR(100) NOT NULL, created_at DATETIME NOT NULL',
+            'ext_ksg_bank_statements' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, account VARCHAR(30) NOT NULL, iban VARCHAR(40) NOT NULL, file_name VARCHAR(200) NOT NULL,
+                format VARCHAR(10) NOT NULL, date_from VARCHAR(10) NOT NULL, date_to VARCHAR(10) NOT NULL, opening_gr BIGINT NULL, closing_gr BIGINT NULL,
+                status VARCHAR(10) NOT NULL, doc_id VARCHAR(16) NULL, created_by VARCHAR(100) NOT NULL, created_at DATETIME NOT NULL',
+            'ext_ksg_bank_lines' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, statement_id VARCHAR(16) NOT NULL, position INT NOT NULL, op_date VARCHAR(10) NOT NULL,
+                amount_gr BIGINT NOT NULL, title VARCHAR(500) NOT NULL, party_name VARCHAR(200) NOT NULL, party_iban VARCHAR(40) NOT NULL, hash VARCHAR(40) NOT NULL,
+                contractor_id VARCHAR(16) NULL, account VARCHAR(30) NOT NULL, match_entry_id VARCHAR(16) NULL, status VARCHAR(10) NOT NULL',
             'ext_ksg_inbox' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, event VARCHAR(60) NOT NULL, ref_type VARCHAR(20) NOT NULL, ref_id VARCHAR(40) NOT NULL,
                 payload TEXT NOT NULL, received_at DATETIME NOT NULL, processed_at DATETIME NULL, result VARCHAR(255) NOT NULL',
         ];
@@ -92,18 +100,21 @@ final class Db
         // Indeksy tylko przy pierwszym założeniu (MySQL nie zna CREATE INDEX IF NOT EXISTS).
         foreach (['ext_ksg_accounts (year_id, number)', 'ext_ksg_docs (year_id, posting_date)', 'ext_ksg_docs (year_id, journal_no)',
             'ext_ksg_entries (doc_id)', 'ext_ksg_entries (account_id)', 'ext_ksg_log (object_id)', 'ext_ksg_inbox (ref_type, ref_id)',
-            'ext_ksg_vat (doc_id)', 'ext_ksg_vat (register, period)', 'ext_ksg_docs (contractor_id)', 'ext_ksg_contractors (nip)'] as $i => $idx) {
+            'ext_ksg_vat (doc_id)', 'ext_ksg_vat (register, period)', 'ext_ksg_docs (contractor_id)', 'ext_ksg_contractors (nip)',
+            'ext_ksg_settle (debt_entry_id)', 'ext_ksg_settle (pay_entry_id)', 'ext_ksg_bank_lines (statement_id)', 'ext_ksg_bank_lines (hash)'] as $i => $idx) {
             try {
                 $this->pdo->prepare('CREATE INDEX ext_ksg_idx' . $i . ' ON ' . $idx)->execute();
             } catch (\PDOException) {
                 // już jest
             }
         }
-        // Wersja 2: kontrahent przy dokumencie (nowa instalacja ma kolumnę od razu).
-        try {
-            $this->pdo->prepare('ALTER TABLE ext_ksg_docs ADD COLUMN contractor_id VARCHAR(16) NULL')->execute();
-        } catch (\PDOException) {
-            // już jest
+        // Wersja 2: kontrahent przy dokumencie, wersja 3: termin płatności (nowa instalacja ma kolumny od razu).
+        foreach (['contractor_id VARCHAR(16) NULL', 'due_date VARCHAR(10) NULL'] as $col) {
+            try {
+                $this->pdo->prepare('ALTER TABLE ext_ksg_docs ADD COLUMN ' . $col)->execute();
+            } catch (\PDOException) {
+                // już jest
+            }
         }
         $this->setMeta('schema', self::SCHEMA);
     }

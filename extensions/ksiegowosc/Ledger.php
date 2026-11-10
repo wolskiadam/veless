@@ -372,6 +372,10 @@ final class Ledger
         if (!self::validDate($docDate) || !self::validDate($opDate)) {
             throw new \RuntimeException('Niepoprawna data dokumentu albo operacji.');
         }
+        $due = trim((string) ($in['due_date'] ?? ''));
+        if ($due !== '' && !self::validDate($due)) {
+            throw new \RuntimeException('Niepoprawny termin płatności.');
+        }
         $year = $this->yearFor($posting) ?? throw new \RuntimeException('Data księgowania ' . $posting . ' nie leży w żadnym roku obrotowym. Załóż rok w zakładce Lata obrotowe.');
         $description = trim((string) ($in['description'] ?? ''));
         if ($description === '') {
@@ -384,7 +388,7 @@ final class Ledger
             $contractor = (new Contractors($this->db))->get((string) $in['contractor_id']) ?? throw new \RuntimeException('Nie ma takiego kontrahenta.');
         }
         $number = mb_substr(trim((string) ($in['number'] ?? '')), 0, 60);
-        return $this->db->tx(function () use ($old, $type, $posting, $docDate, $opDate, $year, $description, $lines, $vat, $contractor, $number, $in, $user, $source, $sourceRef): array {
+        return $this->db->tx(function () use ($old, $type, $posting, $docDate, $opDate, $due, $year, $description, $lines, $vat, $contractor, $number, $in, $user, $source, $sourceRef): array {
             if ($number === '') {
                 $number = $old !== null && $old['type'] === $type && substr((string) $old['posting_date'], 0, 7) === substr($posting, 0, 7)
                     ? (string) $old['number'] : $this->nextNumber((string) $year['id'], $type, $posting);
@@ -392,7 +396,7 @@ final class Ledger
             $row = ['year_id' => $year['id'], 'type' => $type, 'number' => $number, 'doc_date' => $docDate, 'op_date' => $opDate,
                 'posting_date' => $posting, 'description' => mb_substr($description, 0, 255),
                 'counterparty' => mb_substr(trim((string) ($in['counterparty'] ?? '')) ?: (string) ($contractor['name'] ?? ''), 0, 200),
-                'contractor_id' => $contractor['id'] ?? null,
+                'contractor_id' => $contractor['id'] ?? null, 'due_date' => $due !== '' ? $due : null,
                 'total_gr' => array_sum(array_column($lines, 'debit_gr')), 'updated_at' => Db::now()];
             if ($old === null) {
                 $row += ['id' => Db::id(), 'journal_no' => null, 'status' => 'draft', 'reversal_of' => null, 'reversed_by' => null,
@@ -605,7 +609,7 @@ final class Ledger
             $this->db->insert('ext_ksg_docs', ['id' => $docId, 'year_id' => $year['id'], 'type' => 'ST',
                 'number' => $this->nextNumber((string) $year['id'], 'ST', $date), 'journal_no' => null, 'doc_date' => $date, 'op_date' => $date,
                 'posting_date' => $date, 'description' => mb_substr('Storno ' . $d['number'] . ($reason !== '' ? ': ' . $reason : ''), 0, 255),
-                'counterparty' => $d['counterparty'], 'contractor_id' => $d['contractor_id'], 'status' => 'draft', 'total_gr' => $total, 'reversal_of' => $id, 'reversed_by' => null,
+                'counterparty' => $d['counterparty'], 'contractor_id' => $d['contractor_id'], 'due_date' => null, 'status' => 'draft', 'total_gr' => $total, 'reversal_of' => $id, 'reversed_by' => null,
                 'source' => 'storno', 'source_ref' => $id, 'created_by' => $user, 'created_at' => Db::now(), 'posted_by' => null, 'posted_at' => null,
                 'updated_at' => Db::now()]);
             // Pozycje VAT z minusem w tym samym okresie: błędny dokument znika z rejestru.
@@ -613,6 +617,8 @@ final class Ledger
             $vat->replace($docId, array_map(static fn(array $v): array => ['net_gr' => -(int) $v['net_gr'], 'vat_gr' => -(int) $v['vat_gr']] + $v, $vat->forDoc($id)));
             $st = $this->post($docId, $user);
             $this->db->update('ext_ksg_docs', $id, ['reversed_by' => $docId, 'updated_at' => Db::now()]);
+            // Storno rozlicza oryginał na kontach rozrachunkowych (faktura i jej storno znoszą się w rozrachunkach).
+            (new Settlements($this->db))->linkReversal($id, $docId, $user);
             $this->db->log($user, 'doc.reverse', 'doc', $id, $d['number'] . ' → ' . $st['number']);
             return $st;
         });

@@ -9,7 +9,7 @@ $checks = 0;
 function ok(bool $condition, string $name): void { global $checks; if (!$condition) { throw new RuntimeException('FAIL: ' . $name); } ++$checks; echo "OK: {$name}\n"; }
 
 $token = 'SBXCANARY-allegro-access-1234567890abcdef';
-$run = static function (array $events) use ($root, $token): array {
+$run = static function (array $events, array $queries = [], string $args = 'allegro integration integrations') use ($root, $token): array {
     $dir = sys_get_temp_dir() . '/crm-sbx-report-' . bin2hex(random_bytes(6));
     mkdir("$dir/net", 0700, true);
     file_put_contents("$dir/scan.json", json_encode(['findings' => [], 'hosts' => ['api.allegro.pl', 'api.allegro.pl.allegrosandbox.pl', 'allegro.pl.evil.example']]));
@@ -24,7 +24,8 @@ $run = static function (array $events) use ($root, $token): array {
     file_put_contents("$dir/net-base-end.txt", '0');
     file_put_contents("$dir/net-plugin-start.txt", '0');
     file_put_contents("$dir/net-plugin-end.txt", (string) count($events));
-    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("$root/docker/sandbox/report.php") . ' ' . escapeshellarg($dir) . ' allegro integration integrations 2>&1', $out, $code);
+    file_put_contents("$dir/queries-plugin.txt", implode("\n", $queries) . "\n");
+    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg("$root/docker/sandbox/report.php") . ' ' . escapeshellarg($dir) . ' ' . $args . ' 2>&1', $out, $code);
     $md = (string) @file_get_contents("$dir/raport.md");
     exec('rm -rf ' . escapeshellarg($dir));
     return [$code, $md];
@@ -41,5 +42,11 @@ foreach (['allegro.pl.evil.example', 'notallegro.pl', 'sklep-testowy.example'] a
 }
 [$code, $md] = $run([$call('api.allegro.pl', 'SBXCANARY-smtp-haslo-abcdef1234567890')]);
 ok($code === 1 && str_contains($md, 'Hasło SMTP'), 'Another secret sent to Allegro still rejects the plugin');
+
+// Lista kont przez AdminDirectory (bez haseł) nie blokuje rozszerzenia; inne odczyty admin_users dalej tak.
+[$code, $md] = $run([], ['SELECT id, username, display_name, role FROM admin_users WHERE is_active = 1 ORDER BY display_name, username'], 'ksiegowosc extension extensions');
+ok($code === 0 && !str_contains($md, 'ODRZUCONA'), 'AdminDirectory user list does not reject an extension');
+[$code, $md] = $run([], ['SELECT id, username, password_hash FROM admin_users WHERE is_active = 1'], 'ksiegowosc extension extensions');
+ok($code === 1 && str_contains($md, 'Rozszerzenie czyta tabele z sekretami: admin_users'), 'Other admin_users reads still reject an extension');
 
 echo "plugin_sandbox_report: {$checks} checks passed\n";

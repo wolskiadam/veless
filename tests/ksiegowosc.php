@@ -281,6 +281,95 @@ $old->exec("INSERT INTO ext_ksg_docs VALUES ('aaaaaaaaaaaaaaaa', 'PK/1')");
 $mig = new Db($old);
 ok($mig->meta('schema') === Db::SCHEMA && $mig->one('SELECT contractor_id FROM ext_ksg_docs')['contractor_id'] === null && count($tablesOf($old)) === count(Db::tables()), 'Schema 1 migrates to schema 2');
 
+// --- Rozrachunki (etap 2b)
+use PaseExt\Ksiegowosc\{Bank, Settlements};
+$se = new Settlements($db);
+ok($mig->one('SELECT due_date FROM ext_ksg_docs')['due_date'] === null, 'Schema migration adds due_date');
+$w9 = $se->items(['doc' => $fzv['id']]);
+ok(count($w9) === 1 && $w9[0]['account'] === '202-0001' && $w9[0]['kind'] === 'debt' && $w9[0]['remaining'] === 147600 && $w9[0]['contractor']['id'] === $wosk['id'], 'Purchase invoice is an open payable');
+ok(array_sum(array_column($se->items(['doc' => $fs['id']]), 'remaining')) === 0 && array_sum(array_column($se->items(['doc' => $stv['id']]), 'remaining')) === 0, 'Storno settles the reversed invoice');
+fails(fn() => $l->saveDraft(null, ['type' => 'FS', 'posting_date' => '2027-03-01', 'due_date' => '2027-02-30', 'description' => 'x', 'lines' => [$line('100', '1', '')]], 'ola'), 'termin płatności', 'Invalid due date rejected');
+$inv = fn(string $no, string $date, string $due, string $gross) => $l->post($l->saveDraft(null, ['type' => 'FS', 'number' => $no, 'posting_date' => $date, 'due_date' => $due, 'description' => 'Świece', 'contractor_id' => $both['id'],
+    'lines' => [$line('200-0003', $gross, ''), $line('700', '', $gross)]], 'ola')['id'], 'ola');
+$f5 = $inv('FS/5/2027', '2027-03-01', '2027-03-15', '1230');
+ok($f5['due_date'] === '2027-03-15', 'Due date stored');
+$debt5 = $se->items(['doc' => $f5['id'], 'as_of' => '2027-04-01'])[0];
+ok($debt5['kind'] === 'debt' && $debt5['late_days'] === 17 && $debt5['due'] === '2027-03-15', 'Overdue days from the due date');
+$payDoc = fn(string $date, string $amount, string $desc, string $acc = '200-0003') => $l->post($l->saveDraft(null, ['type' => 'WB', 'posting_date' => $date, 'description' => $desc,
+    'lines' => [$line('130-01', $amount, ''), $line($acc, '', $amount, $desc)]], 'ola')['id'], 'ola');
+$p1 = $payDoc('2027-03-20', '1000', 'Wpłata częściowa');
+$pay1 = $se->items(['doc' => $p1['id']]);
+$payE = array_values(array_filter($pay1, static fn(array $i): bool => $i['account'] === '200-0003'))[0];
+ok($payE['kind'] === 'pay' && $payE['remaining'] === 100000, 'Payment on the receivable account');
+fails(fn() => $se->link($debt5['entry_id'], $payE['entry_id'], 100001, 'ola'), 'od 0,01 do', 'Settlement above the open amount rejected');
+fails(fn() => $se->link($debt5['entry_id'], $debt5['entry_id'], null, 'ola'), 'przeciwnych stronach', 'Two debts cannot be settled together');
+fails(fn() => $se->link($w9[0]['entry_id'], $payE['entry_id'], null, 'ola'), 'różnych kontach', 'Different accounts rejected');
+ok($se->link($payE['entry_id'], $debt5['entry_id'], null, 'ola') === 100000, 'Partial settlement (order of arguments does not matter)');
+ok($se->item($debt5['entry_id'])['remaining'] === 23000 && $se->item($payE['entry_id'])['remaining'] === 0, 'Remaining after partial payment');
+$lnk = $se->linksForDoc($f5['id']);
+ok(count($lnk) === 1 && $lnk[0]['pay_doc_id'] === $p1['id'], 'Links listed for the invoice');
+$se->unlink($lnk[0]['id'], 'ola');
+ok($se->item($debt5['entry_id'])['remaining'] === 123000, 'Unlink reopens the invoice');
+// Automatyczne: numer faktury w tytule, potem równa kwota.
+$f6 = $inv('FS/6/2027', '2027-03-02', '2027-03-16', '500');
+$p2 = $payDoc('2027-03-21', '230', 'Dopłata FS-5-2027');
+$p3 = $payDoc('2027-03-22', '500', 'Przelew');
+ok($se->autoMatch('ola', '200-0003') === 3, 'Auto match by invoice number and equal amount');
+ok($se->item($debt5['entry_id'])['remaining'] === 0 && $se->items(['doc' => $f6['id']])[0]['remaining'] === 0, 'Invoices settled automatically');
+ok($se->items(['open' => true, 'account' => '200-0003']) === [], 'Nothing open on the account');
+$sum = $se->summary($se->items(['open' => true, 'as_of' => '2027-06-01']));
+$g = array_column($sum, null, 'account')['202-0001'];
+ok($g['debt'] === 147600 && $g['late_more'] === 147600 && $g['pay'] === 0, 'Summary with overdue buckets');
+
+// --- Wyciągi bankowe (etap 2b)
+ok(Bank::csvAmount('-1 234,56') === -123456 && Bank::csvAmount('+12.50') === 1250 && Bank::csvAmount('1.234,56 PLN') === 123456 && Bank::csvAmount('1,234.56') === 123456 && Bank::csvAmount('Saldo') === null, 'CSV amounts');
+ok(Bank::csvDate('2027-03-05') === '2027-03-05' && Bank::csvDate('05.03.2027') === '2027-03-05' && Bank::csvDate('05-03-2027') === '2027-03-05' && Bank::csvDate('31.02.2027') === null, 'CSV dates');
+ok(Bank::nrb('PL 61 1090 1014 0000 0712 1981 2874') === '61109010140000071219812874' && Bank::cleanIban('xx') === '', 'Account numbers normalized');
+$mt = ":20:ST1\n:25:/PL61109010140000071219812874\n:28C:1\n:60F:C270331PLN1000,00\n"
+    . ":61:2704020402C1230,00NTRFNONREF\n:86:020~00VE02~20Zaplata za FS/7/2027~21dziekujemy~3010901014~310000071219812874~32HURTOWNIA SWIEC~38PL61109010140000071219812874\n"
+    . ":61:2704030403D1476,00NTRFNONREF\n:86:020~00VE02~20Faktura W 9~32WOSKOWNIA SA\n:61:2704030403D5,00NMSCNONREF\n:86:073~00OP~20Oplata za przelew\n:62F:C270403PLN-251,00\n-";
+$p = Bank::parse($mt);
+ok($p['format'] === 'mt940' && count($p['lines']) === 3 && $p['lines'][0]['amount'] === 123000 && $p['lines'][1]['amount'] === -147600 && $p['opening'] === 100000, 'MT940 parsed');
+ok($p['lines'][0]['title'] === 'Zaplata za FS/7/2027dziekujemy' && $p['lines'][0]['name'] === 'HURTOWNIA SWIEC' && $p['lines'][0]['iban'] === 'PL61109010140000071219812874' && $p['lines'][0]['date'] === '2027-04-02', 'MT940 details field');
+$csv = iconv('UTF-8', 'WINDOWS-1250', "Historia rachunku\nData transakcji;Dane kontrahenta;Tytuł;Nr rachunku;Kwota transakcji (waluta rachunku);Waluta;Saldo po transakcji\n"
+    . "2027-04-05;\"Hurtownia Świec\";\"FS/8/2027\";'61 1090 1014 0000 0712 1981 2874';\"615,00\";PLN;\"1 000,00\"\n2027-04-06;Bank;Opłata;;-3,50;PLN;996,50\nRazem;;;;611,50;;\n");
+$p = Bank::parse($csv);
+ok($p['format'] === 'csv' && count($p['lines']) === 2 && $p['lines'][0]['name'] === 'Hurtownia Świec' && $p['lines'][0]['amount'] === 61500 && $p['lines'][1]['amount'] === -350 && $p['lines'][0]['iban'] === '61109010140000071219812874', 'CSV in Windows-1250 parsed');
+fails(fn() => Bank::parse("a;b\n1;2"), 'Nie rozpoznaję', 'Unknown file rejected');
+
+$cs->save($both['id'], ['name' => 'Hurtownia Świec', 'kind' => 'both', 'bank_account' => '61 1090 1014 0000 0712 1981 2874'], 'adam');
+$f7 = $inv('FS/7/2027', '2027-03-25', '2027-04-08', '1230');
+$bank = new Bank($db);
+fails(fn() => $bank->import('401', 'x.sta', $mt, 'ola'), 'konto bankowe', 'Import needs a bank account');
+$s1 = $bank->import('130-01', 'kwiecien.sta', $mt, 'ola');
+$bl = $bank->lines($s1['id']);
+ok($s1['format'] === 'mt940' && $s1['date_from'] === '2027-04-02' && $s1['date_to'] === '2027-04-03' && count($bl) === 3 && $s1['skipped'] === 0, 'Statement imported');
+ok($bl[0]['contractor_id'] === $both['id'] && $bl[0]['account'] === '200-0003' && $bl[0]['match_entry_id'] === $se->items(['doc' => $f7['id']])[0]['entry_id'], 'Inflow: contractor by account number, invoice by number in title');
+ok($bl[1]['contractor_id'] === $wosk['id'] && $bl[1]['account'] === '202-0001' && $bl[1]['match_entry_id'] === $w9[0]['entry_id'], 'Outflow: contractor by name, invoice by equal amount');
+ok($bl[2]['account'] === '' && $bl[2]['contractor_id'] === null, 'Unknown operation left for the user');
+fails(fn() => $bank->import('130-01', 'kwiecien.sta', $mt, 'ola'), 'już zaimportowane', 'Same file is not imported twice');
+fails(fn() => $bank->book($s1['id'], 'ola'), 'operacji: 3', 'Booking needs an account for every operation');
+fails(fn() => $bank->saveLines($s1['id'], [$bl[2]['id'] => ['account' => '999']], 'ola'), 'nie ma konta 999', 'Unknown account rejected');
+fails(fn() => $bank->saveLines($s1['id'], [$bl[0]['id'] => ['account' => '200-0002', 'match' => $bl[0]['match_entry_id']]], 'ola'), 'jest na koncie', 'Invoice on another account rejected');
+$bank->saveLines($s1['id'], [$bl[2]['id'] => ['account' => '751 Koszty finansowe']], 'ola');
+$wb = $bank->book($s1['id'], 'ola');
+$we = $l->entries($wb['id']);
+ok($wb['type'] === 'WB' && $wb['status'] === 'posted' && $wb['posting_date'] === '2027-04-03' && count($we) === 6 && $wb['settled'] === 2, 'Statement booked as one WB document');
+ok($we[0]['account_number'] === '130-01' && (int) $we[0]['debit_gr'] === 123000 && $we[1]['account_number'] === '200-0003' && (int) $we[1]['credit_gr'] === 123000
+    && $we[5]['account_number'] === '751' && (int) $we[5]['debit_gr'] === 500, 'Bank lines posted against the counter accounts');
+ok($se->item($w9[0]['entry_id'])['remaining'] === 0 && $se->items(['doc' => $f7['id']])[0]['remaining'] === 0, 'Invoices settled from the statement');
+ok($bank->statement($s1['id'])['status'] === 'booked' && $bank->lines($s1['id'])[2]['status'] === 'booked', 'Statement marked booked');
+fails(fn() => $bank->delete($s1['id'], 'ola'), 'wystornuj', 'Booked statement cannot be deleted');
+$stw = $l->reverse($wb['id'], '2027-04-30', 'ola', 'zły wyciąg');
+ok($se->item($w9[0]['entry_id'])['remaining'] === 147600 && $se->items(['doc' => $f7['id']])[0]['remaining'] === 123000, 'Reversing the WB reopens the invoices');
+$s2 = $bank->import('130-01', 'historia.csv', $csv, 'ola');
+$b2 = $bank->lines($s2['id']);
+ok($b2[0]['contractor_id'] === $both['id'] && $b2[0]['match_entry_id'] === null, 'CSV import: contractor known, no matching invoice');
+$bank->saveLines($s2['id'], [$b2[1]['id'] => ['skip' => '1'], $b2[0]['id'] => ['account' => '200-0003']], 'ola');
+ok($bank->lines($s2['id'])[1]['status'] === 'skip', 'Operation skipped');
+$bank->delete($s2['id'], 'ola');
+ok($bank->statement($s2['id']) === null && $bank->lines($s2['id']) === [], 'Open statement deleted');
+
 // --- Haki rozszerzenia: strony, menu, automation.event
 use Pase\Plugin\Hooks;
 Hooks::bootAs('ksiegowosc', static fn() => (new \PaseExt\Ksiegowosc\KsiegowoscExtension())->boot());

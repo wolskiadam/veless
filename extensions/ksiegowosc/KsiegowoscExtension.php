@@ -22,16 +22,16 @@ final class KsiegowoscExtension extends AbstractExtension
 {
     /** Pozycje menu: id strony => tytuł. */
     private const MENU = ['pulpit' => 'Pulpit księgowości', 'dokumenty' => 'Dokumenty', 'dziennik' => 'Dziennik', 'konta' => 'Plan kont', 'obroty' => 'Obroty i salda',
-        'kontrahenci' => 'Kontrahenci', 'vat' => 'Rejestry VAT'];
+        'kontrahenci' => 'Kontrahenci', 'vat' => 'Rejestry VAT', 'rozrachunki' => 'Rozrachunki', 'bank' => 'Wyciągi bankowe'];
 
     public function manifest(): ExtensionManifest
     {
         return new ExtensionManifest(
             type: 'ksiegowosc',
             name: 'Księgowość',
-            version: '0.2.0',
+            version: '0.3.0',
             author: 'Veless',
-            description: 'Pełne księgi rachunkowe spółki: plan kont, dokumenty z dekretacją Wn/Ma, dziennik, storno, obroty i salda. Dane w osobnych tabelach (albo osobnej bazie), własne uprawnienia. Docelowo także faktury do KSeF, paragony, deklaracje i kadry.',
+            description: 'Pełne księgi rachunkowe spółki: plan kont, dokumenty z dekretacją Wn/Ma, dziennik, storno, obroty i salda, kontrahenci, rejestry VAT, rozrachunki i wyciągi bankowe. Dane w osobnych tabelach (albo osobnej bazie), własne uprawnienia. Docelowo także faktury do KSeF, paragony, deklaracje i kadry.',
             icon: '📒',
             fields: [
                 ['key' => 'firma', 'label' => 'Dane firmy i zdarzenia z CRM', 'type' => 'link', 'url' => Hooks::pageUrl('ksiegowosc.firma')],
@@ -74,7 +74,16 @@ final class KsiegowoscExtension extends AbstractExtension
                 'obroty' => static fn(Pages $p): string => $p->turnover(),
                 'kontrahenci' => static fn(Pages $p): string => $p->contractors(),
                 'vat' => static fn(Pages $p): string => $p->vatRegisters(),
+                'rozrachunki' => static fn(Pages $p): string => $p->settlements(),
+                'bank' => static fn(Pages $p): string => $p->bank(),
             }, true);
+        $page('rozlicz', 'Rozrachunki', Access::BOOK, static fn(Pages $p) => $p->settleLink());
+        $page('rozlicz_usun', 'Rozrachunki', Access::BOOK, static fn(Pages $p) => $p->settleUnlink());
+        $page('rozlicz_auto', 'Rozrachunki', Access::BOOK, static fn(Pages $p) => $p->settleAuto());
+        $page('wyciag', 'Wyciąg bankowy', Access::VIEW, static fn(Pages $p): string => $p->statement());
+        $page('wyciag_import', 'Wyciąg bankowy', Access::BOOK, static fn(Pages $p) => $p->bankImport());
+        $page('wyciag_zapisz', 'Wyciąg bankowy', Access::BOOK, static fn(Pages $p) => $p->statementSave());
+        $page('wyciag_usun', 'Wyciąg bankowy', Access::BOOK, static fn(Pages $p) => $p->statementDelete());
         }
         $page('kontrahent', 'Kontrahent', Access::VIEW, static fn(Pages $p): string => $p->contractor());
         $page('kontrahent_zapisz', 'Kontrahent', Access::BOOK, static fn(Pages $p): string => $p->contractorSave());

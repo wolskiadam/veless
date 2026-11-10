@@ -145,7 +145,7 @@ try {
     ok(str_contains(request($jan, $url('obroty_csv'))['headers'], ' 403'), 'Raw CSV refused without access');
     $d = request($boss, $url('pulpit'))['body'];
     ok(str_contains($d, 'Księgowość jest gotowa do ustawienia') && str_contains($d, 'ext_ksg_'), 'Empty dashboard shows the first steps');
-    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 10, 'Own tables created on first use');
+    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 13, 'Own tables created on first use');
 
     $acc = request($boss, $url('dostep'))['body'];
     ok(str_contains($acc, 'name="level[2]"') && str_contains($acc, 'name="level[4]"') && !str_contains($acc, 'name="level[1]"') && str_contains($acc, 'Pełny (administrator CRM)'), 'Access page lists users (admin fixed)');
@@ -280,9 +280,53 @@ try {
     ok((int) $one("SELECT active FROM ext_ksg_contractors WHERE id = '$cid'") === 0 && !str_contains(request($vi, $url('kontrahenci'))['body'], 'Woskownia'), 'Contractor deactivated');
     ok(str_contains(request($jan, $url('vat'))['body'], 'Brak dostępu do księgowości'), 'VAT registers need access');
 
+    // ---- Rozrachunki i wyciągi bankowe (etap 2b)
+    $post($ola, 'kontrahent_status', ['id' => $cid, 'active' => '1']);
+    $rz = request($vi, $url('rozrachunki'))['body'];
+    ok(str_contains($rz, 'S/1/2026') && str_contains($rz, '200-0001') && !str_contains($rz, 'W/1/2026') && !str_contains($rz, 'Rozlicz automatycznie'), 'Receivables list for viewer without actions');
+    $rz = request($vi, $url('rozrachunki', ['r' => '202']))['body'];
+    ok(str_contains($rz, 'W/1/2026') && str_contains($rz, "1\u{a0}230,00"), 'Payables list');
+    ok(str_contains(request($ola, $url('rozrachunki'))['body'], 'Rozlicz automatycznie'), 'Booking user sees auto match');
+    ok(str_contains(request($vi, $url('dokument', ['id' => $fzId]))['body'], 'Rozrachunki'), 'Document shows its settlement items');
+    ok(str_contains(request($ola, $url('bank'))['body'], 'Nie ma jeszcze wyciągów') && str_contains(request($ola, $url('bank'))['body'], 'name="file"'), 'Bank page with import form');
+    $sta = "$temp/marzec.sta";
+    file_put_contents($sta, ":20:1\n:25:/PL61109010140000071219812874\n:60F:C260331PLN10000,00\n:61:2603200320C123,00NTRF\n:86:020~20Zaplata S/1/2026~32WOSKOWNIA\n"
+        . ":61:2603210321D1230,00NTRF\n:86:020~20Faktura W/1/2026~32WOSKOWNIA\n:61:2603220322D2,00NMSC\n:86:073~20Prowizja\n:62F:C260322PLN8891,00\n-");
+    $r = $post($vi, 'wyciag_import', ['account' => '130-01', 'file' => new CURLFile($sta)]);
+    ok($r['status'] === 403 && (int) $one('SELECT COUNT(*) FROM ext_ksg_bank_statements') === 0, 'CRM viewer cannot import');
+    $r = $post($ola, 'wyciag_import', ['account' => '130-01', 'file' => new CURLFile($sta, 'text/plain', 'marzec.sta')]);
+    $sid = $locId($r);
+    $sv = request($ola, $url('wyciag', ['id' => $sid]))['body'];
+    ok($r['status'] === 302 && str_contains($sv, 'Zaplata S/1/2026') && str_contains($sv, 'value="200-0001"') && str_contains($sv, 'value="202-0001"') && str_contains($sv, '✓'), 'Statement imported with suggestions and balance check');
+    $r = $post($ola, 'wyciag_import', ['account' => '130-01', 'file' => new CURLFile($sta, 'text/plain', 'marzec.sta')]);
+    ok(str_contains(request($ola, $url('bank'))['body'], 'już zaimportowane'), 'Duplicate import refused');
+    $ids = $pdo->query("SELECT id FROM ext_ksg_bank_lines WHERE statement_id = '$sid' ORDER BY position")->fetchAll(PDO::FETCH_COLUMN);
+    $m1 = (string) $one("SELECT match_entry_id FROM ext_ksg_bank_lines WHERE id = '{$ids[0]}'");
+    $m2 = (string) $one("SELECT match_entry_id FROM ext_ksg_bank_lines WHERE id = '{$ids[1]}'");
+    $r = $post($ola, 'wyciag_zapisz', ['id' => $sid, 'book' => '1', 'lines' => [$ids[0] => ['account' => '200-0001', 'contractor_id' => $cid, 'match' => $m1],
+        $ids[1] => ['account' => '202-0001', 'contractor_id' => $cid, 'match' => $m2], $ids[2] => ['account' => '']]]);
+    ok($one("SELECT status FROM ext_ksg_bank_statements WHERE id = '$sid'") === 'open' && str_contains(request($ola, $url('wyciag', ['id' => $sid]))['body'], 'operacji: 3'), 'Booking refused without an account');
+    $r = $post($ola, 'wyciag_zapisz', ['id' => $sid, 'book' => '1', 'lines' => [$ids[0] => ['account' => '200-0001', 'contractor_id' => $cid, 'match' => $m1],
+        $ids[1] => ['account' => '202-0001', 'contractor_id' => $cid, 'match' => $m2], $ids[2] => ['account' => '751']]]);
+    $wbId = (string) $one("SELECT doc_id FROM ext_ksg_bank_statements WHERE id = '$sid'");
+    ok($wbId !== '' && $one("SELECT status FROM ext_ksg_docs WHERE id = '$wbId'") === 'posted' && (int) $one('SELECT COUNT(*) FROM ext_ksg_settle') === 3, 'Statement booked and invoices settled');
+    $sv = request($vi, $url('wyciag', ['id' => $sid]))['body'];
+    ok(str_contains($sv, 'WB/') && !str_contains($sv, 'name="lines['), 'Booked statement is read-only with the WB link');
+    ok(str_contains(request($vi, $url('rozrachunki', ['r' => '202']))['body'], 'Brak nierozliczonych pozycji'), 'Payables settled');
+    $dv = request($ola, $url('dokument', ['id' => $fzId]))['body'];
+    ok(str_contains($dv, 'z wyciągu') && str_contains($dv, 'Cofnij'), 'Invoice shows the payment link');
+    $lid = (string) $one("SELECT s.id FROM ext_ksg_settle s JOIN ext_ksg_entries e ON e.id = s.debt_entry_id WHERE e.doc_id = '$fzId'");
+    $post($ola, 'rozlicz_usun', ['id' => $lid, 'back[doc]' => $fzId]);
+    ok((int) $one('SELECT COUNT(*) FROM ext_ksg_settle') === 2 && str_contains(request($vi, $url('rozrachunki', ['r' => '202']))['body'], 'W/1/2026'), 'Unlink reopens the payable');
+    $form = request($ola, $url('dokument', ['id' => $fzId]))['body'];
+    ok(str_contains($form, 'name="debt"') && str_contains($form, 'name="pay"'), 'Manual settlement form on the document');
+    $r = $post($ola, 'rozlicz_auto', ['r' => '202']);
+    ok((int) $one('SELECT COUNT(*) FROM ext_ksg_settle') === 3, 'Auto match from the list');
+    ok(str_contains(request($vi, $url('kontrahent', ['id' => $cid]))['body'], 'Rozrachunki'), 'Contractor card still renders');
+
     // ---- Historia i skrzynka
     $h = request($boss, $url('zmiany'))['body'];
-    ok(str_contains($h, 'Zaksięgowanie') && str_contains($h, 'Storno') && str_contains($h, 'Zamknięcie okresu') && str_contains($h, 'Ola') && str_contains($h, 'Nowy kontrahent'), 'History of changes');
+    ok(str_contains($h, 'Zaksięgowanie') && str_contains($h, 'Storno') && str_contains($h, 'Zamknięcie okresu') && str_contains($h, 'Ola') && str_contains($h, 'Nowy kontrahent') && str_contains($h, 'Zaksięgowanie wyciągu'), 'History of changes');
     $pdo->exec("INSERT INTO ext_ksg_inbox (id, event, ref_type, ref_id, payload, received_at, processed_at, result) VALUES
         ('aaaaaaaaaaaaaaaa', 'order.imported', 'order', '501', '{\"total\":\"114.80\",\"currency\":\"PLN\",\"billing\":{\"first_name\":\"Anna\",\"last_name\":\"Kowalska\"}}', '2026-11-10 10:00:00', NULL, '')");
     $ib = request($boss, $url('skrzynka'))['body'];

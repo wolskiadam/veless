@@ -134,6 +134,7 @@ $qBase = array_flip(array_map('normalizeSql', array_filter(explode("\n", $read('
 $qPlugin = array_unique(array_map('normalizeSql', array_filter(explode("\n", $read('queries-plugin.txt')))));
 $newQueries = array_values(array_filter($qPlugin, static fn(string $q): bool => !isset($qBase[$q])));
 $secretTables = ['admin_users', 'integrations', 'integration_accounts', 'mail_accounts'];
+$coreSafeReads = [normalizeSql('SELECT id, username, display_name, role FROM admin_users WHERE is_active = 1 ORDER BY display_name, username')];
 $extPrefix = 'ext_' . $slug;
 foreach ($newQueries as $q) {
     $verb = strtoupper((string) strtok(ltrim($q, '( '), ' '));
@@ -148,6 +149,12 @@ foreach ($newQueries as $q) {
     }
     if ($verb === 'ALTER' && $foreign !== []) {
         finding('critical', 'Baza', 'Zmienia strukturę tabel rdzenia (ALTER).', $q);
+        continue;
+    }
+    // Zapytania rdzenia udostępnione rozszerzeniom celowo, bez sekretów: lista kont z Pase\Support\AdminDirectory
+    // (id, login, nazwa, rola - bez haseł i kluczy 2FA). Wyjątek zatwierdzony przez właściciela 2026-11-10 (PR #124).
+    if (in_array($q, $coreSafeReads, true)) {
+        finding('info', 'Baza', 'Lista kont panelu przez rdzeń (AdminDirectory: id, login, nazwa, rola - bez haseł i kluczy 2FA).', $q);
         continue;
     }
     $hitSecret = array_values(array_intersect($foreign, $secretTables));

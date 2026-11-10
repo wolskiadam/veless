@@ -1495,7 +1495,9 @@ final class Pages
             $r = (new JpkImport($this->db))->importKr($name, $xml, $this->user());
             flash('Zaimportowano księgi: ' . $r['accounts'] . ' kont, ' . $r['docs'] . ' dokumentów, ' . $r['entries'] . ' zapisów.'
                 . ($r['unbalanced'] !== [] ? ' Niezbilansowane w pliku: ' . implode(', ', array_slice($r['unbalanced'], 0, 5)) . (count($r['unbalanced']) > 5 ? '…' : '') . '.' : '')
-                . ($r['warnings'] !== [] ? ' ' . implode(' ', array_slice($r['warnings'], 0, 3)) : ''), $r['unbalanced'] !== [] ? 'err' : 'ok');
+                . ($r['warnings'] !== [] ? ' ' . implode(' ', array_slice($r['warnings'], 0, 3)) : '')
+                . ($r['wfirma']['matched'] + count($r['wfirma']['unmatched']) > 0 ? ' Dokumenty z wFirma: przypięto ' . $r['wfirma']['matched'] . ', bez dokumentu w księgach '
+                    . count($r['wfirma']['unmatched']) . '.' : ''), $r['unbalanced'] !== [] ? 'err' : 'ok');
             $this->go('porownanie', ['rok' => $r['year_id']]);
         } catch (\RuntimeException $e) {
             flash($e->getMessage(), 'err');

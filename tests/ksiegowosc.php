@@ -519,6 +519,13 @@ ok(!$cw['FV/1/2028']['ok'] && $cw['FV/1/2028']['wf_left'] === 0 && $cw['FV/1/202
 $st28->autoMatch('adam');
 $cw = array_column($wf->compare('2028-01-01', '2028-01-31'), null, 'number');
 ok($cw['FV/1/2028']['ok'] && $cw['FV/1/2028']['ours_left'] === 0, 'After automatic matching the invoice agrees with wFirma');
+// Faktury pobrane przed importem ksiąg przypinają się same po imporcie JPK_KR.
+$wf->store([Wfirma::normalize('sale', ['id' => '30', 'type' => 'normal', 'fullnumber' => 'FV/1/2030', 'date' => '2030-01-10', 'paymentdate' => '2030-01-31',
+    'netto' => '1000.00', 'tax' => '230.00', 'total' => '1230.00', 'contractor_detail' => ['name' => 'Hurt Sp. z o.o.', 'nip' => '5260250274']])], 'adam');
+$r30 = $ji->importKr('jpk_kr_2030.xml', str_replace('2028', '2030', $kr), 'adam');
+$fv30 = $db->one("SELECT id, due_date FROM ext_ksg_docs WHERE number = 'FV/1/2030'");
+ok($r30['wfirma']['matched'] >= 1 && $fv30['due_date'] === '2030-01-31' && $db->one("SELECT doc_id FROM ext_ksg_wf_docs WHERE remote_id = '30'")['doc_id'] === $fv30['id'],
+    'JPK_KR import attaches documents fetched from wFirma earlier');
 // Automatyczne pobieranie: interwał z ustawień, błąd zapisany do pokazania.
 $db->setMeta('wf_last_try', '');
 $calls = [];

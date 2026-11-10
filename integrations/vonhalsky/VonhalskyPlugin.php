@@ -8,7 +8,8 @@ use Pase\Plugin\Capability;
 use Pase\Plugin\PluginManifest;
 
 /**
- * Wtyczka InPost vonHalsky - zamówienia z marketplace InPost, przyjmowanie/odrzucanie, stany i ceny ofert.
+ * Wtyczka InPost vonHalsky - zamówienia z marketplace InPost, przyjmowanie/odrzucanie, stany i ceny ofert, wystawianie
+ * ofert z magazynu, zwroty i reklamacje.
  *
  * Wtyczka daje klienta API (VonhalskyClient) i pola konta. Połączenie OAuth (vonhalsky_connect.php), import zamówień
  * na wspólną listę, przyjmowanie zamówień i wysyłanie stanów/cen CRM do ofert ma rdzeń w Pase\Services\Vonhalsky,
@@ -24,7 +25,7 @@ final class VonhalskyPlugin extends AbstractPlugin
         return new PluginManifest(
             type: self::TYPE,
             name: 'InPost vonHalsky',
-            version: '1.0.0',
+            version: '1.1.0',
             author: 'Veless',
             capabilities: [Capability::ORDER_SOURCE, Capability::WAREHOUSE],
             fields: [
@@ -46,13 +47,32 @@ final class VonhalskyPlugin extends AbstractPlugin
                  'options' => ['off' => 'Nie zmieniaj cen w vonHalsky', 'on' => 'Wysyłaj cenę z magazynu CRM (razy mnożnik) do ofert vonHalsky']],
                 ['key' => 'price_multiplier', 'label' => 'Mnożnik ceny', 'type' => 'text', 'default' => '1.00',
                  'help' => 'Cena w vonHalsky = cena w magazynie × mnożnik, np. 1.05 to 5% drożej.'],
+                // --- wystawianie ofert (Marketplace → InPost vonHalsky → Wystawianie) ---
+                ['key' => 'shipping_days', 'label' => 'Wystawianie: czas wysyłki (dni)', 'type' => 'text', 'default' => '1'],
+                ['key' => 'tax_rate', 'label' => 'Wystawianie: stawka VAT', 'type' => 'select', 'default' => '23%',
+                 'options' => ['23%' => '23%', '8%' => '8%', '5%' => '5%', '0%' => '0%', 'zw' => 'zwolniony (zw)']],
+                ['key' => 'brand', 'label' => 'Wystawianie: marka', 'type' => 'text',
+                 'help' => 'Marka produktu (wymagana w vonHalsky). Gdy produkt ma atrybut „Marka” albo „Producent”, bierzemy go z produktu.'],
+                ['key' => 'gpsr_mode', 'label' => 'Wystawianie: GPSR', 'type' => 'select', 'default' => 'manufacturer',
+                 'options' => ['manufacturer' => 'Podaję producenta (pola niżej)', 'exempt' => 'Produkty wprowadzone przed 13.12.2024 - bez danych GPSR']],
+                ['key' => 'gpsr_name', 'label' => 'GPSR: producent (nazwa)', 'type' => 'text'],
+                ['key' => 'gpsr_email', 'label' => 'GPSR: e-mail producenta', 'type' => 'text'],
+                ['key' => 'gpsr_phone', 'label' => 'GPSR: telefon producenta', 'type' => 'text', 'help' => 'Z kierunkowym, np. +48 600 000 000.'],
+                ['key' => 'gpsr_address', 'label' => 'GPSR: adres producenta', 'type' => 'text', 'help' => 'W jednej linii, np. ul. Woskowa 1, 00-001 Warszawa.'],
+                ['key' => 'gpsr_country', 'label' => 'GPSR: kraj producenta', 'type' => 'text', 'default' => 'PL'],
+                ['key' => 'gpsr_person', 'label' => 'GPSR: osoba odpowiedzialna w UE', 'type' => 'text',
+                 'help' => 'Tylko gdy producent jest spoza UE: nazwa, e-mail i adres w jednej linii, rozdzielone średnikiem.'],
+                ['key' => 'gpsr_safety', 'label' => 'GPSR: informacje o bezpieczeństwie', 'type' => 'textarea',
+                 'help' => 'Ostrzeżenia dla wszystkich ofert, np. „Nie zostawiaj palącej się świecy bez nadzoru”.'],
+                ['key' => 'return_policy', 'label' => 'Wystawianie: zasady zwrotów', 'type' => 'textarea'],
+                ['key' => 'complaint_policy', 'label' => 'Wystawianie: zasady reklamacji', 'type' => 'textarea'],
             ],
             color: '#ffcd00',
             icon: '📦',
             // Logo kanału na liście zamówień (Services\OrderChannelIcons).
             logo: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#ffcd00"/><text x="12" y="16" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="10" font-weight="700" fill="#1d1d1b">vH</text></svg>',
             multiple: true,   // każdy sklep (organizacja) to osobne konto
-            description: 'Zamówienia z marketplace InPost vonHalsky na liście zamówień (z paczkomatem odbiorcy), przyjmowanie lub odrzucanie zamówień, stany i ceny CRM wysyłane do ofert po SKU.',
+            description: 'Zamówienia z marketplace InPost vonHalsky na liście zamówień (z paczkomatem i paczkami), przyjmowanie lub odrzucanie zamówień, wystawianie ofert z magazynu, stany i ceny CRM w ofertach, zwroty i reklamacje.',
             category: Capability::CAT_MARKETPLACE
         );
     }

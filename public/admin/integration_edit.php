@@ -329,7 +329,8 @@ if ($id && $existing && $existing['type'] === 'vonhalsky' && \Pase\Services\Vonh
                 $o = $vh->syncOrders($existing, $client);
                 $ac = $vh->acceptPending($existing, $client);
                 $st = $vh->pushStock($existing, $client);
-                $wooTest = ['ok' => true, 'message' => "Zamówienia: {$o}, przyjęte: {$ac}, wysłane zmiany stanów/cen: {$st}."];
+                $rt = (new \Pase\Services\VonhalskyReturns($pdo, $vh))->sync($existing, $client, true);
+                $wooTest = ['ok' => true, 'message' => "Zamówienia: {$o}, przyjęte: {$ac}, wysłane zmiany stanów/cen: {$st}, nowe zwroty i reklamacje: {$rt}."];
             }
         } catch (\Throwable $e) {
             $wooTest = ['ok' => false, 'message' => $e->getMessage()];
@@ -692,7 +693,13 @@ require __DIR__ . '/header.php';
             <p style="font-size:13px;color:#555;margin:6px 0 0">
                 Ostatnia synchronizacja: <?= $vs['last_run'] !== '' ? htmlspecialchars($vs['last_run']) : 'jeszcze nie było (worker co ' . \Pase\Services\Vonhalsky::RUN_EVERY_MIN . ' min)' ?>.
                 Zamówień z vonHalsky w CRM: <strong><?= (int) $vs['orders'] ?></strong><?= $vs['waiting'] > 0 ? ', w tym czeka na przyjęcie: <strong>' . (int) $vs['waiting'] . '</strong>' : '' ?>.
-                Ofert w vonHalsky: <strong><?= (int) $vs['offers'] ?></strong>, w tym z tym samym SKU w magazynie CRM: <strong><?= (int) $vs['offers_linked'] ?></strong>.
+                Ofert w vonHalsky: <strong><?= (int) $vs['offers'] ?></strong>, w tym połączonych z produktem w CRM: <strong><?= (int) $vs['offers_linked'] ?></strong><?= $vs['offers_rejected'] > 0 ? ', odrzuconych przez InPost: <strong>' . (int) $vs['offers_rejected'] . '</strong>' : '' ?>.
+                <?php if ($vs['returns_new'] > 0 || $vs['claims_open'] > 0): ?>Czeka na decyzję: <a href="vonhalsky_returns.php?acc=<?= (int) $id ?>"><strong><?= (int) $vs['returns_new'] ?></strong> zwrotów i <strong><?= (int) $vs['claims_open'] ?></strong> reklamacji</a>.<?php endif; ?>
+            </p>
+            <p style="margin:8px 0 0;display:flex;gap:8px;flex-wrap:wrap">
+                <a class="btn secondary" href="vonhalsky_listing.php?acc=<?= (int) $id ?>">Wystawianie</a>
+                <a class="btn secondary" href="vonhalsky_offers.php?acc=<?= (int) $id ?>">Oferty i łączenie z produktami</a>
+                <a class="btn secondary" href="vonhalsky_returns.php?acc=<?= (int) $id ?>">Zwroty i reklamacje</a>
             </p>
             <?php if ($vs['last_error'] !== ''): ?><div class="flash err" style="margin-top:8px"><?= htmlspecialchars($vs['last_error']) ?></div><?php endif; ?>
             <?php if (canEdit()): ?>
@@ -720,8 +727,9 @@ require __DIR__ . '/header.php';
             <li>API vonHalsky jest tylko dla zgłoszonych integratorów: napisz do InPost (<a href="mailto:apiportal@inpost.pl">apiportal@inpost.pl</a>) po <strong>Client ID</strong> i <strong>Client Secret</strong>. Jako adres powrotu (redirect URI) podaj:
                 <code style="display:block;background:#f1f3f4;padding:8px;border-radius:6px;margin-top:4px;word-break:break-all"><?= htmlspecialchars(rtrim((string) $appBaseUrl, '/') . '/admin/vonhalsky_connect.php') ?></code></li>
             <li>Wpisz powyżej Client ID i Client Secret (sekret jest zapisywany zaszyfrowany), wybierz środowisko, zapisz, potem kliknij <strong>„Połącz z InPost vonHalsky”</strong> i zaloguj się kontem sprzedawcy.</li>
-            <li>Oferty łączą się po SKU: <strong>SKU</strong> produktu w ofercie vonHalsky (a gdy go brak - identyfikator zewnętrzny oferty) musi być takie samo jak SKU w magazynie CRM.</li>
-            <li>Wysyłkę zamówień obsługuje InPost (paczkomat albo kurier InPost) - numery paczek widać na stronie zamówienia.</li>
+            <li>Oferty łączą się po SKU: <strong>SKU</strong> produktu w ofercie vonHalsky (a gdy go brak - identyfikator zewnętrzny oferty) musi być takie samo jak SKU w magazynie CRM. Inne oferty połączysz ręcznie w <a href="vonhalsky_offers.php?acc=<?= (int) $id ?>">Ofertach i stanach</a>.</li>
+            <li>Do wystawiania z CRM uzupełnij niżej markę, dane producenta (GPSR), VAT i czas wysyłki, potem przypisz kategorie w Marketplace → InPost vonHalsky → Kategorie i parametry.</li>
+            <li>Paczki nadajesz w InPost (panel vonHalsky albo wtyczką InPost w CRM) - numery z vonHalsky same trafiają do przesyłek zamówienia, ze śledzeniem. API vonHalsky nie przyjmuje numerów, etykiet ani wiadomości od kupujących.</li>
         </ol>
     <?php endif; ?>
 

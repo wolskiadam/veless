@@ -53,7 +53,7 @@ final class Notifications
         if ($prefs['allegro_msgs']) { $sources[] = fn() => $this->allegroMessages($allegro); }
         if ($prefs['allegro_issues'])  { $sources[] = fn() => $this->allegroIssues(); }
         if ($prefs['allegro_ratings']) { $sources[] = fn() => $this->allegroRatings(); }
-        if ($prefs['returns'])         { $sources[] = fn() => $this->openReturns(); }
+        if ($prefs['returns'])         { $sources[] = fn() => $this->openReturns(); $sources[] = fn() => $this->vonhalskyIssues(); }
         if ($prefs['low_stock'])       { $sources[] = fn() => $this->lowStock($userId); }
         if ($prefs['new_orders'])   { $sources[] = fn() => $this->newOrders($userId); }
         if ($prefs['problems'])     { $sources[] = fn() => $this->allegroToken(); $sources[] = fn() => $this->failedJobs(); }
@@ -228,6 +228,30 @@ final class Notifications
             'key' => 'allegro_issues', 'title' => 'Dyskusje i problemy z zakupem Allegro — czekają na odpowiedź', 'short' => 'Dyskusje',
             'count' => count($details), 'level' => 'err', 'link' => 'allegro_messages.php?tab=issues&f=open',
             'details' => array_slice($details, 0, 8),
+        ];
+    }
+
+    /** InPost vonHalsky: zwroty i reklamacje czekające na decyzję sprzedawcy. */
+    private function vonhalskyIssues(): ?array
+    {
+        if (!Vonhalsky::available()) {
+            return null;
+        }
+        $rows = $this->pdo->query("SELECT 'return' AS kind, r.woo_order_id, r.reason AS text, r.created_at, w.pase_number FROM vonhalsky_returns r
+                LEFT JOIN woo_orders w ON w.woo_order_id = r.woo_order_id WHERE r.status = 'NEW'
+            UNION ALL
+            SELECT 'claim' AS kind, c.woo_order_id, c.claim_type AS text, c.created_at, w.pase_number FROM vonhalsky_claims c
+                LEFT JOIN woo_orders w ON w.woo_order_id = c.woo_order_id WHERE c.state = 'RESOLUTION_IN_PROGRESS'
+            ORDER BY created_at DESC")->fetchAll(PDO::FETCH_ASSOC);
+        return [
+            'key' => 'vonhalsky_issues', 'title' => 'InPost vonHalsky — zwroty i reklamacje czekają na decyzję', 'short' => 'vonHalsky',
+            'count' => count($rows), 'level' => 'err', 'link' => 'vonhalsky_returns.php',
+            'details' => array_map(fn($r) => [
+                'text' => ($r['kind'] === 'return' ? 'Zwrot' : 'Reklamacja') . ($r['pase_number'] ? ' · #' . $r['pase_number'] : '')
+                    . ($r['text'] ? ' · ' . mb_strimwidth((string) $r['text'], 0, 40, '…') : ''),
+                'time' => $r['created_at'] ? $this->when((string) $r['created_at'], true) : '',
+                'link' => $r['woo_order_id'] ? 'order_view.php?id=' . (int) $r['woo_order_id'] : 'vonhalsky_returns.php',
+            ], array_slice($rows, 0, 8)),
         ];
     }
 

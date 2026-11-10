@@ -133,8 +133,11 @@ final class IntegrationFlows
             case 'vonhalsky':
                 $ok = !empty($acc['refresh_token']) || !empty($acc['access_token']);
                 $in[]  = $this->flag('Zamówienia', $ok, $ok ? 'Pobierane co ' . \Pase\Services\Vonhalsky::RUN_EVERY_MIN . ' min, zdejmują stan w CRM' . (($cfg['auto_accept'] ?? 'on') !== 'off' ? ' i są od razu przyjmowane w InPost.' : '; przyjmujesz je na stronie zamówienia.') : 'Konto niepołączone — kliknij „Połącz z InPost vonHalsky” w ustawieniach.', $edit);
-                $out[] = $this->flag('Stany', $ok && ($cfg['push_stock'] ?? 'on') !== 'off', 'Stan CRM do ofert vonHalsky o tym samym SKU, gdy się zmieni.', $edit);
-                $out[] = $this->flag('Ceny', $ok && ($cfg['push_price'] ?? 'off') === 'on', 'Cena z magazynu CRM (razy mnożnik) do ofert vonHalsky o tym samym SKU.', $edit);
+                $out[] = $this->flag('Stany', $ok && ($cfg['push_stock'] ?? 'on') !== 'off', 'Stan CRM do ofert vonHalsky połączonych z produktem (po SKU albo ręcznie), gdy się zmieni.', $edit);
+                $out[] = $this->flag('Ceny', $ok && ($cfg['push_price'] ?? 'off') === 'on', 'Cena z magazynu CRM (razy mnożnik) do ofert vonHalsky połączonych z produktem.', $edit);
+                $out[] = $this->flag('Wystawianie', $ok, 'Oferty z magazynu: Marketplace → InPost vonHalsky → Wystawianie.', $edit);
+                $in[]  = $this->flag('Paczki', $ok, 'Numery paczek z zamówień vonHalsky w przesyłkach CRM, ze śledzeniem.', $edit);
+                $in[]  = $this->flag('Zwroty i reklamacje', $ok, 'Pobierane co ' . \Pase\Services\VonhalskyReturns::SYNC_EVERY_MIN . ' min, decyzja w CRM.', $edit);
                 break;
 
             case 'erli':

@@ -90,6 +90,12 @@ final class PagePermissions
             'erli_categories' => ['label' => 'Kategorie i parametry ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_categories.php']],
             'erli_shipping' => ['label' => 'Cenniki wysyłek ERLI', 'group' => 'ERLI', 'legacy' => 'editor', 'files' => ['erli_shipping.php']],
 
+            // --- InPost vonHalsky ---
+            'vonhalsky_listing' => ['label' => 'Wystawianie ofert vonHalsky', 'group' => 'InPost vonHalsky', 'legacy' => 'editor', 'files' => ['vonhalsky_listing.php']],
+            'vonhalsky_offers' => ['label' => 'Oferty i stany vonHalsky (łączenie z produktami)', 'group' => 'InPost vonHalsky', 'legacy' => 'editor', 'files' => ['vonhalsky_offers.php']],
+            'vonhalsky_categories' => ['label' => 'Kategorie i parametry vonHalsky', 'group' => 'InPost vonHalsky', 'legacy' => 'editor', 'files' => ['vonhalsky_categories.php']],
+            'vonhalsky_returns' => ['label' => 'Zwroty i reklamacje vonHalsky', 'group' => 'InPost vonHalsky', 'legacy' => 'editor', 'files' => ['vonhalsky_returns.php']],
+
             // --- Konfiguracja ---
             'automations' => ['label' => 'Automatyzacje', 'group' => 'Konfiguracja', 'legacy' => 'viewer', 'files' => ['automations.php']],
             'templates' => ['label' => 'Szablony', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['templates.php']],

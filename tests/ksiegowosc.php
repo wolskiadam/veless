@@ -454,6 +454,84 @@ ok($cmp['diff'] === 2 && in_array('130', array_map('strval', $bad), true) && in_
 fails(fn() => $ji->importKr('jpk_kr_2028.xml', $kr, 'adam'), 'dokumenty wprowadzone w CRM', 'Import refused into a year with CRM documents');
 fails(fn() => $ji->importKr('x.xml', str_replace(['2028-01-01', '2028-12-31'], ['2027-07-01', '2028-06-30'], $kr), 'adam'), 'nachodzi', 'Overlapping period refused');
 
+// --- wFirma po API: faktury i wydatki przypięte do dokumentów z JPK_KR, porównanie zapłat
+use PaseExt\Ksiegowosc\Wfirma;
+$calls = [];
+$wfFake = static function (string $method, string $url, array $headers, ?array $body) use (&$calls): array {
+    $calls[] = ['method' => $method, 'url' => $url, 'headers' => $headers, 'body' => $body];
+    $ok = ['code' => 'OK'];
+    if (str_contains($url, '/companies/get/')) {
+        return ['status' => 200, 'json' => ['status' => $ok, 'companies' => [['company' => ['name' => 'Klub Testowy']]]]];
+    }
+    if (str_contains($url, '/invoices/find')) {
+        return ['status' => 200, 'json' => ['status' => $ok, 'invoices' => [
+            '0' => ['invoice' => ['id' => '11', 'type' => 'normal', 'fullnumber' => 'FV/1/2028', 'date' => '2028-01-10', 'disposaldate' => '2028-01-10', 'paymentdate' => '2028-01-24',
+                'netto' => '1000.00', 'tax' => '230.00', 'total' => '1230.00', 'alreadypaid' => '1230.00', 'remaining' => '0.00', 'currency' => 'PLN',
+                'contractor_detail' => ['name' => 'Hurt Sp. z o.o.', 'nip' => '5260250274'],
+                'vat_contents' => ['0' => ['vat_content' => ['netto' => '1000.00', 'tax' => '230.00', 'brutto' => '1230.00', 'vat_code' => ['id' => '222', 'code' => '23']]]]]],
+            '1' => ['invoice' => ['id' => '12', 'type' => 'proforma', 'fullnumber' => 'PRO/1/2028', 'date' => '2028-01-11', 'total' => '50.00']],
+            'parameters' => ['limit' => 100, 'page' => 1, 'total' => 2],
+        ]]];
+    }
+    if (str_contains($url, '/expenses/find')) {
+        return ['status' => 200, 'json' => ['status' => $ok, 'expenses' => [
+            '0' => ['expense' => ['id' => '21', 'type' => 'invoice', 'fullnumber' => 'FZ-7/2028', 'date' => '2028-01-12', 'taxregister_date' => '2028-01-12', 'payment_date' => '2028-01-26',
+                'netto' => '500.00', 'tax' => '115.00', 'brutto' => '615.00', 'alreadypaid' => '0.00', 'contractor' => ['name' => 'Woskownia SA', 'nip' => '9522282284'],
+                'vat_contents' => ['vat_content' => ['netto' => '500.00', 'tax' => '115.00']]]],
+            '1' => ['expense' => ['id' => '22', 'type' => 'invoice', 'fullnumber' => 'FZ/404/2028', 'date' => '2028-01-15', 'netto' => '100.00', 'tax' => '23.00',
+                'paid' => '1', 'contractor' => ['name' => 'Nowy Dostawca', 'nip' => '']]],
+        ]]];
+    }
+    return ['status' => 200, 'json' => ['status' => ['code' => 'ERROR', 'message' => 'Nieznany moduł']]];
+};
+$wfCfg = ['access_key' => 'ak', 'secret_key' => 'sk', 'app_key' => 'apk', 'company_id' => '123'];
+fails(fn() => (new Wfirma($db, ['access_key' => 'ak'], $wfFake))->test(), 'Wpisz klucze API', 'wFirma without keys refused before any request');
+ok($calls === [], 'No request without keys');
+$wf = new Wfirma($db, $wfCfg, $wfFake);
+ok($wf->test() === 'Połączenie z wFirma działa: Klub Testowy.' && $calls[0]['headers']['accessKey'] === 'ak' && $calls[0]['headers']['appKey'] === 'apk'
+    && str_contains($calls[0]['url'], 'company_id=123') && str_contains($calls[0]['url'], 'outputFormat=json') && str_starts_with($calls[0]['url'], Wfirma::BASE_URL . '/'), 'wFirma connection test sends keys as headers');
+$n = Wfirma::normalize('purchase', ['id' => '9', 'fullnumber' => 'X', 'date' => '2028-02-03', 'netto' => '100.00', 'tax' => '0.00', 'paid' => '1',
+    'vat_contents' => [['vat_content' => ['netto' => '100.00', 'tax' => '0.00', 'vat_code' => ['code' => 'ZW']]]]]);
+ok($n['gross_gr'] === 10000 && $n['paid_gr'] === 10000 && $n['lines'][0]['rate'] === 'zw' && $n['lines'][0]['register'] === 'Z' && $n['period'] === '2028-02', 'wFirma document normalized (gross from net+VAT, paid flag, ZW code)');
+$calls = [];
+$fvDue = $l->doc($byNo['FV/1/2028']['id'])['due_date'];
+$sy = $wf->sync('2028-01-01', '2028-01-31', 'adam');
+$find = array_values(array_filter($calls, static fn(array $c): bool => str_contains($c['url'], '/find')));
+ok($sy['sales'] === 1 && $sy['skipped'] === 1 && $sy['purchases'] === 2 && $sy['matched'] === 2 && count($sy['unmatched']) === 1 && str_contains($sy['unmatched'][0], 'FZ/404/2028'),
+    'wFirma sync: proforma skipped, two documents matched by number, one reported');
+ok($find[0]['method'] === 'POST' && $find[0]['body']['invoices']['parameters']['conditions']->{'0'}['condition']['value'] === '2028-01-01', 'wFirma find filters by date');
+ok($fvDue === null && $l->doc($byNo['FV/1/2028']['id'])['due_date'] === '2028-01-24' && $l->doc($byNo['FZ 7/2028']['id'])['due_date'] === '2028-01-26', 'Due dates filled from wFirma');
+ok(count((new Vat($db))->forDoc($byNo['FV/1/2028']['id'])) === 1, 'VAT from JPK_V7 kept (not duplicated by wFirma)');
+$wf->sync('2028-01-01', '2028-01-31', 'adam');
+ok((int) $db->one('SELECT COUNT(*) AS n FROM ext_ksg_wf_docs')['n'] === 3, 'Repeated sync updates stored documents');
+$fs2 = $l->post($l->saveDraft(null, ['type' => 'FS', 'number' => 'FV/2/2028', 'posting_date' => '2028-01-20', 'description' => 'Bez VAT w księgach',
+    'lines' => [$line('201-1-1-0001', '123', ''), $line('700', '', '100'), $line('222', '', '23')]], 'adam')['id'], 'adam');
+$wf->store([Wfirma::normalize('sale', ['id' => '13', 'type' => 'normal', 'fullnumber' => 'FV/2/2028', 'date' => '2028-01-20', 'netto' => '100.00', 'tax' => '23.00', 'total' => '123.00',
+    'contractor_detail' => ['name' => 'Hurt Sp. z o.o.', 'nip' => '5260250274']])], 'adam');
+$v2 = (new Vat($db))->forDoc($fs2['id']);
+ok(count($v2) === 1 && (int) $v2[0]['vat_gr'] === 2300 && $v2[0]['register'] === 'S' && $v2[0]['period'] === '2028-01' && $l->doc($fs2['id'])['contractor_id'] === $cs->list('Hurt')[0]['id'],
+    'Document without VAT gets VAT lines and contractor from wFirma');
+$st28 = new Settlements($db);
+ok(Settlements::parentOf('201-1-1-0001') === '200' && count($st28->items(['parent' => '200', 'doc' => $byNo['FV/1/2028']['id']])) === 1, 'Account 201 (wFirma plan) counts as receivables');
+$cw = array_column($wf->compare('2028-01-01', '2028-01-31'), null, 'number');
+ok(!$cw['FV/1/2028']['ok'] && $cw['FV/1/2028']['wf_left'] === 0 && $cw['FV/1/2028']['ours_left'] === 123000 && $cw['FZ-7/2028']['ok'] && $cw['FZ/404/2028']['ours_left'] === null,
+    'Payment comparison: paid in wFirma, open in CRM; purchase matches; missing document flagged');
+$st28->autoMatch('adam');
+$cw = array_column($wf->compare('2028-01-01', '2028-01-31'), null, 'number');
+ok($cw['FV/1/2028']['ok'] && $cw['FV/1/2028']['ours_left'] === 0, 'After automatic matching the invoice agrees with wFirma');
+// Automatyczne pobieranie: interwał z ustawień, błąd zapisany do pokazania.
+$db->setMeta('wf_last_try', '');
+$calls = [];
+$wf->autoSync(strtotime('2028-02-10 12:00:00'), '60');
+ok(count($calls) === 2 && $calls[0]['body']['invoices']['parameters']['conditions']->{'0'}['condition']['value'] === '2028-01-01', 'Auto sync from the start of the previous month');
+$wf->autoSync(strtotime('2028-02-10 12:30:00'), '60');
+ok(count($calls) === 2, 'Auto sync waits for the interval');
+$wf->autoSync(strtotime('2028-02-10 13:01:00'), '0');
+ok(count($calls) === 2, 'Auto sync off');
+$bad = new Wfirma($db, $wfCfg, static fn(): array => ['status' => 401, 'json' => []]);
+$bad->autoSync(strtotime('2028-02-10 14:00:00'), '60');
+ok($bad->lastResult()['ok'] === false && str_contains($bad->lastResult()['error'], 'odrzuciła klucze'), 'Auto sync error saved for the page');
+
 // --- Haki rozszerzenia: strony, menu, automation.event
 use Pase\Plugin\Hooks;
 Hooks::bootAs('ksiegowosc', static fn() => (new \PaseExt\Ksiegowosc\KsiegowoscExtension())->boot());

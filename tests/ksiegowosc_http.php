@@ -145,7 +145,7 @@ try {
     ok(str_contains(request($jan, $url('obroty_csv'))['headers'], ' 403'), 'Raw CSV refused without access');
     $d = request($boss, $url('pulpit'))['body'];
     ok(str_contains($d, 'Księgowość jest gotowa do ustawienia') && str_contains($d, 'ext_ksg_'), 'Empty dashboard shows the first steps');
-    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 14, 'Own tables created on first use');
+    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 15, 'Own tables created on first use');
 
     $acc = request($boss, $url('dostep'))['body'];
     ok(str_contains($acc, 'name="level[2]"') && str_contains($acc, 'name="level[4]"') && !str_contains($acc, 'name="level[1]"') && str_contains($acc, 'Pełny (administrator CRM)'), 'Access page lists users (admin fixed)');
@@ -340,6 +340,14 @@ try {
     $r = $post($boss, 'import_kr', ['file' => new CURLFile(__FILE__, 'text/xml', 'zly.xml')]);
     ok(str_contains(request($boss, $url('import'))['body'], 'poprawny plik XML'), 'Wrong file rejected with a message');
     ok(str_contains(request($boss, $url('import'))['body'], 'Porównanie'), 'Import listed with a comparison link');
+
+    // ---- wFirma po API (bez kluczy: komunikat, żadnego połączenia)
+    ok(str_contains(request($boss, $url('import'))['body'], 'Brak kluczy API'), 'wFirma card asks for API keys in plugin settings');
+    $r = $post($boss, 'wfirma_test', []);
+    ok($r['status'] === 302 && str_contains(request($boss, $url('import'))['body'], 'Wpisz klucze API wFirma'), 'wFirma test without keys shows a message');
+    $r = $post($ola, 'wfirma_pobierz', ['from' => '2025-01-01', 'to' => '2025-01-31']);
+    ok($r['status'] === 403 || str_contains($r['body'], 'Brak dostępu'), 'Book level cannot fetch from wFirma');
+    ok(str_contains(request($vi, $url('porownanie_wf', ['od' => '2025-01-01', 'do' => '2025-12-31']))['body'], 'nie ma dokumentów pobranych z wFirma'), 'Payment comparison page (empty)');
 
     // ---- Historia i skrzynka
     $h = request($boss, $url('zmiany'))['body'];

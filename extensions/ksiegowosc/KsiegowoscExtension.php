@@ -29,7 +29,7 @@ final class KsiegowoscExtension extends AbstractExtension
         return new ExtensionManifest(
             type: 'ksiegowosc',
             name: 'Księgowość',
-            version: '0.4.0',
+            version: '0.5.0',
             author: 'Veless',
             description: 'Pełne księgi rachunkowe spółki: plan kont, dokumenty z dekretacją Wn/Ma, dziennik, storno, obroty i salda, kontrahenci, rejestry VAT, rozrachunki i wyciągi bankowe. Dane w osobnych tabelach (albo osobnej bazie), własne uprawnienia. Docelowo także faktury do KSeF, paragony, deklaracje i kadry.',
             icon: '📒',
@@ -37,8 +37,24 @@ final class KsiegowoscExtension extends AbstractExtension
                 ['key' => 'firma', 'label' => 'Dane firmy i zdarzenia z CRM', 'type' => 'link', 'url' => Hooks::pageUrl('ksiegowosc.firma')],
                 ['key' => 'dostep', 'label' => 'Dostęp do księgowości', 'type' => 'link', 'url' => Hooks::pageUrl('ksiegowosc.dostep'),
                  'help' => 'Księgowość ma własne uprawnienia, niezależne od ról CRM.'],
+                ['key' => 'wf_access_key', 'label' => 'wFirma API: accessKey', 'type' => 'password', 'secret' => true,
+                 'help' => 'Do pobierania faktur, wydatków i zapłat z wFirma (Import → wFirma po API). Możesz wpisać te same klucze, co w integracji wFirma w CRM (wtyczka nie ma do nich dostępu). Zapisywane zaszyfrowane.'],
+                ['key' => 'wf_secret_key', 'label' => 'wFirma API: secretKey', 'type' => 'password', 'secret' => true],
+                ['key' => 'wf_app_key', 'label' => 'wFirma API: appKey', 'type' => 'password', 'secret' => true],
+                ['key' => 'wf_company_id', 'label' => 'wFirma: ID firmy', 'type' => 'text'],
+                ['key' => 'wf_auto', 'label' => 'wFirma: pobieraj automatycznie', 'type' => 'select', 'default' => '1440', 'options' => Wfirma::AUTO_EVERY,
+                 'help' => 'Okres od początku poprzedniego miesiąca do dziś, żeby złapać też zapłaty starszych faktur.'],
             ],
         );
+    }
+
+    private function wfirma(Db $db): Wfirma
+    {
+        $cfg = [];
+        foreach (['access_key', 'secret_key', 'app_key', 'company_id'] as $k) {
+            $cfg[$k] = (string) $this->setting('wf_' . $k, '');
+        }
+        return new Wfirma($db, $cfg);
     }
 
     private function db(): Db
@@ -61,7 +77,7 @@ final class KsiegowoscExtension extends AbstractExtension
                         }
                         return Ui::denied();
                     }
-                    return $render(new Pages($db, $ctx, $level, $pdo));
+                    return $render(new Pages($db, $ctx, $level, $pdo, fn(): Wfirma => $this->wfirma($db)));
                 }]);
         };
 
@@ -87,6 +103,9 @@ final class KsiegowoscExtension extends AbstractExtension
         $page('import_kr', 'Import ksiąg', Access::MANAGE, static fn(Pages $p) => $p->importKr());
         $page('import_v7', 'Import ksiąg', Access::MANAGE, static fn(Pages $p) => $p->importV7());
         $page('porownanie', 'Porównanie z importem', Access::VIEW, static fn(Pages $p): string => $p->comparison());
+        $page('porownanie_wf', 'Porównanie zapłat z wFirma', Access::VIEW, static fn(Pages $p): string => $p->wfirmaComparison());
+        $page('wfirma_pobierz', 'Pobieranie z wFirma', Access::MANAGE, static fn(Pages $p) => $p->wfirmaSync());
+        $page('wfirma_test', 'Pobieranie z wFirma', Access::MANAGE, static fn(Pages $p) => $p->wfirmaTest());
         $page('wyciag_usun', 'Wyciąg bankowy', Access::BOOK, static fn(Pages $p) => $p->statementDelete());
         }
         $page('kontrahent', 'Kontrahent', Access::VIEW, static fn(Pages $p): string => $p->contractor());
@@ -146,6 +165,19 @@ final class KsiegowoscExtension extends AbstractExtension
             }
             return $placed ? $out : $out + ['ksiegowosc' => ['label' => 'Księgowość', 'items' => $mine]];
         });
+
+        // Pobieranie z wFirma w tle (cron co minutę; autoSync sam pilnuje interwału z ustawień).
+        $auto = (string) $this->setting('wf_auto', '1440');
+        if ($auto !== '0') {
+            Hooks::addAction('cron.tick', function (int $now = 0) use ($auto): void {
+                try {
+                    $db = $this->db();
+                    $this->wfirma($db)->autoSync($now > 0 ? $now : time(), $auto);
+                } catch (\Throwable) {
+                    // błąd pobierania zapisuje autoSync; tu tylko brak bazy - nie zatrzymuje workera
+                }
+            });
+        }
 
         // Jedyne wejście danych z CRM: kopia zamówienia przy zdarzeniu, gdy skrzynka jest włączona (zakładka Firma).
         Hooks::addAction('automation.event', function (string $event, int $orderId, array $payload): void {

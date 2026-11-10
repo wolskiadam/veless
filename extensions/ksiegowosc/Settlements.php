@@ -15,6 +15,8 @@ final class Settlements
 {
     /** Konto syntetyczne => znak długu (Wn - Ma): należności dodatni, zobowiązania ujemny. */
     public const PARENTS = [Contractors::RECEIVABLE => 1, Contractors::PAYABLE => -1];
+    /** Inne konta należności spotykane w planach kont (wFirma: 201 - rozrachunki z odbiorcami); liczą się jak 200. */
+    public const ALIASES = ['201' => Contractors::RECEIVABLE];
     public const LABELS = [Contractors::RECEIVABLE => 'Należności', Contractors::PAYABLE => 'Zobowiązania'];
 
     public function __construct(private readonly Db $db)
@@ -23,10 +25,10 @@ final class Settlements
 
     public static function parentOf(string $number): ?string
     {
-        foreach (array_keys(self::PARENTS) as $p) {
+        foreach (array_merge(array_keys(self::PARENTS), array_keys(self::ALIASES)) as $p) {
             $p = (string) $p;
             if ($number === $p || str_starts_with($number, $p . '-')) {
-                return $p;
+                return self::ALIASES[$p] ?? $p;
             }
         }
         return null;
@@ -43,6 +45,11 @@ final class Settlements
         $args = [];
         $parents = isset($f['parent']) && isset(self::PARENTS[$f['parent']]) ? [(string) $f['parent']] : array_map('strval', array_keys(self::PARENTS));
         $or = [];
+        foreach (self::ALIASES as $alias => $to) {
+            if (in_array($to, $parents, true)) {
+                $parents[] = (string) $alias;
+            }
+        }
         foreach ($parents as $p) {
             $or[] = '(a.number = ? OR a.number LIKE ?)';
             array_push($args, $p, $p . '-%');
@@ -66,8 +73,10 @@ final class Settlements
             FROM ext_ksg_entries e JOIN ext_ksg_docs d ON d.id = e.doc_id JOIN ext_ksg_accounts a ON a.id = e.account_id
             WHERE ' . implode(' AND ', $where) . ' ORDER BY a.number, d.doc_date, d.posting_date, d.journal_no, e.position', $args);
         $codes = [];
+        $byId = [];
         foreach ($this->db->all('SELECT id, code, name FROM ext_ksg_contractors') as $c) {
             $codes[(string) $c['code']] = $c;
+            $byId[(string) $c['id']] = $c;
         }
         $asOf = (string) ($f['as_of'] ?? date('Y-m-d'));
         $out = [];
@@ -80,8 +89,8 @@ final class Settlements
             $amount = abs($signed);
             $settled = (int) $r['settled'];
             $kind = $signed * self::PARENTS[$parent] > 0 ? 'debt' : 'pay';
-            $code = str_contains((string) $r['account'], '-') ? substr((string) $r['account'], strlen($parent) + 1) : '';
-            $c = $codes[$code] ?? null;
+            $code = str_contains((string) $r['account'], '-') ? substr((string) $r['account'], strpos((string) $r['account'], '-') + 1) : '';
+            $c = $codes[$code] ?? ($r['contractor_id'] !== null ? ($byId[(string) $r['contractor_id']] ?? null) : null);
             if (($f['contractor'] ?? '') !== '' && ($c['id'] ?? null) !== $f['contractor'] && $r['contractor_id'] !== $f['contractor']) {
                 continue;
             }

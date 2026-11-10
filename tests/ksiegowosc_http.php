@@ -342,9 +342,13 @@ try {
     ok(str_contains(request($boss, $url('import'))['body'], 'Porównanie'), 'Import listed with a comparison link');
 
     // ---- wFirma po API (bez kluczy: komunikat, żadnego połączenia)
-    ok(str_contains(request($boss, $url('import'))['body'], 'Brak kluczy API'), 'wFirma card asks for API keys in plugin settings');
+    ok(str_contains(request($boss, $url('import'))['body'], 'nie ma aktywnej integracji wFirma'), 'wFirma card points to the CRM integration');
     $r = $post($boss, 'wfirma_test', []);
-    ok($r['status'] === 302 && str_contains(request($boss, $url('import'))['body'], 'Wpisz klucze API wFirma'), 'wFirma test without keys shows a message');
+    ok($r['status'] === 302 && str_contains(request($boss, $url('import'))['body'], 'W CRM nie ma aktywnej integracji wFirma'), 'wFirma test without the integration shows a message');
+    $pdo->exec("INSERT INTO integration_accounts (type, name, is_active, config) VALUES ('wfirma', 'wFirma', 1, '{\"access_key\":\"a\",\"secret_key\":\"b\",\"app_key\":\"c\",\"company_id\":\"1\"}')");
+    $ip = request($boss, $url('import'))['body'];
+    ok(str_contains($ip, 'Pobierz z wFirma') && !str_contains($ip, 'nie ma aktywnej integracji') && !str_contains($ip, '\"secret_key'), 'With the CRM integration the fetch form appears (no keys on the page)');
+    $pdo->exec("DELETE FROM integration_accounts WHERE type = 'wfirma'");
     $r = $post($ola, 'wfirma_pobierz', ['from' => '2025-01-01', 'to' => '2025-01-31']);
     ok($r['status'] === 403 || str_contains($r['body'], 'Brak dostępu'), 'Book level cannot fetch from wFirma');
     ok(str_contains(request($vi, $url('porownanie_wf', ['od' => '2025-01-01', 'do' => '2025-12-31']))['body'], 'nie ma dokumentów pobranych z wFirma'), 'Payment comparison page (empty)');

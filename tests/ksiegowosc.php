@@ -457,13 +457,13 @@ fails(fn() => $ji->importKr('x.xml', str_replace(['2028-01-01', '2028-12-31'], [
 // --- wFirma po API: faktury i wydatki przypięte do dokumentów z JPK_KR, porównanie zapłat
 use PaseExt\Ksiegowosc\Wfirma;
 $calls = [];
-$wfFake = static function (string $method, string $url, array $headers, ?array $body) use (&$calls): array {
-    $calls[] = ['method' => $method, 'url' => $url, 'headers' => $headers, 'body' => $body];
+$wfFake = static function (string $url, ?array $body) use (&$calls): array {
+    $calls[] = ['url' => $url, 'body' => $body];
     $ok = ['code' => 'OK'];
-    if (str_contains($url, '/companies/get/')) {
+    if ($url === 'companies/get') {
         return ['status' => 200, 'json' => ['status' => $ok, 'companies' => [['company' => ['name' => 'Klub Testowy']]]]];
     }
-    if (str_contains($url, '/invoices/find')) {
+    if ($url === 'invoices/find') {
         return ['status' => 200, 'json' => ['status' => $ok, 'invoices' => [
             '0' => ['invoice' => ['id' => '11', 'type' => 'normal', 'fullnumber' => 'FV/1/2028', 'date' => '2028-01-10', 'disposaldate' => '2028-01-10', 'paymentdate' => '2028-01-24',
                 'netto' => '1000.00', 'tax' => '230.00', 'total' => '1230.00', 'alreadypaid' => '1230.00', 'remaining' => '0.00', 'currency' => 'PLN',
@@ -473,7 +473,7 @@ $wfFake = static function (string $method, string $url, array $headers, ?array $
             'parameters' => ['limit' => 100, 'page' => 1, 'total' => 2],
         ]]];
     }
-    if (str_contains($url, '/expenses/find')) {
+    if ($url === 'expenses/find') {
         return ['status' => 200, 'json' => ['status' => $ok, 'expenses' => [
             '0' => ['expense' => ['id' => '21', 'type' => 'invoice', 'fullnumber' => 'FZ-7/2028', 'date' => '2028-01-12', 'taxregister_date' => '2028-01-12', 'payment_date' => '2028-01-26',
                 'netto' => '500.00', 'tax' => '115.00', 'brutto' => '615.00', 'alreadypaid' => '0.00', 'contractor' => ['name' => 'Woskownia SA', 'nip' => '9522282284'],
@@ -484,12 +484,12 @@ $wfFake = static function (string $method, string $url, array $headers, ?array $
     }
     return ['status' => 200, 'json' => ['status' => ['code' => 'ERROR', 'message' => 'Nieznany moduł']]];
 };
-$wfCfg = ['access_key' => 'ak', 'secret_key' => 'sk', 'app_key' => 'apk', 'company_id' => '123'];
-fails(fn() => (new Wfirma($db, ['access_key' => 'ak'], $wfFake))->test(), 'Wpisz klucze API', 'wFirma without keys refused before any request');
-ok($calls === [], 'No request without keys');
-$wf = new Wfirma($db, $wfCfg, $wfFake);
-ok($wf->test() === 'Połączenie z wFirma działa: Klub Testowy.' && $calls[0]['headers']['accessKey'] === 'ak' && $calls[0]['headers']['appKey'] === 'apk'
-    && str_contains($calls[0]['url'], 'company_id=123') && str_contains($calls[0]['url'], 'outputFormat=json') && str_starts_with($calls[0]['url'], Wfirma::BASE_URL . '/'), 'wFirma connection test sends keys as headers');
+fails(fn() => (new Wfirma($db, $wfFake, static fn(): bool => false))->test(), 'nie ma aktywnej integracji wFirma', 'wFirma without a CRM integration refused before any request');
+ok($calls === [] && !(new Wfirma($db))->configured(), 'No request without the integration');
+fails(fn() => \Pase\Support\WfirmaBridge::call($pdo, 'invoices/add', ['invoices' => []]), 'tylko czytać', 'CRM bridge allows only read requests to wFirma');
+ok(!\Pase\Support\WfirmaBridge::available($pdo), 'CRM bridge: no wFirma integration, not available');
+$wf = new Wfirma($db, $wfFake, static fn(): bool => true);
+ok($wf->test() === 'Połączenie z wFirma działa: Klub Testowy.' && $calls[0] === ['url' => 'companies/get', 'body' => null], 'wFirma connection test (company data)');
 $n = Wfirma::normalize('purchase', ['id' => '9', 'fullnumber' => 'X', 'date' => '2028-02-03', 'netto' => '100.00', 'tax' => '0.00', 'paid' => '1',
     'vat_contents' => [['vat_content' => ['netto' => '100.00', 'tax' => '0.00', 'vat_code' => ['code' => 'ZW']]]]]);
 ok($n['gross_gr'] === 10000 && $n['paid_gr'] === 10000 && $n['lines'][0]['rate'] === 'zw' && $n['lines'][0]['register'] === 'Z' && $n['period'] === '2028-02', 'wFirma document normalized (gross from net+VAT, paid flag, ZW code)');
@@ -499,7 +499,7 @@ $sy = $wf->sync('2028-01-01', '2028-01-31', 'adam');
 $find = array_values(array_filter($calls, static fn(array $c): bool => str_contains($c['url'], '/find')));
 ok($sy['sales'] === 1 && $sy['skipped'] === 1 && $sy['purchases'] === 2 && $sy['matched'] === 2 && count($sy['unmatched']) === 1 && str_contains($sy['unmatched'][0], 'FZ/404/2028'),
     'wFirma sync: proforma skipped, two documents matched by number, one reported');
-ok($find[0]['method'] === 'POST' && $find[0]['body']['invoices']['parameters']['conditions']->{'0'}['condition']['value'] === '2028-01-01', 'wFirma find filters by date');
+ok($find[0]['url'] === 'invoices/find' && $find[0]['body']['invoices']['parameters']['conditions']->{'0'}['condition']['value'] === '2028-01-01', 'wFirma find filters by date');
 ok($fvDue === null && $l->doc($byNo['FV/1/2028']['id'])['due_date'] === '2028-01-24' && $l->doc($byNo['FZ 7/2028']['id'])['due_date'] === '2028-01-26', 'Due dates filled from wFirma');
 ok(count((new Vat($db))->forDoc($byNo['FV/1/2028']['id'])) === 1, 'VAT from JPK_V7 kept (not duplicated by wFirma)');
 $wf->sync('2028-01-01', '2028-01-31', 'adam');
@@ -528,7 +528,7 @@ $wf->autoSync(strtotime('2028-02-10 12:30:00'), '60');
 ok(count($calls) === 2, 'Auto sync waits for the interval');
 $wf->autoSync(strtotime('2028-02-10 13:01:00'), '0');
 ok(count($calls) === 2, 'Auto sync off');
-$bad = new Wfirma($db, $wfCfg, static fn(): array => ['status' => 401, 'json' => []]);
+$bad = new Wfirma($db, static fn(): array => ['status' => 401, 'json' => []]);
 $bad->autoSync(strtotime('2028-02-10 14:00:00'), '60');
 ok($bad->lastResult()['ok'] === false && str_contains($bad->lastResult()['error'], 'odrzuciła klucze'), 'Auto sync error saved for the page');
 

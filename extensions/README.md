@@ -313,6 +313,9 @@ Składnia ma działać w MySQL (produkcja) i SQLite (testy) - patrz `examples/ex
 **Lista użytkowników** (np. do własnych uprawnień): `\Pase\Support\AdminDirectory::activeUsers($pdo)` - id, login, nazwa
 i rola, bez haseł. Tabeli kont rozszerzenie nie czyta samo.
 
+**Dokumenty z wFirma** (odczyt, na kluczach integracji wFirma w CRM): `\Pase\Support\WfirmaBridge::available($pdo)`
+i `::call($pdo, 'invoices/find' | 'expenses/find' | 'companies/get', $body)` - zwraca odpowiedź API, kluczy nie wydaje.
+
 ## Testy
 
 `php tests/extensions.php` (haki, rejestr, instalator) i `php tests/extensions_http.php` (przykład na prawdziwych

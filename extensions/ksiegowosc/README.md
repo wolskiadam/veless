@@ -85,9 +85,11 @@ Zakładka Import (poziom zarządzanie) wczytuje pliki JPK, a z wFirma pobiera te
 - **wFirma po API** (`Wfirma.php`, tylko odczyt): faktury sprzedaży (`invoices/find`, bez proform, szkiców i paragonów)
   i wydatki (`expenses/find`) z okresu, zapisywane w `ext_ksg_wf_docs`. Przypinane do dokumentów z ksiąg po numerze:
   uzupełniają kontrahenta, termin płatności i pozycje VAT, gdy dokument ich nie ma (JPK_V7 ma pierwszeństwo).
-  Strona „Porównanie zapłat” (`porownanie_wf`) zestawia „do zapłaty” z wFirma z naszymi rozrachunkami. Klucze
-  (accessKey, secretKey, appKey, ID firmy) są w ustawieniach wtyczki jako pola `secret` - rozszerzenie nie czyta kluczy
-  integracji wFirma z CRM. Pobieranie w tle przez `cron.tick` (ustawienie `wf_auto`): od początku poprzedniego miesiąca do dziś.
+  Strona „Porównanie zapłat” (`porownanie_wf`) zestawia „do zapłaty” z wFirma z naszymi rozrachunkami. Połączenie
+  idzie przez rdzeń (`Pase\Support\WfirmaBridge`) na kluczach integracji wFirma w CRM: rozszerzenie nie widzi kluczy,
+  a most przepuszcza tylko odczyt (`companies/get`, `invoices/find`, `expenses/find`). Odczyt konta wFirma przez most
+  jest na liście odczytów rdzenia w sandboxie wtyczek (zgoda właściciela 2026-11-10). Pobieranie w tle przez
+  `cron.tick` (ustawienie `wf_auto`): od początku poprzedniego miesiąca do dziś.
   API wFirma nie wydaje dziennika ani obrotów kont, więc księgi przychodzą dalej z JPK_KR. Konto 201 (plan wFirma)
   liczy się w rozrachunkach jak 200.
 

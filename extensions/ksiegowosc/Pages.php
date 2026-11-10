@@ -399,6 +399,7 @@ final class Pages
                 : ($d['counterparty'] !== '' ? '<dt>Kontrahent</dt><dd>' . U::h($d['counterparty']) . '</dd>' : ''))
             . '<dt>Data księgowania</dt><dd>' . U::date($d['posting_date']) . '</dd><dt>Data dokumentu</dt><dd>' . U::date($d['doc_date']) . '</dd>'
             . '<dt>Data operacji</dt><dd>' . U::date($d['op_date']) . '</dd>'
+            . (($d['due_date'] ?? null) !== null ? '<dt>Termin płatności</dt><dd>' . U::date($d['due_date']) . '</dd>' : '')
             . '<dt>Wprowadził</dt><dd>' . U::h($d['created_by']) . ' · ' . U::h(substr((string) $d['created_at'], 0, 16)) . ' UTC</dd>'
             . ($d['posted_by'] !== null ? '<dt>Zaksięgował</dt><dd>' . U::h($d['posted_by']) . ' · ' . U::h(substr((string) $d['posted_at'], 0, 16)) . ' UTC</dd>' : '');
         if ($d['reversal_of'] !== null && ($orig = $this->ledger->doc((string) $d['reversal_of'])) !== null) {
@@ -407,7 +408,7 @@ final class Pages
         if ($d['reversed_by'] !== null && ($rev = $this->ledger->doc((string) $d['reversed_by'])) !== null) {
             $html .= '<dt>Wystornowany przez</dt><dd><a href="' . U::h(U::url('dokument', ['id' => $rev['id']])) . '">' . U::h($rev['number']) . '</a> z ' . U::date($rev['posting_date']) . '</dd>';
         }
-        $html .= '</dl></div>' . $this->vatTable((new Vat($this->db))->forDoc((string) $d['id'])) . $this->entriesTable($entries);
+        $html .= '</dl></div>' . $this->vatTable((new Vat($this->db))->forDoc((string) $d['id'])) . $this->entriesTable($entries) . $this->docSettlements($d);
         if ($d['status'] === 'posted' && $d['type'] !== 'ST' && ($d['reversed_by'] ?? null) === null && $this->can(Access::BOOK)) {
             $html .= '<div class="card"><h3 style="margin-top:0">Storno</h3><p class="kg-muted">Zaksięgowanego dokumentu nie zmienia się. Storno dopisuje dokument z tymi samymi kontami i kwotami z minusem, więc obroty wracają do stanu sprzed błędu. Potem wprowadź dokument jeszcze raz poprawnie.</p>'
                 . '<form method="post" action="' . U::h(U::url('dokument_storno')) . '" class="kg-form" onsubmit="return confirm(\'Wystornować ' . U::h($d['number']) . '?\')">' . U::csrf($this->ctx)
@@ -536,7 +537,8 @@ final class Pages
             . U::input('number', $v('number'), 'Numer dokumentu', 'maxlength="60" placeholder="puste = nadany sam"', 'Np. numer faktury dostawcy.')
             . U::input('posting_date', $v('posting_date', $today), 'Data księgowania', 'type="date" required', 'Rok ' . U::h($year['name']) . ': ' . U::date($year['starts_on']) . ' - ' . U::date($year['ends_on']))
             . U::input('doc_date', $v('doc_date'), 'Data dokumentu', 'type="date"', 'Puste = data księgowania.')
-            . U::input('op_date', $v('op_date'), 'Data operacji', 'type="date"', 'Puste = data dokumentu.') . '</div>'
+            . U::input('op_date', $v('op_date'), 'Data operacji', 'type="date"', 'Puste = data dokumentu.')
+            . U::input('due_date', $v('due_date'), 'Termin płatności', 'type="date"', 'Faktury: od niego liczą się zaległości. Puste = data dokumentu.') . '</div>'
             . '<div class="kg-grid" style="margin-top:12px">' . U::input('description', $v('description'), 'Opis operacji', 'required maxlength="255"')
             . U::select('contractor_id', $contractors, $v('contractor_id'), 'Kontrahent z kartoteki')
             . U::input('counterparty', $v('counterparty'), 'Kontrahent (tekst)', 'maxlength="200"', 'Puste = nazwa z kartoteki. <a href="' . U::h(U::url('kontrahent', ['nowy' => 1])) . '" target="_blank">+ nowy kontrahent</a>') . '</div></div>'
@@ -868,6 +870,20 @@ final class Pages
             }
         }
         $html .= '</div></div>';
+        $open = (new Settlements($this->db))->items(['open' => true, 'contractor' => $c['id']]);
+        if ($open !== []) {
+            $html .= '<div class="card kg-table"><h3 style="margin-top:0">Nierozliczone</h3>' . $this->itemsTable($open, true);
+            if ($this->can(Access::BOOK)) {
+                foreach (array_unique(array_column($open, 'account')) as $acc) {
+                    $debts = array_filter($open, static fn(array $i): bool => $i['account'] === $acc && $i['kind'] === 'debt');
+                    $pays = array_filter($open, static fn(array $i): bool => $i['account'] === $acc && $i['kind'] === 'pay');
+                    if ($debts !== [] && $pays !== []) {
+                        $html .= $this->linkForm($debts, $pays, ['kontrahent' => $c['id']]);
+                    }
+                }
+            }
+            $html .= '</div>';
+        }
         $docs = $this->db->all('SELECT * FROM ext_ksg_docs WHERE contractor_id = ? ORDER BY posting_date DESC, created_at DESC LIMIT 100', [$c['id']]);
         if ($docs !== []) {
             $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Data</th><th>Numer</th><th>Opis</th><th class="kg-num">Kwota</th><th>Status</th></tr></thead><tbody>';
@@ -981,6 +997,362 @@ final class Pages
         fclose($out);
     }
 
+    // ============================================================== rozrachunki
+
+    /** Pozycja rozrachunkowa jako tekst do listy wyboru. */
+    private static function itemLabel(array $i): string
+    {
+        return $i['number'] . ' · ' . U::date($i['doc_date']) . ' · ' . ($i['contractor']['name'] ?? $i['account_name']) . ' · ' . Money::format($i['remaining']) . ' zł'
+            . ($i['remaining'] !== $i['amount'] ? ' z ' . Money::format($i['amount']) : '');
+    }
+
+    /** Tabela pozycji rozrachunkowych (dokument, termin, kwota, zostało). */
+    private function itemsTable(array $items, bool $withAccount = false): string
+    {
+        $html = '<table><thead><tr><th>Dokument</th><th>Data</th><th>Termin</th>' . ($withAccount ? '<th>Konto</th>' : '') . '<th>Opis</th><th class="kg-num">Kwota</th><th class="kg-num">Zostało</th></tr></thead><tbody>';
+        foreach ($items as $i) {
+            $late = $i['late_days'] > 0 ? ' <span class="kg-pill rev">' . $i['late_days'] . ' dni po terminie</span>' : '';
+            $html .= '<tr><td><a href="' . U::h(U::url('dokument', ['id' => $i['doc_id']])) . '">' . U::h($i['number']) . '</a>' . ($i['kind'] === 'pay' ? ' <span class="kg-pill">zapłata</span>' : '') . '</td>'
+                . '<td>' . U::date($i['doc_date']) . '</td><td>' . ($i['kind'] === 'debt' ? U::date($i['due']) . $late : '') . '</td>'
+                . ($withAccount ? '<td class="kg-acc">' . U::h($i['account']) . '</td>' : '')
+                . '<td>' . U::h($i['label']) . '</td><td class="kg-num">' . U::money($i['amount']) . '</td><td class="kg-num"><b>' . U::money($i['remaining']) . '</b></td></tr>';
+        }
+        return $html . '</tbody></table>';
+    }
+
+    public function settlements(): string
+    {
+        $st = new Settlements($this->db);
+        $parent = ($_GET['r'] ?? '200') === '202' ? '202' : '200';
+        $late = isset($_GET['zalegle']);
+        $q = mb_strtolower(mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100));
+        $all = $st->items(['open' => true]);
+        $sum = static function (array $items, string $parent, bool $lateOnly) : int {
+            $t = 0;
+            foreach ($items as $i) {
+                if ($i['parent'] === $parent && $i['kind'] === 'debt' && (!$lateOnly || $i['late_days'] > 0)) {
+                    $t += $i['remaining'];
+                }
+            }
+            return $t;
+        };
+        $html = $this->head('rozrachunki') . '<div class="kg-top"><p>Nierozliczone faktury i zapłaty na kontach 200 (należności) i 202 (zobowiązania). Zapłatę łączy się z fakturą ręcznie albo automatycznie (numer faktury w tytule, równa kwota); wyciąg bankowy rozlicza wskazane faktury sam.</p>'
+            . '<div class="kg-actions">' . ($this->can(Access::BOOK) ? U::postButton($this->ctx, 'rozlicz_auto', ['r' => $parent], 'Rozlicz automatycznie', 'btn secondary') : '') . '</div></div>'
+            . '<div class="kg-cards"><a class="card stat" href="' . U::h(U::url('rozrachunki', ['r' => '200'])) . '"><div class="label">Należności do zapłaty</div><div class="num">' . U::money($sum($all, '200', false)) . ' zł</div></a>'
+            . '<a class="card stat" href="' . U::h(U::url('rozrachunki', ['r' => '200', 'zalegle' => 1])) . '"><div class="label">w tym przeterminowane</div><div class="num kg-bad">' . U::money($sum($all, '200', true)) . ' zł</div></a>'
+            . '<a class="card stat" href="' . U::h(U::url('rozrachunki', ['r' => '202'])) . '"><div class="label">Zobowiązania do zapłaty</div><div class="num">' . U::money($sum($all, '202', false)) . ' zł</div></a>'
+            . '<a class="card stat" href="' . U::h(U::url('rozrachunki', ['r' => '202', 'zalegle' => 1])) . '"><div class="label">w tym przeterminowane</div><div class="num kg-bad">' . U::money($sum($all, '202', true)) . ' zł</div></a></div>';
+        $html .= '<nav class="kg-tabs" style="margin-top:0">';
+        foreach (Settlements::LABELS as $k => $label) {
+            $html .= '<a class="' . ((string) $k === $parent ? 'on' : '') . '" href="' . U::h(U::url('rozrachunki', ['r' => $k])) . '">' . U::h($label) . '</a>';
+        }
+        $html .= '</nav><form class="kg-filter" method="get" action="ext.php"><input type="hidden" name="page" value="ksiegowosc.rozrachunki"><input type="hidden" name="r" value="' . $parent . '">'
+            . '<input type="search" name="q" value="' . U::h($q) . '" placeholder="Kontrahent, konto albo numer dokumentu">'
+            . '<label class="kg-check"><input type="checkbox" name="zalegle" value="1"' . ($late ? ' checked' : '') . '> tylko przeterminowane</label><button class="btn secondary" type="submit">Pokaż</button></form>';
+        $items = array_filter($all, static function (array $i) use ($parent, $q): bool {
+            if ($i['parent'] !== $parent) {
+                return false;
+            }
+            return $q === '' || str_contains(mb_strtolower($i['account'] . ' ' . $i['account_name'] . ' ' . $i['number'] . ' ' . ($i['contractor']['name'] ?? '') . ' ' . $i['counterparty']), $q);
+        });
+        $groups = $st->summary(array_values($items));
+        if ($late) {
+            $groups = array_values(array_filter($groups, static fn(array $g): bool => $g['late_30'] + $g['late_90'] + $g['late_more'] > 0));
+        }
+        if ($groups === []) {
+            return $html . '<div class="card kg-muted">Brak nierozliczonych pozycji.</div>';
+        }
+        foreach ($groups as $g) {
+            $html .= '<div class="card kg-table" style="padding:10px 12px"><div class="kg-top" style="margin:0 0 6px"><div><b>' . U::h($g['contractor']['name'] ?? $g['account_name']) . '</b> <a class="kg-acc" href="'
+                . U::h(U::url('kontrahenci', ['q' => $g['account']])) . '">' . U::h($g['account']) . '</a>'
+                . '<div class="kg-small">Do zapłaty ' . U::money($g['debt']) . ' zł' . ($g['pay'] > 0 ? ' · nierozliczone zapłaty ' . U::money($g['pay']) . ' zł' : '')
+                . ($g['late_30'] + $g['late_90'] + $g['late_more'] > 0 ? ' · <span class="kg-bad">po terminie: do 30 dni ' . U::money($g['late_30']) . ', 31-90 ' . U::money($g['late_90']) . ', ponad 90 ' . U::money($g['late_more']) . '</span>' : '') . '</div></div>'
+                . ($this->can(Access::BOOK) && $g['debt'] > 0 && $g['pay'] > 0 ? '<div class="kg-actions">' . U::postButton($this->ctx, 'rozlicz_auto', ['r' => $parent, 'account' => $g['account']], 'Rozlicz automatycznie', 'btn secondary') . '</div>' : '') . '</div>'
+                . $this->itemsTable($g['items']);
+            $debts = array_filter($g['items'], static fn(array $i): bool => $i['kind'] === 'debt');
+            $pays = array_filter($g['items'], static fn(array $i): bool => $i['kind'] === 'pay');
+            if ($this->can(Access::BOOK) && $debts !== [] && $pays !== []) {
+                $html .= $this->linkForm($debts, $pays, ['r' => $parent]);
+            }
+            $html .= '</div>';
+        }
+        return $html;
+    }
+
+    /** Formularz ręcznego rozliczenia: faktura + zapłata + kwota (puste = ile się da). */
+    private function linkForm(array $debts, array $pays, array $back): string
+    {
+        $d = $p = [];
+        foreach ($debts as $i) {
+            $d[$i['entry_id']] = self::itemLabel($i);
+        }
+        foreach ($pays as $i) {
+            $p[$i['entry_id']] = self::itemLabel($i);
+        }
+        $hidden = '';
+        foreach ($back as $k => $v) {
+            $hidden .= '<input type="hidden" name="back[' . U::h($k) . ']" value="' . U::h($v) . '">';
+        }
+        return '<form method="post" action="' . U::h(U::url('rozlicz')) . '" class="kg-form kg-inline" style="margin-top:8px">' . U::csrf($this->ctx) . $hidden
+            . U::select('debt', $d, '', '', 'aria-label="Faktura"') . U::select('pay', $p, '', '', 'aria-label="Zapłata"')
+            . '<input name="amount" inputmode="decimal" placeholder="Kwota (puste = całość)" style="max-width:170px"><button class="btn secondary" type="submit">Rozlicz</button></form>';
+    }
+
+    private function settleBack(): never
+    {
+        $back = array_filter((array) ($_POST['back'] ?? []), 'is_string');
+        if (isset($back['doc'])) {
+            $this->go('dokument', ['id' => $back['doc']]);
+        }
+        if (isset($back['kontrahent'])) {
+            $this->go('kontrahent', ['id' => $back['kontrahent']]);
+        }
+        $this->go('rozrachunki', array_intersect_key($back, ['r' => 1]));
+    }
+
+    public function settleLink(): void
+    {
+        $this->need(Access::BOOK);
+        try {
+            $amount = Money::parse((string) ($_POST['amount'] ?? ''));
+            $done = (new Settlements($this->db))->link((string) ($_POST['debt'] ?? ''), (string) ($_POST['pay'] ?? ''), $amount, $this->user());
+            flash('Rozliczono ' . Money::format($done) . ' zł.');
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+        }
+        $this->settleBack();
+    }
+
+    public function settleUnlink(): void
+    {
+        $this->need(Access::BOOK);
+        try {
+            (new Settlements($this->db))->unlink((string) ($_POST['id'] ?? ''), $this->user());
+            flash('Usunięto rozliczenie - pozycje znów są otwarte.');
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+        }
+        $this->settleBack();
+    }
+
+    public function settleAuto(): void
+    {
+        $this->need(Access::BOOK);
+        $n = (new Settlements($this->db))->autoMatch($this->user(), (string) ($_POST['account'] ?? ''));
+        flash($n > 0 ? 'Rozliczono automatycznie: ' . $n . '.' : 'Nie znalazłem par do rozliczenia (numer faktury w tytule albo ta sama kwota). Rozlicz ręcznie.');
+        $_POST['back'] = ['r' => (string) ($_POST['r'] ?? '200')];
+        $this->settleBack();
+    }
+
+    /** Rozrachunki dokumentu: jego pozycje na kontach 200/202 i powiązania z zapłatami albo fakturami. */
+    private function docSettlements(array $d): string
+    {
+        if ($d['status'] !== 'posted') {
+            return '';
+        }
+        $st = new Settlements($this->db);
+        $items = $st->items(['doc' => $d['id']]);
+        if ($items === []) {
+            return '';
+        }
+        $links = $st->linksForDoc((string) $d['id']);
+        $html = '<div class="card kg-table"><h3 style="margin-top:0">Rozrachunki</h3>' . $this->itemsTable($items, true);
+        if ($links !== []) {
+            $html .= '<table style="margin-top:10px"><thead><tr><th>Rozliczenie</th><th>Konto</th><th class="kg-num">Kwota</th><th></th></tr></thead><tbody>';
+            foreach ($links as $l) {
+                $other = $l['debt_doc_id'] === $d['id'] ? ['id' => $l['pay_doc_id'], 'number' => $l['pay_number']] : ['id' => $l['debt_doc_id'], 'number' => $l['debt_number']];
+                $html .= '<tr><td>' . ($l['debt_doc_id'] === $d['id'] ? 'zapłata ' : 'faktura ') . '<a href="' . U::h(U::url('dokument', ['id' => $other['id']])) . '">' . U::h($other['number']) . '</a>'
+                    . ($l['source'] !== 'manual' ? ' <span class="kg-small">(' . U::h(['auto' => 'automatycznie', 'bank' => 'z wyciągu', 'storno' => 'storno'][$l['source']] ?? $l['source']) . ')</span>' : '') . '</td>'
+                    . '<td class="kg-acc">' . U::h($l['account']) . '</td><td class="kg-num">' . U::money((int) $l['amount_gr']) . '</td><td>'
+                    . ($this->can(Access::BOOK) ? U::postButton($this->ctx, 'rozlicz_usun', ['id' => $l['id'], 'back[doc]' => $d['id']], 'Cofnij', 'btn secondary', 'Cofnąć to rozliczenie?') : '') . '</td></tr>';
+            }
+            $html .= '</tbody></table>';
+        }
+        $open = array_filter($items, static fn(array $i): bool => $i['remaining'] > 0);
+        if ($open !== [] && $this->can(Access::BOOK)) {
+            foreach ($open as $i) {
+                $others = array_filter($st->items(['open' => true, 'account' => $i['account']]), static fn(array $o): bool => $o['kind'] !== $i['kind']);
+                if ($others !== []) {
+                    $html .= $i['kind'] === 'debt' ? $this->linkForm([$i], $others, ['doc' => $d['id']]) : $this->linkForm($others, [$i], ['doc' => $d['id']]);
+                }
+            }
+        }
+        return $html . '</div>';
+    }
+
+    // ============================================================== wyciągi bankowe
+
+    /** Konta bankowe (13x bez analityki) bieżącego roku. @return array<string,string> */
+    private function bankAccounts(): array
+    {
+        $year = $this->ledger->currentYear();
+        $out = [];
+        if ($year !== null) {
+            foreach ($this->ledger->accounts((string) $year['id']) as $a) {
+                if (preg_match('/^13\d/', (string) $a['number']) && !$a['has_children'] && (int) $a['active'] === 1) {
+                    $out[(string) $a['number']] = $a['number'] . ' ' . $a['name'];
+                }
+            }
+        }
+        return $out;
+    }
+
+    public function bank(): string
+    {
+        $bank = new Bank($this->db);
+        $html = $this->head('bank') . '<div class="kg-top"><p>Wyciągi z banku: plik MT940 albo CSV z bankowości internetowej. Operacje dostają podpowiedź kontrahenta, konta i faktury; po sprawdzeniu cały wyciąg księguje się jednym dokumentem WB i rozlicza wskazane faktury.</p></div>';
+        if ($this->can(Access::BOOK)) {
+            $accounts = $this->bankAccounts();
+            $html .= $accounts === [] ? '<div class="card kg-muted">Brak konta bankowego (13x) w planie kont bieżącego roku.</div>'
+                : '<form method="post" enctype="multipart/form-data" action="' . U::h(U::url('wyciag_import')) . '" class="kg-form card">' . U::csrf($this->ctx)
+                    . '<div class="kg-grid">' . U::select('account', $accounts, (string) array_key_first($accounts), 'Konto bankowe')
+                    . '<label>Plik wyciągu<input type="file" name="file" accept=".sta,.mt940,.txt,.csv,.940" required><small>MT940 (.sta, .txt) albo CSV z historii rachunku. Operacje już wczytane są pomijane.</small></label></div>'
+                    . '<div><button class="btn" type="submit">Wczytaj wyciąg</button></div></form>';
+        }
+        $rows = $bank->statements();
+        if ($rows === []) {
+            return $html . U::empty('Nie ma jeszcze wyciągów', 'Pobierz z banku historię rachunku (MT940 albo CSV) i wczytaj ją tutaj.');
+        }
+        $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Okres</th><th>Konto</th><th>Plik</th><th class="kg-num">Operacje</th><th class="kg-num">Wpływy</th><th class="kg-num">Wydatki</th><th>Status</th></tr></thead><tbody>';
+        foreach ($rows as $s) {
+            $html .= '<tr><td><a href="' . U::h(U::url('wyciag', ['id' => $s['id']])) . '">' . U::date($s['date_from']) . ($s['date_to'] !== $s['date_from'] ? ' - ' . U::date($s['date_to']) : '') . '</a></td>'
+                . '<td class="kg-acc">' . U::h($s['account']) . '</td><td>' . U::h($s['file_name']) . '</td><td class="kg-num">' . (int) $s['n'] . '</td>'
+                . '<td class="kg-num">' . U::money((int) $s['inflow']) . '</td><td class="kg-num">' . U::money(-(int) $s['outflow']) . '</td>'
+                . '<td><span class="kg-pill ' . ($s['status'] === 'booked' ? 'posted' : 'draft') . '">' . U::h(Bank::STATUSES[$s['status']] ?? $s['status']) . '</span></td></tr>';
+        }
+        return $html . '</tbody></table></div>';
+    }
+
+    public function bankImport(): string
+    {
+        $this->need(Access::BOOK);
+        $f = $_FILES['file'] ?? null;
+        try {
+            if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $f['tmp_name'])) {
+                throw new \RuntimeException('Wybierz plik wyciągu.');
+            }
+            if ((int) $f['size'] > 5 * 1024 * 1024) {
+                throw new \RuntimeException('Plik jest za duży (najwyżej 5 MB).');
+            }
+            $s = (new Bank($this->db))->import((string) ($_POST['account'] ?? ''), basename((string) $f['name']), (string) file_get_contents((string) $f['tmp_name']), $this->user());
+            flash('Wczytano wyciąg' . ($s['skipped'] > 0 ? ', pominięto ' . $s['skipped'] . ' operacji wczytanych wcześniej' : '') . '. Sprawdź konta i zaksięguj.');
+            $this->go('wyciag', ['id' => $s['id']]);
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+            $this->go('bank');
+        }
+    }
+
+    public function statement(): string
+    {
+        $bank = new Bank($this->db);
+        $s = $bank->statement((string) ($_GET['id'] ?? ''));
+        if ($s === null) {
+            return $this->head('bank') . '<div class="flash err">Nie ma takiego wyciągu.</div>';
+        }
+        $lines = $bank->lines((string) $s['id']);
+        $open = $s['status'] === 'open';
+        $edit = $open && $this->can(Access::BOOK);
+        $cs = new Contractors($this->db);
+        $contractors = ['' => '- kontrahent -'];
+        $names = [];
+        foreach ($cs->list('', true) as $c) {
+            $contractors[$c['id']] = $c['name'] . ' (' . $c['code'] . ')';
+            $names[$c['id']] = $c['name'];
+        }
+        $st = new Settlements($this->db);
+        $debts = ['' => '- bez rozliczenia -'];
+        $debtItems = [];
+        foreach ($st->items(['open' => true]) as $i) {
+            if ($i['kind'] === 'debt') {
+                $debts[$i['entry_id']] = self::itemLabel($i);
+                $debtItems[$i['entry_id']] = $i;
+            }
+        }
+        $sum = array_sum(array_map(static fn(array $l): int => (int) $l['amount_gr'], $lines));
+        $html = $this->head('bank') . U::back(U::url('bank'), 'Wyciągi')
+            . '<div class="kg-top"><div><h2 style="margin:0">Wyciąg ' . U::h($s['account']) . ' · ' . U::date($s['date_from']) . ($s['date_to'] !== $s['date_from'] ? ' - ' . U::date($s['date_to']) : '') . '</h2>'
+            . '<p>' . U::h($s['file_name']) . ' (' . U::h(strtoupper($s['format'])) . ')' . ($s['iban'] !== '' ? ' · rachunek ' . U::h($s['iban']) : '') . ' · ' . count($lines) . ' operacji, razem ' . U::money($sum) . ' zł'
+            . ($s['opening_gr'] !== null && $s['closing_gr'] !== null ? ' · saldo ' . U::money((int) $s['opening_gr']) . ' → ' . U::money((int) $s['closing_gr'])
+                . ((int) $s['opening_gr'] + $sum === (int) $s['closing_gr'] ? ' <span class="kg-ok">✓</span>' : ' <span class="kg-bad">(nie zgadza się z operacjami)</span>') : '') . '</p></div><div class="kg-actions">';
+        if ($edit) {
+            $html .= U::postButton($this->ctx, 'wyciag_usun', ['id' => $s['id']], 'Usuń wyciąg', 'btn secondary', 'Usunąć wczytany wyciąg? Można go potem wczytać jeszcze raz.');
+        }
+        if (!$open && $s['doc_id'] !== null && ($doc = $this->ledger->doc((string) $s['doc_id'])) !== null) {
+            $html .= '<a class="btn secondary" href="' . U::h(U::url('dokument', ['id' => $doc['id']])) . '">Dokument ' . U::h($doc['number']) . '</a>';
+        }
+        $html .= '</div></div>';
+        $year = $this->ledger->currentYear();
+        $opts = '';
+        if ($year !== null) {
+            foreach ($this->ledger->accounts((string) $year['id']) as $a) {
+                if (!$a['has_children'] && (int) $a['active'] === 1) {
+                    $opts .= '<option value="' . U::h($a['number'] . ' ' . $a['name']) . '"></option>';
+                }
+            }
+        }
+        $html .= ($edit ? '<form method="post" action="' . U::h(U::url('wyciag_zapisz')) . '" class="kg-form">' . U::csrf($this->ctx) . '<input type="hidden" name="id" value="' . U::h($s['id']) . '"><datalist id="kg-accounts">' . $opts . '</datalist>' : '')
+            . '<div class="card kg-table" style="padding:6px 10px"><table class="kg-lines"><thead><tr><th>#</th><th>Data</th><th>Operacja</th><th class="kg-num">Kwota</th><th>Kontrahent</th><th>Konto</th><th>Rozlicza fakturę</th>' . ($edit ? '<th>Pomiń</th>' : '') . '</tr></thead><tbody>';
+        foreach ($lines as $l) {
+            $n = 'lines[' . $l['id'] . ']';
+            $party = trim($l['party_name'] . ($l['party_iban'] !== '' ? ' · ' . $l['party_iban'] : ''));
+            $html .= '<tr' . ($l['status'] === 'skip' ? ' style="opacity:.55"' : '') . '><td>' . (int) $l['position'] . '</td><td>' . U::date($l['op_date']) . '</td>'
+                . '<td>' . U::h($l['title']) . ($party !== '' ? '<div class="kg-small">' . U::h($party) . '</div>' : '') . '</td>'
+                . '<td class="kg-num ' . ((int) $l['amount_gr'] < 0 ? 'kg-bad' : 'kg-ok') . '">' . U::money((int) $l['amount_gr']) . '</td>';
+            if ($edit) {
+                $m = (string) ($l['match_entry_id'] ?? '');
+                $choices = $debts + ($m !== '' && !isset($debts[$m]) ? [$m => '(rozliczona pozycja)'] : []);
+                $html .= '<td>' . U::select($n . '[contractor_id]', $contractors, (string) ($l['contractor_id'] ?? ''), '', 'style="max-width:190px"') . '</td>'
+                    . '<td><input name="' . $n . '[account]" value="' . U::h($l['account']) . '" list="kg-accounts" placeholder="Konto" autocomplete="off" style="max-width:130px"></td>'
+                    . '<td>' . U::select($n . '[match]', $choices, $m, '', 'style="max-width:260px"') . '</td>'
+                    . '<td><input type="checkbox" name="' . $n . '[skip]" value="1"' . ($l['status'] === 'skip' ? ' checked' : '') . ' title="Nie księguj tej operacji"></td>';
+            } else {
+                $mi = $l['match_entry_id'] !== null ? ($debtItems[$l['match_entry_id']] ?? $st->item((string) $l['match_entry_id'])) : null;
+                $html .= '<td>' . U::h($names[$l['contractor_id']] ?? '') . '</td><td class="kg-acc">' . U::h($l['account']) . '</td>'
+                    . '<td>' . ($mi !== null ? '<a href="' . U::h(U::url('dokument', ['id' => $mi['doc_id']])) . '">' . U::h($mi['number']) . '</a>' : '') . ($l['status'] === 'skip' ? ' <span class="kg-pill">pominięta</span>' : '') . '</td>';
+            }
+            $html .= '</tr>';
+        }
+        $html .= '</tbody></table></div>';
+        if ($edit) {
+            $html .= '<div class="kg-actions"><button class="btn secondary" type="submit" name="save" value="1">Zapisz zmiany</button>'
+                . '<button class="btn" type="submit" name="book" value="1" onclick="return confirm(\'Zaksięgować wyciąg dokumentem WB? Wybrane faktury zostaną rozliczone.\')">Zapisz i zaksięguj</button></div></form>';
+        }
+        return $html;
+    }
+
+    public function statementSave(): void
+    {
+        $this->need(Access::BOOK);
+        $id = (string) ($_POST['id'] ?? '');
+        $bank = new Bank($this->db);
+        try {
+            $bank->saveLines($id, (array) ($_POST['lines'] ?? []), $this->user());
+            if (isset($_POST['book'])) {
+                $doc = $bank->book($id, $this->user());
+                flash('Zaksięgowano wyciąg: ' . $doc['number'] . ' (pozycja dziennika ' . $doc['journal_no'] . '), rozliczone faktury: ' . $doc['settled'] . '.');
+            } else {
+                flash('Zapisano zmiany w wyciągu.');
+            }
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+        }
+        $this->go('wyciag', ['id' => $id]);
+    }
+
+    public function statementDelete(): void
+    {
+        $this->need(Access::BOOK);
+        try {
+            (new Bank($this->db))->delete((string) ($_POST['id'] ?? ''), $this->user());
+            flash('Usunięto wyciąg.');
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+            $this->go('wyciag', ['id' => (string) ($_POST['id'] ?? '')]);
+        }
+        $this->go('bank');
+    }
+
     // ============================================================== firma, dostęp, historia, skrzynka
 
     public function companyPage(): string
@@ -1086,12 +1458,15 @@ final class Pages
             'account.activate' => 'Włączenie konta', 'account.deactivate' => 'Wyłączenie konta', 'account.delete' => 'Usunięcie konta', 'doc.create' => 'Nowy dokument',
             'doc.update' => 'Poprawa szkicu', 'doc.delete' => 'Usunięcie szkicu', 'doc.post' => 'Zaksięgowanie', 'doc.reverse' => 'Storno', 'access' => 'Dostęp',
             'company.update' => 'Dane firmy', 'contractor.create' => 'Nowy kontrahent', 'contractor.update' => 'Zmiana kontrahenta',
-            'contractor.activate' => 'Włączenie kontrahenta', 'contractor.deactivate' => 'Wyłączenie kontrahenta'];
+            'contractor.activate' => 'Włączenie kontrahenta', 'contractor.deactivate' => 'Wyłączenie kontrahenta',
+            'settle.link' => 'Rozliczenie', 'settle.unlink' => 'Cofnięcie rozliczenia', 'bank.import' => 'Wczytanie wyciągu', 'bank.update' => 'Poprawa wyciągu',
+            'bank.book' => 'Zaksięgowanie wyciągu', 'bank.delete' => 'Usunięcie wyciągu'];
         $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Kiedy</th><th>Kto</th><th>Co</th><th>Szczegóły</th></tr></thead><tbody>';
         foreach ($rows as $r) {
             $link = $r['object_type'] === 'doc' && $r['action'] !== 'doc.delete' ? U::url('dokument', ['id' => $r['object_id']])
                 : ($r['object_type'] === 'account' && $r['action'] !== 'account.delete' ? U::url('konto', ['id' => $r['object_id']])
-                : ($r['object_type'] === 'contractor' ? U::url('kontrahent', ['id' => $r['object_id']]) : ''));
+                : ($r['object_type'] === 'contractor' ? U::url('kontrahent', ['id' => $r['object_id']])
+                : ($r['object_type'] === 'bank' && $r['action'] !== 'bank.delete' ? U::url('wyciag', ['id' => $r['object_id']]) : '')));
             $html .= '<tr><td class="kg-num" style="text-align:left">' . U::h(substr((string) $r['created_at'], 0, 16)) . '</td><td>' . U::h($r['user_name']) . '</td>'
                 . '<td>' . U::h($names[$r['action']] ?? $r['action']) . '</td><td>' . ($link !== '' ? '<a href="' . U::h($link) . '">' . U::h($r['details']) . '</a>' : U::h($r['details'])) . '</td></tr>';
         }

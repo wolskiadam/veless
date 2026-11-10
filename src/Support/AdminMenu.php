@@ -98,6 +98,16 @@ final class AdminMenu
                             ['href' => 'erli_settings.php',   'label' => t('nav.erli.settings')],
                         ],
                     ],
+                    [
+                        'key'   => 'vonhalsky',
+                        'label' => t('nav.vonhalsky'),
+                        'children' => [
+                            ['href' => 'vonhalsky_listing.php',    'label' => t('nav.vonhalsky.listing')],
+                            ['href' => 'vonhalsky_offers.php',     'label' => t('nav.vonhalsky.offers')],
+                            ['href' => 'vonhalsky_categories.php', 'label' => t('nav.vonhalsky.categories')],
+                            ['href' => 'vonhalsky_returns.php',    'label' => t('nav.vonhalsky.returns')],
+                        ],
+                    ],
                 ],
             ],
             'config' => [
@@ -138,6 +148,11 @@ final class AdminMenu
         // ERLI to wtyczka - bez niej (wyłączonej albo usuniętej) zakładka znika z Marketplace.
         if (!\Pase\Services\Erli::available()) {
             $groups['marketplace']['items'] = array_values(array_filter($groups['marketplace']['items'], static fn(array $i): bool => ($i['key'] ?? '') !== 'erli'));
+        }
+
+        // InPost vonHalsky to wtyczka - bez niej zakładka znika z Marketplace.
+        if (!\Pase\Services\Vonhalsky::available()) {
+            $groups['marketplace']['items'] = array_values(array_filter($groups['marketplace']['items'], static fn(array $i): bool => ($i['key'] ?? '') !== 'vonhalsky'));
         }
 
         // PayU (wypłaty = prawdziwe pieniądze) - wtyczka i tylko administrator albo konto z nadanym uprawnieniem do strony.

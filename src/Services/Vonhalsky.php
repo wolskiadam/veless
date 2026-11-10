@@ -30,7 +30,12 @@ use Pase\Support\Logger;
  *  3. Stany i ceny: oferty sprzedawcy odświeżane co CATALOG_EVERY_MIN; oferta, której SKU (albo externalId) = SKU w CRM,
  *     dostaje stan CRM (pase_stock) i - gdy włączone - cenę (pase_price × mnożnik), tylko gdy różni się od ostatnio wysłanej.
  *
- * Wysyłkę obsługuje InPost (paczkomat albo kurier InPost); numery paczek z zamówienia pokazujemy na stronie zamówienia.
+ *  4. Paczki: numery paczek z zamówienia (delivery.parcels) zapisujemy jako przesyłki CRM (InPost) - działa śledzenie
+ *     i automatyzacje „przesyłka nadana”. API nie przyjmuje numerów od sprzedawcy, więc paczkę nadaje się w InPost
+ *     (panel vonHalsky albo wtyczką InPost/ShipX z CRM - wtedy numer już jest i go nie dublujemy).
+ *  5. Zwroty i reklamacje: Services\VonhalskyReturns (lista, przyjęcie/odrzucenie, zwrot pieniędzy).
+ *
+ * Wystawianie ofert i ręczne łączenie ofert z produktami: Services\VonhalskyOffers.
  */
 final class Vonhalsky
 {
@@ -140,7 +145,20 @@ final class Vonhalsky
             seen_at DATETIME NULL,
             UNIQUE (integration_id, offer_id)
         )' . $tail);
+        // linked_product_id - ręczne połączenie oferty z produktem; problems - błędy walidacji / powody odrzucenia z InPost.
+        foreach (['linked_product_id' => 'INT NULL', 'problems' => 'VARCHAR(1000) NULL'] as $col => $def) {
+            try {
+                $pdo->query('SELECT ' . $col . ' FROM vonhalsky_offers LIMIT 0');
+            } catch (\PDOException) {
+                $pdo->exec('ALTER TABLE vonhalsky_offers ADD COLUMN ' . $col . ' ' . $def);
+            }
+        }
+        VonhalskyOffers::migrate($pdo);
+        VonhalskyReturns::migrate($pdo);
     }
+
+    /** Warunek JOIN oferty z produktem: ręczne połączenie, a bez niego to samo SKU. Alias oferty „o”, produktu „p”. */
+    public const OFFER_PRODUCT_JOIN = '((o.linked_product_id IS NOT NULL AND p.id = o.linked_product_id) OR (o.linked_product_id IS NULL AND p.sku = o.match_sku))';
 
     /** @return array<int,array<string,mixed>> aktywne konta vonHalsky */
     public function accounts(): array
@@ -199,7 +217,10 @@ final class Vonhalsky
             'orders'      => (int) $this->scalar('SELECT COUNT(*) FROM vonhalsky_orders WHERE integration_id = ?', [$id]),
             'waiting'     => (int) $this->scalar("SELECT COUNT(*) FROM vonhalsky_orders WHERE integration_id = ? AND vh_status = 'CREATED'", [$id]),
             'offers'      => (int) $this->scalar('SELECT COUNT(*) FROM vonhalsky_offers WHERE integration_id = ?', [$id]),
-            'offers_linked' => (int) $this->scalar('SELECT COUNT(*) FROM vonhalsky_offers o JOIN products p ON p.sku = o.match_sku WHERE o.integration_id = ?', [$id]),
+            'offers_linked' => (int) $this->scalar('SELECT COUNT(*) FROM vonhalsky_offers o JOIN products p ON ' . self::OFFER_PRODUCT_JOIN . ' WHERE o.integration_id = ?', [$id]),
+            'offers_rejected' => (int) $this->scalar("SELECT COUNT(*) FROM vonhalsky_offers WHERE integration_id = ? AND offer_status = 'REJECTED'", [$id]),
+            'returns_new' => (int) $this->scalar("SELECT COUNT(*) FROM vonhalsky_returns WHERE integration_id = ? AND status = 'NEW'", [$id]),
+            'claims_open' => (int) $this->scalar("SELECT COUNT(*) FROM vonhalsky_claims WHERE integration_id = ? AND state = 'RESOLUTION_IN_PROGRESS'", [$id]),
             'offer_errors' => $this->rows('SELECT offer_id, match_sku, product_name, error FROM vonhalsky_offers WHERE integration_id = ? AND error IS NOT NULL ORDER BY id LIMIT 20', [$id]),
             'accept_errors' => $this->rows("SELECT v.woo_order_id, v.vh_order_id, v.accept_error, w.pase_number FROM vonhalsky_orders v
                 LEFT JOIN woo_orders w ON w.woo_order_id = v.woo_order_id
@@ -332,7 +353,7 @@ final class Vonhalsky
     /** Wszystkie konta: zamówienia, przyjmowanie, stany i ceny. Błąd jednego kroku nie zatrzymuje reszty. */
     public function run(): array
     {
-        $out = ['orders' => 0, 'accepted' => 0, 'stock' => 0];
+        $out = ['orders' => 0, 'accepted' => 0, 'stock' => 0, 'returns' => 0];
         foreach ($this->accounts() as $account) {
             if (!self::connected($account)) {
                 continue;
@@ -349,11 +370,13 @@ final class Vonhalsky
                 Logger::warn('vonHalsky #' . $id . ': ' . $e->getMessage());
                 continue;
             }
-            foreach (['orders' => 'syncOrders', 'accepted' => 'acceptPending', 'stock' => 'pushStock'] as $key => $step) {
+            foreach (['orders' => 'syncOrders', 'accepted' => 'acceptPending', 'stock' => 'pushStock', 'returns' => 'syncReturns'] as $key => $step) {
                 try {
-                    $out[$key] += $this->{$step}($account, $client);
+                    $out[$key] += $step === 'syncReturns'
+                        ? (new VonhalskyReturns($this->pdo, $this))->sync($account, $client)
+                        : $this->{$step}($account, $client);
                 } catch (\Throwable $e) {
-                    $errors[] = ['orders' => 'Zamówienia', 'accepted' => 'Przyjmowanie', 'stock' => 'Stany i ceny'][$key] . ': ' . $e->getMessage();
+                    $errors[] = ['orders' => 'Zamówienia', 'accepted' => 'Przyjmowanie', 'stock' => 'Stany i ceny', 'returns' => 'Zwroty i reklamacje'][$key] . ': ' . $e->getMessage();
                     Logger::warn('vonHalsky #' . $id . ' [' . $key . ']: ' . $e->getMessage());
                 }
             }
@@ -420,7 +443,24 @@ final class Vonhalsky
                 $products[(string) $p['sku']] = (int) $p['id'];
             }
         }
-        $payload = self::toWoo($order, $products);
+        // Oferty połączone ręcznie z produktem (bez SKU albo z innym SKU niż w CRM).
+        $offerIds = [];
+        foreach ((array) ($order['orderLines'] ?? []) as $line) {
+            $oid = trim((string) ($line['offer']['offerId'] ?? ''));
+            if ($oid !== '') {
+                $offerIds[$oid] = true;
+            }
+        }
+        $linked = [];
+        if ($offerIds !== []) {
+            $st = $this->pdo->prepare('SELECT o.offer_id, p.id, p.sku FROM vonhalsky_offers o JOIN products p ON p.id = o.linked_product_id
+                WHERE o.integration_id = ? AND o.offer_id IN (' . implode(',', array_fill(0, count($offerIds), '?')) . ')');
+            $st->execute([$accountId, ...array_keys($offerIds)]);
+            foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $linked[(string) $r['offer_id']] = ['id' => (int) $r['id'], 'sku' => (string) $r['sku']];
+            }
+        }
+        $payload = self::toWoo($order, $products, $linked);
         $fields = [
             'status'         => $status,
             'currency'       => $payload['currency'],
@@ -448,6 +488,11 @@ final class Vonhalsky
             }
         }
         (new VirtualProducts($this->pdo))->applyToOrder($wooId, (array) ($payload['line_items'] ?? []));
+        try {
+            $this->syncParcels($accountId, $wooId, $vhId, $payload);
+        } catch (\Throwable $e) {
+            Logger::warn("vonHalsky: paczki zamówienia #{$wooId} nie zapisane w przesyłkach: " . $e->getMessage());
+        }
         $this->pdo->prepare('UPDATE vonhalsky_orders SET vh_status = ?, updated_at = ? WHERE id = ?')
             ->execute([$status, $this->nowSql(), (int) $link['id']]);
         if ($status !== 'CREATED' && in_array((string) ($link['accept_state'] ?? ''), ['', 'error'], true)) {
@@ -553,8 +598,9 @@ final class Vonhalsky
     /**
      * Zamówienie vonHalsky w formacie Woo (strona zamówienia, faktura, wydruki, klienci). Surowe dane zostają pod 'vonhalsky'.
      * @param array<string,int> $products SKU w CRM => id produktu
+     * @param array<string,array{id:int,sku:string}> $linked id oferty => produkt połączony ręcznie (ma pierwszeństwo przed SKU)
      */
-    public static function toWoo(array $order, array $products = []): array
+    public static function toWoo(array $order, array $products = [], array $linked = []): array
     {
         $addr = static function (array $a): array {
             $line = trim((string) ($a['street'] ?? '') . ' ' . (string) ($a['building'] ?? ''));
@@ -614,6 +660,11 @@ final class Vonhalsky
             $currency = $currency !== '' ? $currency : (string) ($offer['finalPrice']['currency'] ?? $offer['price']['currency'] ?? '');
             $qty = max(1, (int) ($line['quantity'] ?? 1));
             $sku = self::lineSku($line);
+            $link = $linked[(string) ($offer['offerId'] ?? '')] ?? null;
+            if ($link !== null) {
+                $sku = $link['sku'] !== '' ? $link['sku'] : $sku;
+                $products[$sku] = $link['id'];
+            }
             $key = (string) ($offer['offerId'] ?? '') . '|' . self::money($price);
             if (isset($items[$key])) {
                 $items[$key]['quantity'] += $qty;
@@ -856,9 +907,9 @@ final class Vonhalsky
         $seenIds = [];
         $n = 0;
         $find = $this->pdo->prepare('SELECT id FROM vonhalsky_offers WHERE integration_id = ? AND offer_id = ?');
-        $ins = $this->pdo->prepare('INSERT INTO vonhalsky_offers (integration_id, offer_id, match_sku, product_name, offer_status, vh_stock, stock_unit, vh_price, currency, seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        $upd = $this->pdo->prepare('UPDATE vonhalsky_offers SET match_sku = ?, product_name = ?, offer_status = ?, vh_stock = ?, stock_unit = ?, vh_price = ?, currency = ?, seen_at = ? WHERE id = ?');
+        $ins = $this->pdo->prepare('INSERT INTO vonhalsky_offers (integration_id, offer_id, match_sku, product_name, offer_status, vh_stock, stock_unit, vh_price, currency, problems, seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        $upd = $this->pdo->prepare('UPDATE vonhalsky_offers SET match_sku = ?, product_name = ?, offer_status = ?, vh_stock = ?, stock_unit = ?, vh_price = ?, currency = ?, problems = ?, seen_at = ? WHERE id = ?');
         for ($page = 0; $page < 200; $page++) {
             [$list] = $client->offers($org, $page * self::OFFERS_PAGE, self::OFFERS_PAGE);
             foreach ($list as $o) {
@@ -877,6 +928,7 @@ final class Vonhalsky
                     (string) ($o['stock']['unit'] ?? '') ?: null,
                     is_array($price) ? round((float) ($price['amount'] ?? 0), 2) : null,
                     is_array($price) ? ((string) ($price['currency'] ?? '') ?: null) : null,
+                    self::offerProblems((array) ($o['_metadata'] ?? [])),
                     $seen,
                 ];
                 $find->execute([$id, $offerId]);
@@ -906,6 +958,29 @@ final class Vonhalsky
         return $n;
     }
 
+    /** Błędy walidacji i powody odrzucenia oferty z metadanych InPost (jedna linia). */
+    public static function offerProblems(array $meta): ?string
+    {
+        $out = [];
+        foreach ((array) ($meta['rejectionReasons'] ?? []) as $r) {
+            $m = trim((string) (is_array($r) ? ($r['reasonMessage'] ?? '') : $r));
+            if ($m !== '') {
+                $out[] = $m;
+            }
+        }
+        foreach ((array) ($meta['validationErrors'] ?? []) as $v) {
+            if (!is_array($v)) {
+                continue;
+            }
+            $m = trim((string) ($v['message'] ?? $v['detail'] ?? $v['errorMessage'] ?? ''));
+            $f = trim((string) ($v['field'] ?? $v['path'] ?? ''));
+            if ($m !== '' || $f !== '') {
+                $out[] = ($f !== '' ? $f . ': ' : '') . $m;
+            }
+        }
+        return $out !== [] ? mb_substr(implode(' · ', array_unique($out)), 0, 1000) : null;
+    }
+
     /** Cena brutto do vonHalsky: cena w magazynie × mnożnik z ustawień konta; null, gdy produkt nie ma ceny. */
     public static function offerPrice(array $account, mixed $pasePrice): ?float
     {
@@ -933,7 +1008,7 @@ final class Vonhalsky
         $id = (int) $account['id'];
         $this->refreshCatalog($account, $client);
         $st = $this->pdo->prepare("SELECT o.id, o.offer_id, o.stock_unit, o.currency, o.pushed_qty, o.pushed_price, p.pase_stock, p.pase_price
-            FROM vonhalsky_offers o JOIN products p ON p.sku = o.match_sku
+            FROM vonhalsky_offers o JOIN products p ON " . self::OFFER_PRODUCT_JOIN . "
             WHERE o.integration_id = ? AND (o.offer_status IS NULL OR o.offer_status NOT IN ('CLOSED', 'REJECTED'))
               AND (p.pase_stock IS NOT NULL OR p.pase_price IS NOT NULL)
             ORDER BY o.id");
@@ -1028,17 +1103,57 @@ final class Vonhalsky
         return $st->fetch(PDO::FETCH_ASSOC) ?: null;
     }
 
-    /** Paczki z zamówienia (numer, status) do strony zamówienia. @return array<int,array{number:string,status:string}> */
+    /** Paczki z zamówienia (numer, status) do strony zamówienia. @return array<int,array{number:string,status:string,raw_status:string}> */
     public static function parcels(array $payload): array
     {
         $out = [];
         foreach ((array) ($payload['vonhalsky']['delivery']['parcels'] ?? []) as $p) {
             if (is_array($p) && trim((string) ($p['trackingNumber'] ?? '')) !== '') {
                 $st = strtoupper((string) ($p['status'] ?? ''));
-                $out[] = ['number' => trim((string) $p['trackingNumber']), 'status' => self::PARCEL_LABELS[$st] ?? $st];
+                $out[] = ['number' => trim((string) $p['trackingNumber']), 'status' => self::PARCEL_LABELS[$st] ?? $st, 'raw_status' => $st];
             }
         }
         return $out;
+    }
+
+    /**
+     * Paczki z zamówienia vonHalsky jako przesyłki CRM (InPost): numer, śledzenie, „wysłane” w automatyzacjach.
+     * Paczki nadaje się w InPost (panel vonHalsky albo ShipX) - API vonHalsky nie przyjmuje numerów, więc tylko je czytamy.
+     * Numer, który już jest w przesyłkach zamówienia (np. nadany z CRM wtyczką InPost), pomijamy.
+     */
+    private function syncParcels(int $accountId, int $wooId, string $vhId, array $payload): void
+    {
+        $parcels = self::parcels($payload);
+        if ($parcels === []) {
+            return;
+        }
+        $st = $this->pdo->prepare("SELECT waybill_no FROM shipments WHERE woo_order_id = ? AND waybill_no IS NOT NULL AND waybill_no <> ''");
+        $st->execute([$wooId]);
+        $have = array_map(static fn($w) => strtoupper(preg_replace('/\s+/', '', (string) $w) ?? ''), $st->fetchAll(PDO::FETCH_COLUMN));
+        $repo = new \Pase\Repository\ShipmentRepository($this->pdo);
+        foreach ($parcels as $p) {
+            $no = strtoupper(preg_replace('/\s+/', '', $p['number']) ?? '');
+            if ($no === '' || in_array($no, $have, true)) {
+                continue;
+            }
+            $id = $repo->create([
+                'woo_order_id'     => $wooId,
+                'integration_id'   => $accountId,
+                'courier_code'     => 'InPost (vonHalsky)',
+                'waybill_no'       => $p['number'],
+                'order_ref'        => $vhId,
+                'status'           => 'created',
+                'response_payload' => ['carrierId' => 'INPOST', 'source' => 'vonhalsky', 'parcel_status' => $p['raw_status']],
+            ]);
+            $repo->update($id, ['tracking_carrier' => 'INPOST']);
+            $have[] = $no;
+            Logger::info("vonHalsky: paczka {$p['number']} zamówienia #{$wooId} dodana do przesyłek");
+            try {
+                ShipmentTracking::fire($this->pdo, 'shipment.created', $wooId, ['shipment_waybill' => $p['number'], 'shipment_carrier' => 'InPost']);
+            } catch (\Throwable $e) {
+                Logger::warn("vonHalsky: zdarzenie shipment.created dla #{$wooId} nie zadziałało: " . $e->getMessage());
+            }
+        }
     }
 
     // ---------------------------------------------------------------- pomocnicze

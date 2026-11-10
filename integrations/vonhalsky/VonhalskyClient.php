@@ -22,6 +22,14 @@ use Pase\Support\Http;
  *  - GET   /v1/organizations/{org}/offers                    oferty (externalId, product.sku, stock, price)
  *  - PATCH /v1/organizations/{org}/offers/stocks             stany wielu ofert naraz [{offerId, stock{quantity, unit}}]
  *  - PATCH /v1/organizations/{org}/offers/prices             ceny wielu ofert naraz [{offerId, price{amount, currency}}]
+ *  - GET   /v1/categories, /v1/categories/{id}/attributes     drzewo kategorii i parametry kategorii (wystawianie)
+ *  - GET   /v1/organizations/{org}/offers/hint               podpowiedź produktu po EAN (kategoria, parametry, GPSR)
+ *  - POST  /v1/organizations/{org}/offers, PATCH .../{id}    nowa oferta / zmiana oferty; POST .../{id}/close|reopen
+ *  - GET   /v1/organizations/{org}/returns, POST .../{id}/accept|reject                    zwroty
+ *  - GET   /v1/organizations/{org}/claims, POST .../orders/{o}/claims/{c}/refund|partial-refund|reject   reklamacje
+ *  - POST  /v1/organizations/{org}/orders/{id}/refund        zwrot pieniędzy za zamówienie (całość albo kwota)
+ *
+ * Etykiet, numerów przesyłek, wiadomości od kupujących ani faktur API vonHalsky nie ma.
  */
 final class VonhalskyClient
 {
@@ -260,7 +268,7 @@ final class VonhalskyClient
     }
 
     /**
-     * Strona ofert sprzedawcy (pole `offer` z OfferDetails; metadane pomijamy).
+     * Strona ofert sprzedawcy (pole `offer` z OfferDetails, metadane pod `_metadata`).
      * @return array{0:array<int,array<string,mixed>>,1:int} [oferty, łączna liczba]
      */
     public function offers(string $org, int $offset = 0, int $limit = 50): array
@@ -274,6 +282,8 @@ final class VonhalskyClient
         foreach ((array) ($res['data'] ?? []) as $row) {
             $offer = is_array($row['offer'] ?? null) ? $row['offer'] : (is_array($row) && isset($row['id']) ? $row : null);
             if ($offer !== null) {
+                // Metadane (błędy walidacji, powody odrzucenia) - do pokazania przy ofercie.
+                $offer['_metadata'] = is_array($row['metadata'] ?? null) ? $row['metadata'] : [];
                 $out[] = $offer;
             }
         }
@@ -306,5 +316,147 @@ final class VonhalskyClient
         }
         $res = $this->call('PATCH', '/v1/organizations/' . rawurlencode($org) . '/offers/prices', null, $body);
         return is_array($res) ? array_values(array_filter($res, 'is_array')) : [];
+    }
+
+    // ---------------------------------------------------------------- kategorie i oferty (wystawianie)
+
+    private function org(string $org): string
+    {
+        return '/v1/organizations/' . rawurlencode($org);
+    }
+
+    /** Drzewo kategorii od korzenia (z dziećmi do $depth poziomów). @return array<int,array<string,mixed>> */
+    public function categories(int $depth = 10, ?string $parentId = null): array
+    {
+        $q = ['depth' => max(1, $depth)];
+        if ($parentId !== null && $parentId !== '') {
+            $q['categoryId'] = $parentId;
+        }
+        $res = $this->call('GET', '/v1/categories', $q);
+        if (is_array($res) && isset($res['data']) && is_array($res['data'])) {
+            $res = $res['data'];
+        }
+        return is_array($res) ? array_values(array_filter($res, 'is_array')) : [];
+    }
+
+    /** Parametry kategorii (AttributeDefinition: id, type, lang, expectedValue, name, dictionary.options, unitOfMeasureDetails). */
+    public function categoryAttributes(string $categoryId): array
+    {
+        $res = $this->call('GET', '/v1/categories/' . rawurlencode($categoryId) . '/attributes');
+        if (is_array($res) && isset($res['data']) && is_array($res['data'])) {
+            $res = $res['data'];
+        }
+        return is_array($res) ? array_values(array_filter($res, 'is_array')) : [];
+    }
+
+    /** Podpowiedzi produktu po EAN (albo nazwie): [{product{categoryId, attributes, brand...}, gpsr[]}]. */
+    public function hints(string $org, string $ean = '', string $name = ''): array
+    {
+        $q = array_filter(['ean' => $ean, 'name' => $name], static fn($v) => $v !== '');
+        if ($q === []) {
+            return [];
+        }
+        $res = $this->call('GET', $this->org($org) . '/offers/hint', $q);
+        return is_array($res['data'] ?? null) ? array_values(array_filter($res['data'], 'is_array')) : [];
+    }
+
+    /** Nowa oferta (OfferProposal). @return array{commandId?:string,offerId?:string,externalId?:string} */
+    public function createOffer(string $org, array $offer): array
+    {
+        $res = $this->call('POST', $this->org($org) . '/offers', null, $offer);
+        return is_array($res) ? $res : [];
+    }
+
+    /** Zmiana oferty (OfferPatch). @return array<string,mixed> OfferDetails */
+    public function patchOffer(string $org, string $offerId, array $patch): array
+    {
+        $res = $this->call('PATCH', $this->org($org) . '/offers/' . rawurlencode($offerId), null, $patch);
+        return is_array($res) ? $res : [];
+    }
+
+    /** Oferta z metadanymi (błędy walidacji, powody odrzucenia). @return array{offer?:array,metadata?:array} */
+    public function offer(string $org, string $offerId): array
+    {
+        $res = $this->call('GET', $this->org($org) . '/offers/' . rawurlencode($offerId));
+        return is_array($res) ? $res : [];
+    }
+
+    public function closeOffer(string $org, string $offerId): array
+    {
+        $res = $this->call('POST', $this->org($org) . '/offers/' . rawurlencode($offerId) . '/close');
+        return is_array($res) ? $res : [];
+    }
+
+    public function reopenOffer(string $org, string $offerId): array
+    {
+        $res = $this->call('POST', $this->org($org) . '/offers/' . rawurlencode($offerId) . '/reopen');
+        return is_array($res) ? $res : [];
+    }
+
+    /** Status polecenia na ofercie (PENDING / SUCCESS / FAILURE z błędami). */
+    public function offerCommand(string $org, string $commandId): array
+    {
+        $res = $this->call('GET', $this->org($org) . '/offers/commands/' . rawurlencode($commandId));
+        return is_array($res) ? $res : [];
+    }
+
+    // ---------------------------------------------------------------- zwroty, reklamacje, zwrot pieniędzy
+
+    /** @return array{0:array<int,array<string,mixed>>,1:int} [zwroty, łączna liczba] */
+    public function returns(string $org, int $offset = 0, int $limit = 50): array
+    {
+        $res = $this->call('GET', $this->org($org) . '/returns', ['limit' => max(1, $limit), 'offset' => max(0, $offset)]);
+        return [is_array($res['data'] ?? null) ? array_values(array_filter($res['data'], 'is_array')) : [], (int) ($res['page']['total'] ?? 0)];
+    }
+
+    public function acceptReturn(string $org, string $returnId): array
+    {
+        $res = $this->call('POST', $this->org($org) . '/returns/' . rawurlencode($returnId) . '/accept');
+        return is_array($res) ? $res : [];
+    }
+
+    public function rejectReturn(string $org, string $returnId): array
+    {
+        $res = $this->call('POST', $this->org($org) . '/returns/' . rawurlencode($returnId) . '/reject');
+        return is_array($res) ? $res : [];
+    }
+
+    /** @return array{0:array<int,array<string,mixed>>,1:int} [reklamacje (skrót), łączna liczba] */
+    public function claims(string $org, int $offset = 0, int $limit = 50, ?int $submittedFrom = null): array
+    {
+        $q = ['limit' => max(1, $limit), 'offset' => max(0, $offset), 'sort' => '-submission_date'];
+        if ($submittedFrom !== null) {
+            $q['submissionDateFrom'] = gmdate('Y-m-d\TH:i:s\Z', $submittedFrom);
+        }
+        $res = $this->call('GET', $this->org($org) . '/claims', $q);
+        $list = $res['items'] ?? $res['data'] ?? [];
+        return [is_array($list) ? array_values(array_filter($list, 'is_array')) : [], (int) ($res['page']['total'] ?? 0)];
+    }
+
+    /** Pełna reklamacja (opis, żądanie, pozycje, załączniki). */
+    public function claim(string $org, string $orderId, string $claimId): array
+    {
+        $res = $this->call('GET', $this->org($org) . '/orders/' . rawurlencode($orderId) . '/claims/' . rawurlencode($claimId));
+        return is_array($res) ? $res : [];
+    }
+
+    /** Rozstrzygnięcie reklamacji: refund (całość), partial-refund (procent z żądania klienta), reject. */
+    public function resolveClaim(string $org, string $orderId, string $claimId, string $decision, string $comment = ''): array
+    {
+        $path = ['refund' => 'refund', 'partial' => 'partial-refund', 'reject' => 'reject'][$decision] ?? null;
+        if ($path === null) {
+            throw new \InvalidArgumentException('Nieznana decyzja reklamacji: ' . $decision);
+        }
+        $res = $this->call('POST', $this->org($org) . '/orders/' . rawurlencode($orderId) . '/claims/' . rawurlencode($claimId) . '/' . $path,
+            null, trim($comment) !== '' ? ['description' => mb_substr(trim($comment), 0, 1000)] : null);
+        return is_array($res) ? $res : [];
+    }
+
+    /** Zwrot pieniędzy za zamówienie: bez kwoty - całość. @return array{refundAmount?:array,status?:string,description?:string} */
+    public function refundOrder(string $org, string $orderId, ?float $amount = null, string $currency = 'PLN'): array
+    {
+        $body = $amount !== null ? ['amount' => ['amount' => round($amount, 2), 'currency' => $currency ?: 'PLN']] : null;
+        $res = $this->call('POST', $this->org($org) . '/orders/' . rawurlencode($orderId) . '/refund', null, $body);
+        return is_array($res) ? $res : [];
     }
 }

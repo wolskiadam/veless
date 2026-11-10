@@ -170,6 +170,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit()) {
         } else {
             $flashErr = $vhRes['message'];
         }
+    } elseif (in_array($act, ['vonhalsky_return_accept', 'vonhalsky_return_reject', 'vonhalsky_claim_refund', 'vonhalsky_claim_partial', 'vonhalsky_claim_reject', 'vonhalsky_refund'], true)
+        && \Pase\Services\Vonhalsky::isVonhalsky($wooOrderId)) {
+        // InPost vonHalsky: decyzja o zwrocie / reklamacji albo zwrot pieniędzy (Services\VonhalskyReturns).
+        \Pase\Services\Vonhalsky::migrate($pdo);
+        $vhRet = new \Pase\Services\VonhalskyReturns($pdo, new \Pase\Services\Vonhalsky($pdo, null, new \Pase\Queue\Queue($pdo)));
+        $vhRow = (int) ($_POST['vh_row'] ?? 0);
+        $vhOwn = static function (string $table) use ($pdo, $vhRow, $wooOrderId): bool {
+            $q = $pdo->prepare('SELECT COUNT(*) FROM ' . $table . ' WHERE id = ? AND woo_order_id = ?');
+            $q->execute([$vhRow, $wooOrderId]);
+            return (int) $q->fetchColumn() === 1;
+        };
+        if (str_starts_with($act, 'vonhalsky_return_')) {
+            $vhRes = $vhOwn('vonhalsky_returns') ? $vhRet->decideReturn($vhRow, $act === 'vonhalsky_return_accept') : ['ok' => false, 'message' => 'Nie ma takiego zwrotu przy tym zamówieniu.'];
+        } elseif (str_starts_with($act, 'vonhalsky_claim_')) {
+            $vhRes = $vhOwn('vonhalsky_claims') ? $vhRet->resolveClaim($vhRow, substr($act, 16), (string) ($_POST['comment'] ?? '')) : ['ok' => false, 'message' => 'Nie ma takiej reklamacji przy tym zamówieniu.'];
+        } else {
+            $raw = trim(str_replace([' ', ','], ['', '.'], (string) ($_POST['amount'] ?? '')));
+            $vhRes = ($_POST['refund_all'] ?? '') === '1'
+                ? $vhRet->refundOrder($wooOrderId, null, (string) ($_SESSION['pase_username'] ?? ''))
+                : ($raw !== '' && is_numeric($raw) ? $vhRet->refundOrder($wooOrderId, (float) $raw, (string) ($_SESSION['pase_username'] ?? '')) : ['ok' => false, 'message' => 'Wpisz kwotę zwrotu albo zaznacz „całe zamówienie”.']);
+        }
+        if ($vhRes['ok']) {
+            $flashOk = $vhRes['message'];
+        } else {
+            $flashErr = $vhRes['message'];
+        }
     } elseif ($act === 'tiktok_retry_tracking' && \Pase\Services\TiktokShop::isTiktok($wooOrderId)) {
         // Numer przesyłki nie przeszedł do TikTok (np. nierozpoznany kurier) - worker spróbuje od nowa.
         \Pase\Services\TiktokShop::migrate($pdo);
@@ -585,12 +611,17 @@ if (\Pase\Services\TiktokShop::isTiktok($wooOrderId)) {
         $tiktokLink = null;
     }
 }
-// InPost vonHalsky: status zamówienia w InPost (przyjęcie/odrzucenie) i paczki (Services\Vonhalsky).
+// InPost vonHalsky: status zamówienia w InPost (przyjęcie/odrzucenie), zwroty, reklamacje i zwroty pieniędzy.
 $vonhalskyLink = null;
+$vonhalskyReturns = $vonhalskyClaims = $vonhalskyRefunds = [];
 if (\Pase\Services\Vonhalsky::isVonhalsky($wooOrderId)) {
     try {
         \Pase\Services\Vonhalsky::migrate($pdo);
         $vonhalskyLink = (new \Pase\Services\Vonhalsky($pdo))->orderLink($wooOrderId);
+        $vhRetSvc = new \Pase\Services\VonhalskyReturns($pdo, new \Pase\Services\Vonhalsky($pdo));
+        $vonhalskyReturns = $vhRetSvc->returnsForOrder($wooOrderId);
+        $vonhalskyClaims = $vhRetSvc->claimsForOrder($wooOrderId);
+        $vonhalskyRefunds = $vhRetSvc->refundsForOrder($wooOrderId);
     } catch (\Throwable $e) {
         $vonhalskyLink = null;
     }
@@ -1713,7 +1744,58 @@ foreach ($absorbedOrders as $ab) {
             <?php if ($vhParcels): ?>
                 <div style="margin-top:4px">Paczki InPost:
                 <?php foreach ($vhParcels as $i => $p): ?><?= $i ? ', ' : '' ?><strong><?= htmlspecialchars($p['number']) ?></strong><?= $p['status'] !== '' ? ' (' . htmlspecialchars($p['status']) . ')' : '' ?><?php endforeach; ?>
+                <span style="color:var(--ink-3)">- są też w przesyłkach niżej, ze śledzeniem.</span>
                 </div>
+            <?php elseif (in_array($vhStatus, ['ACCEPTED', 'CREATED'], true)): ?>
+                <div style="margin-top:4px;color:var(--ink-2)">Paczkę nadajesz w InPost (panel vonHalsky albo wtyczką InPost niżej) - numer z vonHalsky sam pojawi się w przesyłkach.</div>
+            <?php endif; ?>
+            <?php foreach ($vonhalskyReturns as $vr): ?>
+                <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,.08)">
+                    ↩ <strong>Zwrot</strong> (<?= htmlspecialchars(\Pase\Services\VonhalskyReturns::RETURN_LABELS[(string) $vr['status']] ?? (string) $vr['status']) ?>)
+                    <?= ($l = \Pase\Services\VonhalskyReturns::lineNames($vr['data'])) ? ': ' . htmlspecialchars(implode(', ', $l)) : '' ?>
+                    <?= $vr['reason'] ? ' · powód: ' . htmlspecialchars((string) $vr['reason']) : '' ?>
+                    <?= $vr['tracking_number'] ? ' · paczka zwrotna ' . htmlspecialchars((string) $vr['tracking_number']) : '' ?>
+                    <?php if ($vr['status'] === 'NEW' && canEdit()): ?>
+                        <form method="post" style="display:inline;margin-left:6px"><input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="action" value="vonhalsky_return_accept"><input type="hidden" name="vh_row" value="<?= (int) $vr['id'] ?>"><button class="btn" type="submit" style="padding:2px 10px;font-size:12px">Przyjmij zwrot</button></form>
+                        <form method="post" style="display:inline;margin-left:4px" onsubmit="return confirm('Odrzucić zwrot w InPost vonHalsky?')"><input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="action" value="vonhalsky_return_reject"><input type="hidden" name="vh_row" value="<?= (int) $vr['id'] ?>"><button class="btn secondary" type="submit" style="padding:2px 10px;font-size:12px">Odrzuć</button></form>
+                    <?php endif; ?>
+                    <?php if ($vr['action_error']): ?><div style="color:var(--danger-ink)"><?= htmlspecialchars((string) $vr['action_error']) ?></div><?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+            <?php foreach ($vonhalskyClaims as $vc): $vcSpec = (array) ((json_decode((string) $vc['data'], true) ?: [])['specification'] ?? []); ?>
+                <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,0,0,.08)">
+                    ⚠ <strong>Reklamacja</strong> (<?= htmlspecialchars(\Pase\Services\VonhalskyReturns::CLAIM_LABELS[(string) $vc['state']] ?? (string) $vc['state']) ?><?= $vc['resolution'] ? ', ' . htmlspecialchars(\Pase\Services\VonhalskyReturns::RESOLUTION_LABELS[(string) $vc['resolution']] ?? (string) $vc['resolution']) : '' ?>)
+                    <?= $vc['claim_type'] ? ': ' . htmlspecialchars((string) $vc['claim_type']) : '' ?>
+                    · klient chce: <?= htmlspecialchars(\Pase\Services\VonhalskyReturns::RESOLUTION_LABELS[(string) $vc['requested']] ?? ((string) $vc['requested'] ?: '—')) ?><?= isset($vcSpec['partialRefundPercent']) && $vc['requested'] === 'PARTIAL_REFUND' ? ' ' . htmlspecialchars((string) (float) $vcSpec['partialRefundPercent']) . '%' : '' ?>
+                    <?php if (!empty($vcSpec['issueDescription'])): ?><div style="white-space:pre-line;margin-top:2px"><?= htmlspecialchars(mb_substr((string) $vcSpec['issueDescription'], 0, 600)) ?></div><?php endif; ?>
+                    <?php if ($vc['state'] === 'RESOLUTION_IN_PROGRESS' && canEdit()): ?>
+                        <form method="post" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px">
+                            <input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="vh_row" value="<?= (int) $vc['id'] ?>">
+                            <input type="text" name="comment" placeholder="Komentarz dla klienta" aria-label="Komentarz dla klienta" style="padding:3px 8px;font-size:12px;width:220px">
+                            <button class="btn" type="submit" name="action" value="vonhalsky_claim_refund" style="padding:2px 10px;font-size:12px" onclick="return confirm('Uznać reklamację z pełnym zwrotem pieniędzy?')">Uznaj - pełny zwrot</button>
+                            <?php if ($vc['requested'] === 'PARTIAL_REFUND'): ?><button class="btn secondary" type="submit" name="action" value="vonhalsky_claim_partial" style="padding:2px 10px;font-size:12px" onclick="return confirm('Uznać reklamację z częściowym zwrotem, o który prosi klient?')">Częściowy zwrot</button><?php endif; ?>
+                            <button class="btn secondary" type="submit" name="action" value="vonhalsky_claim_reject" style="padding:2px 10px;font-size:12px" onclick="if(!this.form.comment.value.trim()){alert('Wpisz uzasadnienie odrzucenia.');return false;}return confirm('Odrzucić reklamację?')">Odrzuć</button>
+                        </form>
+                    <?php endif; ?>
+                    <?php if ($vc['action_error']): ?><div style="color:var(--danger-ink)"><?= htmlspecialchars((string) $vc['action_error']) ?></div><?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+            <?php foreach ($vonhalskyRefunds as $vf): ?>
+                <div style="margin-top:6px">💸 Zwrot <?= htmlspecialchars(number_format((float) $vf['amount'], 2, ',', ' ')) ?> zł zlecony <?= htmlspecialchars(substr((string) $vf['created_at'], 0, 16)) ?> (<?= htmlspecialchars(\Pase\Services\VonhalskyReturns::REFUND_LABELS[(string) $vf['status']] ?? (string) $vf['status']) ?>)<?= $vf['created_by'] ? ' - ' . htmlspecialchars((string) $vf['created_by']) : '' ?></div>
+            <?php endforeach; ?>
+            <?php if (canEdit() && !in_array($vhStatus, ['CREATED', 'REFUSED', 'REJECTED', 'CANCELED', 'CANCELLED'], true)): ?>
+                <details style="margin-top:8px">
+                    <summary style="cursor:pointer">💸 Zwróć pieniądze klientowi</summary>
+                    <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px"
+                          onsubmit="return confirm('Zlecić zwrot pieniędzy w InPost vonHalsky? Tego nie da się cofnąć.')">
+                        <input type="hidden" name="csrf" value="<?= csrfToken() ?>"><input type="hidden" name="action" value="vonhalsky_refund">
+                        <label style="display:flex;gap:4px;align-items:center"><input type="checkbox" name="refund_all" value="1" onchange="this.form.amount.disabled=this.checked"> całe zamówienie (<?= htmlspecialchars(number_format((float) ($row['total'] ?? 0), 2, ',', ' ')) ?> zł)</label>
+                        <span>albo kwota</span>
+                        <input type="text" name="amount" inputmode="decimal" placeholder="np. 19,99" aria-label="Kwota zwrotu" style="width:100px;padding:3px 8px;font-size:12px">
+                        <button class="btn secondary" type="submit" style="padding:2px 10px;font-size:12px">Zwróć</button>
+                    </form>
+                    <div style="color:var(--ink-3);margin-top:4px">Pieniądze oddaje InPost na konto klienta. Stan magazynu zmieniasz osobno, gdy towar wróci.</div>
+                </details>
             <?php endif; ?>
         </div>
     <?php endif; ?>

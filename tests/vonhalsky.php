@@ -31,7 +31,11 @@ $pdo->exec('CREATE TABLE integration_accounts (id INTEGER PRIMARY KEY, type VARC
 $pdo->exec("CREATE TABLE woo_orders (woo_order_id INTEGER PRIMARY KEY, integration_id INTEGER, pase_number INTEGER UNIQUE, order_number TEXT, status TEXT, pase_status TEXT,
     currency TEXT, total REAL, customer_name TEXT, customer_email TEXT, date_created TEXT, client_token TEXT, payload TEXT, local_items TEXT NULL,
     lifecycle TEXT NOT NULL DEFAULT 'active', automations_done INT DEFAULT 0, no_shipping INT NULL)");
-$pdo->exec('CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, pase_price REAL, pase_stock INTEGER, actual_stock INTEGER NULL)');
+$pdo->exec('CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, pase_price REAL, pase_stock INTEGER, actual_stock INTEGER NULL, description TEXT NULL,
+    short_description TEXT NULL, images TEXT NULL, categories TEXT NULL, attributes TEXT NULL, ean TEXT NULL, weight REAL NULL, length REAL NULL, width REAL NULL, height REAL NULL)');
+$pdo->exec('CREATE TABLE shipments (id INTEGER PRIMARY KEY, woo_order_id INTEGER, integration_id INTEGER, courier_code TEXT, waybill_no TEXT, bl_order_id TEXT, order_ref TEXT,
+    price REAL, status TEXT, label_link TEXT, request_payload TEXT, response_payload TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, tracking_status TEXT NULL,
+    tracking_code TEXT NULL, tracking_carrier TEXT NULL, tracking_at TEXT NULL, tracking_checked_at TEXT NULL, tracking_events TEXT NULL)');
 Vonhalsky::migrate($pdo);
 Vonhalsky::migrate($pdo);   // drugi raz bez błędu
 $pdo->exec("INSERT INTO settings VALUES ('APP_BASE_URL', 'https://crm.example.pl/public/')");
@@ -54,7 +58,8 @@ $now = 1_790_000_000;
 $clock = static function () use (&$now): int { return $now; };
 $iso = static fn(int $t): string => gmdate('Y-m-d\TH:i:s\Z', $t);
 $calls = [];
-$vh = ['orders' => [], 'offers' => [], 'stocks' => [], 'prices' => [], 'stock_fail' => [], 'accepted' => [], 'refused' => [], 'tokens' => 0, 'accept_fail' => false];
+$vh = ['orders' => [], 'offers' => [], 'stocks' => [], 'prices' => [], 'stock_fail' => [], 'accepted' => [], 'refused' => [], 'tokens' => 0, 'accept_fail' => false,
+    'created' => [], 'patched' => [], 'closed' => [], 'reopened' => [], 'returns' => [], 'claims' => [], 'return_dec' => [], 'claim_dec' => [], 'refunds' => [], 'hint_calls' => 0];
 $transport = static function (string $method, string $url, array $headers, ?string $body) use (&$calls, &$vh): array {
     $calls[] = [$method, $url, $headers, $body];
     $u = parse_url($url);
@@ -94,7 +99,7 @@ $transport = static function (string $method, string $url, array $headers, ?stri
     }
     if ($method === 'GET' && $path === '/v1/organizations/ORG-1/offers') {
         return [200, json_encode(['page' => ['total' => count($vh['offers'])],
-            'data' => array_map(static fn($o) => ['metadata' => [], 'offer' => $o], array_slice($vh['offers'], (int) $q['offset'], (int) $q['limit']))])];
+            'data' => array_map(static fn($o) => ['metadata' => $vh['meta'][$o['id']] ?? [], 'offer' => $o], array_slice($vh['offers'], (int) $q['offset'], (int) $q['limit']))])];
     }
     if ($method === 'PATCH' && $path === '/v1/organizations/ORG-1/offers/stocks') {
         $out = [];
@@ -108,6 +113,70 @@ $transport = static function (string $method, string $url, array $headers, ?stri
     if ($method === 'PATCH' && $path === '/v1/organizations/ORG-1/offers/prices') {
         foreach ($b as $it) { $vh['prices'][] = [$it['offerId'], $it['price']]; }
         return [202, json_encode(array_map(static fn($it) => ['offerId' => $it['offerId'], 'status' => 'PENDING'], $b))];
+    }
+    // --- wystawianie ---
+    if ($method === 'GET' && $path === '/v1/categories') {
+        return [200, json_encode([
+            ['id' => 'CAT-DOM', 'leaf' => false, 'name' => 'Dom', 'doesNotRequireGpsrInfo' => false, 'children' => [
+                ['id' => 'CAT-SW', 'leaf' => true, 'name' => 'Świece', 'doesNotRequireGpsrInfo' => false],
+                ['id' => 'CAT-WO', 'leaf' => true, 'name' => 'Woski', 'doesNotRequireGpsrInfo' => true],
+            ]],
+        ])];
+    }
+    if ($method === 'GET' && $path === '/v1/categories/CAT-SW/attributes') {
+        return [200, json_encode([
+            ['id' => 'a-kolor', 'type' => 'DICTIONARY', 'lang' => 'pl_PL', 'expectedValue' => 'ONE', 'name' => 'Kolor',
+             'dictionary' => ['id' => 'd1', 'name' => 'Kolory', 'options' => [['id' => 'o1', 'lang' => 'pl', 'value' => 'Fioletowy', 'active' => true], ['id' => 'o2', 'lang' => 'pl', 'value' => 'Czarny', 'active' => true], ['id' => 'o3', 'value' => 'Stary', 'active' => false]]]],
+            ['id' => 'a-poj', 'type' => 'NUMERIC', 'lang' => 'pl_PL', 'expectedValue' => 'NULL_OR_ONE', 'name' => 'Pojemność', 'unitOfMeasureDetails' => ['code' => 'ml', 'symbol' => 'ml', 'group' => 'volume', 'translation' => 'mililitr']],
+            ['id' => 'a-zapach', 'type' => 'TEXT_VALUE', 'lang' => 'pl_PL', 'expectedValue' => 'ONE', 'name' => 'Zapach'],
+            ['id' => 'a-cechy', 'type' => 'TEXT_VALUE', 'lang' => 'pl_PL', 'expectedValue' => 'AT_LEAST_ONE', 'name' => 'Cechy'],
+        ])];
+    }
+    if ($method === 'GET' && $path === '/v1/organizations/ORG-1/offers/hint') {
+        $vh['hint_calls']++;
+        if (($q['ean'] ?? '') === '5901234123457') {
+            return [200, json_encode(['data' => [['product' => ['categoryId' => 'CAT-SW', 'brand' => 'Marka z InPost', 'name' => 'Świeca',
+                'attributes' => [['id' => 'a-zapach', 'lang' => 'pl_PL', 'values' => ['Lawenda']], ['id' => 'a-kolor', 'lang' => 'pl_PL', 'values' => ['Czarny']]]], 'gpsr' => []]]])];
+        }
+        return [200, json_encode(['data' => []])];
+    }
+    if ($method === 'POST' && $path === '/v1/organizations/ORG-1/offers') {
+        if (empty($b['product']['categoryId']) || empty($b['product']['brand']) || empty($b['price']['grossPrice']['amount'])) { return [400, '{"errorMessage":"Validation failed","details":[{"field":"product.brand","detail":"must not be blank"}]}']; }
+        $vh['created'][] = $b;
+        return [202, json_encode(['commandId' => 'cmd-new', 'offerId' => 'new-' . count($vh['created']), 'externalId' => $b['externalId'] ?? null])];
+    }
+    if ($method === 'PATCH' && preg_match('~^/v1/organizations/ORG-1/offers/([\w-]+)$~', $path, $mm)) {
+        $vh['patched'][] = [$mm[1], $b];
+        return [200, json_encode(['metadata' => [], 'offer' => ['id' => $mm[1]]])];
+    }
+    if ($method === 'POST' && preg_match('~^/v1/organizations/ORG-1/offers/([\w-]+)/(close|reopen)$~', $path, $mm)) {
+        $vh[$mm[2] === 'close' ? 'closed' : 'reopened'][] = $mm[1];
+        return [202, json_encode(['commandId' => 'c', 'status' => 'PENDING'])];
+    }
+    // --- zwroty, reklamacje, zwrot pieniędzy ---
+    if ($method === 'GET' && $path === '/v1/organizations/ORG-1/returns') {
+        return [200, json_encode(['page' => ['total' => count($vh['returns'])], 'data' => array_slice($vh['returns'], (int) $q['offset'], (int) $q['limit'])])];
+    }
+    if ($method === 'POST' && preg_match('~^/v1/organizations/ORG-1/returns/([\w-]+)/(accept|reject)$~', $path, $mm)) {
+        $vh['return_dec'][] = [$mm[1], $mm[2], $body];
+        return [200, json_encode(['message' => 'ok'])];
+    }
+    if ($method === 'GET' && $path === '/v1/organizations/ORG-1/claims') {
+        if (empty($q['submissionDateFrom'])) { return [400, '{"errorMessage":"date"}']; }
+        return [200, json_encode(['page' => ['total' => count($vh['claims'])], 'items' => array_slice($vh['claims'], (int) $q['offset'], (int) $q['limit'])])];
+    }
+    if ($method === 'GET' && preg_match('~^/v1/organizations/ORG-1/orders/([\w-]+)/claims/([\w-]+)$~', $path, $mm)) {
+        return [200, json_encode(['claimId' => $mm[2], 'state' => 'RESOLUTION_IN_PROGRESS', 'relatedOrder' => ['orderId' => $mm[1]],
+            'specification' => ['claimType' => ['id' => 't1', 'description' => 'Uszkodzony produkt'], 'issueDescription' => 'Świeca pęknięta', 'requestedResolution' => 'PARTIAL_REFUND', 'partialRefundPercent' => 30],
+            'orderLines' => [['offer' => ['offerId' => 'of-1', 'product' => ['name' => 'Wosk sojowy 1 kg']]]]])];
+    }
+    if ($method === 'POST' && preg_match('~^/v1/organizations/ORG-1/orders/([\w-]+)/claims/([\w-]+)/(refund|partial-refund|reject)$~', $path, $mm)) {
+        $vh['claim_dec'][] = [$mm[2], $mm[3], $b];
+        return [200, json_encode(['message' => 'ok'])];
+    }
+    if ($method === 'POST' && preg_match('~^/v1/organizations/ORG-1/orders/([\w-]+)/refund$~', $path, $mm)) {
+        $vh['refunds'][] = [$mm[1], $b];
+        return [202, json_encode(['refundAmount' => $b['amount'] ?? ['amount' => 94.97, 'currency' => 'PLN'], 'status' => 'PENDING'])];
     }
     return [404, '{"errorMessage":"not found"}'];
 };
@@ -193,7 +262,10 @@ check(\Pase\Services\OrderChannelIcons::carrierKey(\Pase\Services\OrderChannelIc
 $p2 = json_decode($rows[1]['payload'], true);
 check($p2['line_items'][0]['product_id'] === 2 && $p2['payment_method'] === 'cod' && $p2['shipping']['address_1'] === 'Lipowa 3/4' && $p2['shipping']['first_name'] === 'Jan'
     && $p2['shipping_lines'][0]['method_title'] === 'InPost Kurier' && str_contains($p2['customer_note'], 'Domofon 12'), 'courier: address, COD, matched by externalId, courier note');
-check(Vonhalsky::parcels($p2) === [['number' => '6200000000001', 'status' => 'w drodze']] && Vonhalsky::parcels($p1) === [], 'InPost parcels listed for the order page');
+check(Vonhalsky::parcels($p2) === [['number' => '6200000000001', 'status' => 'w drodze', 'raw_status' => 'SENT']] && Vonhalsky::parcels($p1) === [], 'InPost parcels listed for the order page');
+$ship = $pdo->query('SELECT * FROM shipments')->fetchAll();
+check(count($ship) === 1 && (int) $ship[0]['woo_order_id'] === Vonhalsky::ID_MIN + 1 && $ship[0]['waybill_no'] === '6200000000001' && $ship[0]['tracking_carrier'] === 'INPOST'
+    && $ship[0]['status'] === 'created' && (int) $ship[0]['integration_id'] === 4 && $ship[0]['order_ref'] === 'VH-2', 'parcel from vonHalsky saved as a CRM shipment tracked as InPost');
 $stock = static fn(int $id): array => $pdo->query("SELECT pase_stock, actual_stock FROM products WHERE id = {$id}")->fetch();
 check($stock(1) === ['pase_stock' => 8, 'actual_stock' => 4] && (int) $stock(2)['pase_stock'] === 2, 'created and accepted orders take stock (CRM + actual)');
 check(OrderStatus::channelLabel($p1) === 'czeka na przyjęcie' && OrderStatus::channelLabel($p2) === 'przyjęte', 'vonHalsky status shown in Polish');
@@ -203,6 +275,7 @@ check(!PayuPayments::eligible(['woo_order_id' => Vonhalsky::ID_MIN]) && PayuPaym
 $now += 60;
 $svc->syncOrders($acc(), $client);
 check((int) $pdo->query('SELECT COUNT(*) FROM woo_orders')->fetchColumn() === 3 && (int) $stock(1)['pase_stock'] === 8, 'second sync: no duplicate, no second stock take');
+check((int) $pdo->query('SELECT COUNT(*) FROM shipments')->fetchColumn() === 1, 'parcel not duplicated on the next sync');
 
 // --- przyjmowanie ---
 check($svc->acceptPending($acc(), $client) === 0 && $vh['accepted'] === [], 'auto accept off: nothing accepted');
@@ -277,6 +350,134 @@ check($svc->pushStock($acc(), $client) === 1 && end($vh['stocks']) === ['of-1', 
     && $pdo->query("SELECT error FROM vonhalsky_offers WHERE offer_id = 'of-1'")->fetchColumn() === null, 'rejected stock retried; accepted price not resent');
 $st = $svc->status($acc());
 check($st['connected'] && $st['offers'] === 5 && $st['offers_linked'] === 4 && $st['org_name'] === 'Klub Woskarzy', 'status for the integration page');
+
+
+// --- ręczne łączenie oferty z produktem ---
+$offers = new \Pase\Services\VonhalskyOffers($pdo, $svc);
+$r = $offers->linkOffer(4, 'of-4', 'NIE-MA');
+check(!$r['ok'] && str_contains($r['message'], 'NIE-MA'), 'link: unknown SKU rejected');
+$pdo->exec("UPDATE products SET ean = '5900000000002' WHERE id = 3");
+$r = $offers->linkOffer(4, 'of-4', '5900000000002');
+check($r['ok'] && (int) $pdo->query("SELECT linked_product_id FROM vonhalsky_offers WHERE offer_id = 'of-4'")->fetchColumn() === 3, 'link by EAN to a CRM product');
+$pdo->exec('UPDATE products SET pase_stock = 6, pase_price = 20 WHERE id = 3');
+$before = count($vh['stocks']);
+$svc->pushStock($acc(), $client);
+check(in_array(['of-4', ['quantity' => 6, 'unit' => 'UNIT']], array_slice($vh['stocks'], $before), true), 'linked offer gets the linked product stock');
+check($svc->status($acc())['offers_linked'] === 5, 'linked offer counted as linked');
+$now += 3600;
+$vh['orders'][] = ['id' => 'VH-L', 'status' => 'ACCEPTED', 'createdAt' => $iso($now), 'updatedAt' => $iso($now), 'customer' => ['email' => 'l@example.com', 'firstName' => 'L', 'lastName' => 'M', 'phoneNumber' => '+48', 'address' => $addr],
+    'delivery' => ['deliveryType' => 'APM', 'deliveryPoint' => 'KRA010', 'parcels' => []], 'orderLines' => [$line('of-4', 'NIE-MA-W-CRM', 20, 'Obcy')], 'finalPrice' => ['amount' => 20, 'currency' => 'PLN'], 'paymentDetails' => []];
+$svc->syncOrders($acc(), $client);
+$lw = $pdo->query("SELECT w.woo_order_id, w.payload FROM woo_orders w JOIN vonhalsky_orders v ON v.woo_order_id = w.woo_order_id WHERE v.vh_order_id = 'VH-L'")->fetch();
+$lp = json_decode($lw['payload'], true);
+check($lp['line_items'][0]['product_id'] === 3 && $lp['line_items'][0]['sku'] === 'BEZ-STANU' && $lp['line_items'][0]['in_warehouse'] === true && (int) $stock(3)['pase_stock'] === 5,
+    'order line of a linked offer matched to the CRM product (and takes its stock)');
+check($offers->linkOffer(4, 'of-4', null)['ok'] && $pdo->query("SELECT linked_product_id FROM vonhalsky_offers WHERE offer_id = 'of-4'")->fetchColumn() === null, 'unlink');
+
+// --- wystawianie ---
+check($offers->refreshCategories($acc()) === 3 && $offers->categoryPath('CAT-SW') === 'Dom > Świece'
+    && (int) $offers->category('CAT-WO')['gpsr_free'] === 1 && $offers->searchCategories('Świ')[0]['id'] === 'CAT-SW', 'category tree saved with paths, leaves searchable, GPSR-free flag');
+$defs = $offers->attributes($acc(), 'CAT-SW');
+check(count($defs) === 4 && $defs['a-kolor']['required'] && !$defs['a-poj']['required'] && $defs['a-cechy']['multi'] && $defs['a-kolor']['values'] === ['o1' => 'Fioletowy', 'o2' => 'Czarny']
+    && $defs['a-poj']['unit'] === 'ml', 'attribute definitions: required/multi from expectedValue, active dictionary options, unit');
+check(\Pase\Services\VonhalskyOffers::attributeValues($defs['a-kolor'], ['czarny']) === ['Czarny'] && \Pase\Services\VonhalskyOffers::attributeValues($defs['a-kolor'], ['o1']) === ['Fioletowy']
+    && \Pase\Services\VonhalskyOffers::attributeValues($defs['a-poj'], ['180 ml']) === ['180'] && \Pase\Services\VonhalskyOffers::attributeValues($defs['a-kolor'], ['Zielony']) === []
+    && \Pase\Services\VonhalskyOffers::attributeValues($defs['a-cechy'], ['a', 'b']) === ['a', 'b'] && \Pase\Services\VonhalskyOffers::attributeValues($defs['a-zapach'], ['a', 'b']) === ['a'],
+    'attribute values: dictionary by name or id (sent as text), numbers from text, one value unless multi');
+$pdo->exec("INSERT INTO products (id, sku, name, pase_price, pase_stock, description, images, categories, attributes, ean, weight, length, width, height) VALUES
+    (10, 'SW-10', 'Świeca sojowa Lawenda', 39.99, 7, '<p>Opis <strong>świecy</strong><script>x</script></p>', '[\"/img/sw.png\",\"https://cdn.example.pl/sw2.jpg\"]',
+     '[\"Świece\"]', '[{\"name\":\"Kolor\",\"options\":[\"Fioletowy\"]},{\"name\":\"Pojemność\",\"options\":[\"180 ml\"]}]', '5901234123457', 0.4, 10, 8, 12),
+    (11, 'WO-11', 'Wosk bez opisu', 30, 2, NULL, '[\"/a.png\"]', '[\"Woski\"]', NULL, NULL, NULL, NULL, NULL, NULL)");
+$prod = static fn(int $id): array => $pdo->query("SELECT * FROM products WHERE id = {$id}")->fetch();
+$o = $offers->buildOffer($acc(), $prod(10));
+check($o['category_id'] === 'CAT-SW' && $o['category_source'] === 'hint' && str_contains(implode(' ', $o['warnings']), 'podpowiedzi'), 'no mapping: category from the EAN hint (with a warning)');
+check($o['payload']['product']['brand'] === 'Marka z InPost' && in_array('Brak danych producenta (GPSR): wpisz nazwę i e-mail producenta w ustawieniach konta vonHalsky.', $o['errors'], true),
+    'brand from hint; missing GPSR manufacturer blocks listing');
+$repo->updateConfig(4, ['brand' => 'Klub Woskarzy', 'gpsr_name' => 'Klub Woskarzy sp. z o.o.', 'gpsr_email' => 'gpsr@example.pl', 'gpsr_phone' => '600 100 200',
+    'gpsr_address' => 'ul. Woskowa 1, 00-001 Warszawa', 'gpsr_safety' => 'Nie zostawiaj palącej się świecy.', 'shipping_days' => '2', 'tax_rate' => '23%',
+    'return_policy' => '14 dni na zwrot', 'price_multiplier' => '1.10'] + $acc()['config']);
+$offers->setMapping('Świece', 'CAT-SW');
+$offers->saveRules('CAT-SW', ['a-kolor' => ['mode' => 'field', 'value' => 'attr:Kolor'], 'a-poj' => ['mode' => 'field', 'value' => 'attr:Pojemność'], 'a-cechy' => ['mode' => 'value', 'value' => 'ręcznie lane'], 'a-zapach' => ['mode' => '', 'value' => '']]);
+$o = $offers->buildOffer($acc(), $prod(10));
+$p = $o['payload'];
+$attrs = array_column($p['product']['attributes'], null, 'id');
+check($o['errors'] === [] && $o['category_source'] === 'mapping' && $p['externalId'] === 'SW-10' && $p['product']['sku'] === 'SW-10' && $p['product']['ean'] === '5901234123457'
+    && $p['price'] === ['grossPrice' => ['amount' => 43.99, 'currency' => 'PLN'], 'taxRateInfo' => '23%'] && $p['stock'] === ['quantity' => 7, 'unit' => 'UNIT']
+    && $p['shippingTime'] === ['daysToShip' => 2], 'offer: SKU as external id, EAN, price × multiplier with VAT, stock, shipping time');
+check($attrs['a-kolor']['values'] === ['Fioletowy'] && $attrs['a-kolor']['lang'] === 'pl_PL' && $attrs['a-poj']['values'] === ['180'] && $attrs['a-cechy']['values'] === ['ręcznie lane']
+    && $attrs['a-zapach']['values'] === ['Lawenda'], 'attributes from rules (product attribute wins over hint), missing ones from the hint');
+check($p['product']['brand'] === 'Marka z InPost', 'brand: InPost hint for the EAN before the account default');
+check(str_contains($p['product']['description'], '<b>świecy</b>') && !str_contains($p['product']['description'], '<script'), 'description sanitised (no script)');
+$pdo->exec("UPDATE products SET attributes = '[{\"name\":\"Kolor\",\"options\":[\"Fioletowy\"]},{\"name\":\"Pojemność\",\"options\":[\"180 ml\"]},{\"name\":\"Marka\",\"options\":[\"Woskarnia\"]}]' WHERE id = 10");
+check($offers->buildOffer($acc(), $prod(10))['payload']['product']['brand'] === 'Woskarnia', 'brand: product attribute „Marka” wins');
+check($p['images'] === [['fileName' => 'sw.png', 'fileUrl' => 'https://crm.example.pl/public/img/sw.png', 'priority' => 1], ['fileName' => 'sw2.jpg', 'fileUrl' => 'https://cdn.example.pl/sw2.jpg', 'priority' => 2]],
+    'images with absolute URLs and order');
+check($p['product']['dimension'] === ['width' => 80, 'height' => 120, 'length' => 100, 'weight' => 400], 'dimensions cm → mm, kg → g');
+check($p['gpsr']['manufacturer']['name'] === 'Klub Woskarzy sp. z o.o.' && $p['gpsr']['manufacturer']['phone'] === '+48600100200' && $p['gpsr']['manufacturer']['countryCode'] === 'PL'
+    && $p['gpsr']['safetyInformation'] === 'Nie zostawiaj palącej się świecy.' && $p['postSale'] === ['returnPolicy' => ['description' => '14 dni na zwrot']], 'GPSR and post-sale from account settings');
+$calls = [];
+$o2 = $offers->buildOffer($acc(), $prod(10));
+check($vh['hint_calls'] === 1, 'EAN hint cached (one API call)');
+$o11 = $offers->buildOffer($acc(), $prod(11));
+check(in_array('Produkt nie ma opisu (vonHalsky go wymaga).', $o11['errors'], true) && str_contains(implode(' ', $o11['errors']), 'nie ma przypisanej kategorii'), 'no description / no category: cannot list');
+$repo->updateConfig(4, ['brand' => 'Klub Woskarzy'] + $acc()['config']);
+$r = $offers->publish($acc(), [10, 11]);
+check($r['listed'] === 1 && $r['failed'] === 1 && count($vh['created']) === 1 && $vh['created'][0]['externalId'] === 'SW-10', 'publish: new offer created, broken product reported');
+$lst = $offers->listings(4);
+check($lst[10]['offer_id'] === 'new-1' && $lst[10]['status'] === 'sent' && $lst[11]['status'] === 'error', 'listing state saved');
+$vo = $pdo->query("SELECT * FROM vonhalsky_offers WHERE offer_id = 'new-1'")->fetch();
+check((int) $vo['linked_product_id'] === 10 && (int) $vo['pushed_qty'] === 7 && (float) $vo['pushed_price'] === 43.99 && $vo['offer_status'] === 'PENDING', 'new offer linked in the catalog (stock follows)');
+$pdo->exec('UPDATE products SET name = \'Świeca sojowa Lawenda 180 ml\' WHERE id = 10');
+$r = $offers->publish($acc(), [10]);
+check($r['updated'] === 1 && count($vh['created']) === 1 && $vh['patched'][0][0] === 'new-1' && !isset($vh['patched'][0][1]['externalId'])
+    && $vh['patched'][0][1]['product']['name'] === 'Świeca sojowa Lawenda 180 ml', 'second publish patches the same offer (external id not resent)');
+// produkt, który ma już ofertę z tym samym SKU (założoną w panelu InPost) - aktualizacja zamiast duplikatu
+$pdo->exec("INSERT INTO products (id, sku, name, pase_price, pase_stock, description, images, categories) VALUES (12, 'WOSK-1X', 'Wosk 2', 10, 1, 'opis', '[\"/b.png\"]', '[\"Świece\"]')");
+$pdo->exec("INSERT INTO vonhalsky_offers (integration_id, offer_id, match_sku, product_name, offer_status) VALUES (4, 'panel-1', 'WOSK-1X', 'Wosk 2', 'PUBLISHED')");
+$offers->publish($acc(), [12]);
+check(end($vh['patched'])[0] === 'panel-1' && count($vh['created']) === 1, 'existing offer with the same SKU updated, not duplicated');
+// odrzucona oferta - powód z metadanych przy liście ofert
+$vh['offers'][] = ['id' => 'new-1', 'status' => 'REJECTED', 'externalId' => 'SW-10', 'product' => ['name' => 'Świeca', 'sku' => 'SW-10'], 'stock' => ['quantity' => 7, 'unit' => 'UNIT']];
+$vh['meta'] = ['new-1' => ['rejectionReasons' => [['reasonMessage' => 'Zdjęcie ma znak wodny']], 'validationErrors' => [['field' => 'product.ean', 'message' => 'EAN zajęty']]]];
+$svc->refreshCatalog($acc(), $client, true);
+$nr = $pdo->query("SELECT problems, linked_product_id, offer_status FROM vonhalsky_offers WHERE offer_id = 'new-1'")->fetch();
+check($nr['problems'] === 'Zdjęcie ma znak wodny · product.ean: EAN zajęty' && $nr['offer_status'] === 'REJECTED' && (int) $nr['linked_product_id'] === 10,
+    'rejected offer: reasons and validation errors saved; catalog refresh keeps the manual link');
+check($offers->existingOfferId(4, $prod(10)) === 'new-1', 'product listed from CRM keeps its offer even when rejected (republish patches it)');
+check($offers->setClosed($acc(), 'of-1', true)['ok'] && $vh['closed'] === ['of-1'] && $offers->setClosed($acc(), 'of-1', false)['ok'] && $vh['reopened'] === ['of-1'], 'close and reopen an offer');
+
+// --- zwroty i reklamacje ---
+$returns = new \Pase\Services\VonhalskyReturns($pdo, $svc);
+$vh['returns'] = [['id' => 'RET-1', 'orderId' => 'VH-2', 'status' => 'NEW', 'returnReason' => ['id' => 'r1', 'text' => 'Nie pasuje'], 'trackingNumber' => 'RT123',
+    'orderLines' => [['offer' => ['offerId' => 'of-2', 'product' => ['name' => 'Knoty']]], ['offer' => ['offerId' => 'of-2', 'product' => ['name' => 'Knoty']]]],
+    'createdAt' => $iso($now - 100), 'expiresAt' => $iso($now + 86400 * 14), 'client' => []]];
+$vh['claims'] = [['claimId' => 'CL-1', 'createdAt' => $iso($now - 50), 'expiresAt' => $iso($now + 86400 * 14), 'relatedOrder' => ['orderId' => 'VH-1'], 'state' => 'RESOLUTION_IN_PROGRESS',
+    'claimant' => ['email' => 'anna@example.com', 'firstName' => 'Anna', 'lastName' => 'Kowalska', 'phoneNumber' => '+48'], 'specification' => ['claimTypeDescription' => 'Uszkodzony produkt', 'requestedResolution' => 'PARTIAL_REFUND']]];
+check($returns->sync($acc(), $client, true) === 2 && $returns->sync($acc(), $client, true) === 0, 'returns and claims imported once');
+$ret = $returns->returnsForOrder(Vonhalsky::ID_MIN + 1);
+check(count($ret) === 1 && $ret[0]['status'] === 'NEW' && $ret[0]['reason'] === 'Nie pasuje' && $ret[0]['tracking_number'] === 'RT123'
+    && \Pase\Services\VonhalskyReturns::lineNames($ret[0]['data']) === ['Knoty × 2'], 'return linked to the CRM order with reason, return parcel and lines');
+$cl = $returns->claimsForOrder(Vonhalsky::ID_MIN);
+check(count($cl) === 1 && $cl[0]['customer'] === 'Anna Kowalska' && $cl[0]['claim_type'] === 'Uszkodzony produkt' && $cl[0]['requested'] === 'PARTIAL_REFUND', 'claim linked to the CRM order');
+$det = $returns->claimDetails($cl[0]);
+check(($det['specification']['issueDescription'] ?? '') === 'Świeca pęknięta' && (float) $det['specification']['partialRefundPercent'] === 30.0, 'full claim fetched once (description, percent)');
+$returns->sync($acc(), $client, true);
+$det2 = json_decode((string) $returns->claimsForOrder(Vonhalsky::ID_MIN)[0]['data'], true);
+check(($det2['specification']['issueDescription'] ?? '') === 'Świeca pęknięta', 'list refresh keeps the full claim details');
+check($svc->status($acc())['returns_new'] === 1 && $svc->status($acc())['claims_open'] === 1, 'waiting returns/claims counted on the integration page');
+$r = $returns->decideReturn((int) $ret[0]['id'], true);
+check($r['ok'] && $vh['return_dec'][0][0] === 'RET-1' && $vh['return_dec'][0][1] === 'accept' && $returns->returnsForOrder(Vonhalsky::ID_MIN + 1)[0]['status'] === 'ACCEPTED', 'return accepted in InPost');
+check(!$returns->decideReturn((int) $ret[0]['id'], false)['ok'], 'decided return cannot be decided again');
+check(!$returns->resolveClaim((int) $cl[0]['id'], 'reject', '')['ok'] && $vh['claim_dec'] === [], 'claim reject needs a reason');
+$r = $returns->resolveClaim((int) $cl[0]['id'], 'partial', 'Przepraszamy');
+check($r['ok'] && $vh['claim_dec'][0] === ['CL-1', 'partial-refund', ['description' => 'Przepraszamy']] && $returns->claimsForOrder(Vonhalsky::ID_MIN)[0]['resolution'] === 'PARTIAL_REFUND', 'claim resolved with partial refund and comment');
+$r = $returns->refundOrder(Vonhalsky::ID_MIN + 1, 99.0);
+check(!$r['ok'] && $vh['refunds'] === [], 'refund above the order total refused');
+$r = $returns->refundOrder(Vonhalsky::ID_MIN + 1, 5.5, 'adam');
+check($r['ok'] && $vh['refunds'][0] === ['VH-2', ['amount' => ['amount' => 5.5, 'currency' => 'PLN']]] && $returns->refundsForOrder(Vonhalsky::ID_MIN + 1)[0]['created_by'] === 'adam', 'partial refund of an order');
+$returns->refundOrder(Vonhalsky::ID_MIN, null);
+check($vh['refunds'][1] === ['VH-1', null], 'full refund sends no body');
+check(!$returns->refundOrder(55, null)['ok'], 'refund only for vonHalsky orders');
 
 // --- przebieg workera ---
 $now += 3600;

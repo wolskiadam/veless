@@ -367,8 +367,15 @@ $b2 = $bank->lines($s2['id']);
 ok($b2[0]['contractor_id'] === $both['id'] && $b2[0]['match_entry_id'] === null, 'CSV import: contractor known, no matching invoice');
 $bank->saveLines($s2['id'], [$b2[1]['id'] => ['skip' => '1'], $b2[0]['id'] => ['account' => '200-0003']], 'ola');
 ok($bank->lines($s2['id'])[1]['status'] === 'skip', 'Operation skipped');
+$files = new \PaseExt\Ksiegowosc\Files($db);
+$src = $files->forOwner('bank', $s2['id']);
+ok(count($src) === 1 && $src[0]['kind'] === 'source' && $files->get($src[0]['id'])['content'] === $csv, 'Original statement file archived as uploaded');
+fails(fn() => $files->save('bank', $s2['id'], 'pdf', 'x.pdf', 'GIF89a', 'ola'), 'nie jest plik PDF', 'Only real PDFs are attached');
+$pdfRow = $files->save('bank', $s2['id'], 'pdf', '../../wyciąg <maj>.pdf', "%PDF-1.7\n%%EOF", 'ola');
+ok($pdfRow['name'] === 'wyciąg _maj_.pdf' && $files->pdfCounts('bank') === [$s2['id'] => 1], 'PDF attached with a safe name');
+fails(fn() => $files->delete($src[0]['id'], 'ola'), 'nie usuwa się osobno', 'Original file cannot be removed on its own');
 $bank->delete($s2['id'], 'ola');
-ok($bank->statement($s2['id']) === null && $bank->lines($s2['id']) === [], 'Open statement deleted');
+ok($bank->statement($s2['id']) === null && $bank->lines($s2['id']) === [] && $files->forOwner('bank', $s2['id']) === [], 'Open statement deleted with its files');
 
 // --- Import z innego programu: JPK_KR i JPK_V7
 use PaseExt\Ksiegowosc\JpkImport;

@@ -286,7 +286,7 @@ final class Bank
         }
         usort($new, static fn(array $a, array $b): int => $a['date'] <=> $b['date']);
         $dates = array_column($new, 'date');
-        return $this->db->tx(function () use ($account, $fileName, $p, $new, $dates, $user, $skipped, $ledger): array {
+        return $this->db->tx(function () use ($account, $fileName, $content, $p, $new, $dates, $user, $skipped, $ledger): array {
             $id = Db::id();
             $this->db->insert('ext_ksg_bank_statements', ['id' => $id, 'account' => $account, 'iban' => $p['iban'], 'file_name' => mb_substr($fileName, 0, 200),
                 'format' => $p['format'], 'date_from' => min($dates), 'date_to' => max($dates), 'opening_gr' => $p['opening'], 'closing_gr' => $p['closing'],
@@ -297,6 +297,7 @@ final class Bank
                     'hash' => $l['hash'], 'contractor_id' => null, 'account' => '', 'match_entry_id' => null, 'status' => 'open'];
                 $this->db->insert('ext_ksg_bank_lines', array_merge($row, $this->suggest($row)));
             }
+            (new Files($this->db))->save('bank', $id, 'source', $fileName, $content, $user); // oryginał do archiwum
             $this->db->log($user, 'bank.import', 'bank', $id, $fileName . ': ' . count($new) . ' operacji' . ($skipped > 0 ? ', ' . $skipped . ' pominiętych (już były)' : ''));
             return $this->statement($id) + ['skipped' => $skipped];
         });
@@ -488,6 +489,7 @@ final class Bank
         }
         $this->db->tx(function () use ($statementId, $s, $user): void {
             $this->db->run('DELETE FROM ext_ksg_bank_lines WHERE statement_id = ?', [$statementId]);
+            (new Files($this->db))->deleteForOwner('bank', $statementId);
             $this->db->run('DELETE FROM ext_ksg_bank_statements WHERE id = ?', [$statementId]);
             $this->db->log($user, 'bank.delete', 'bank', $statementId, (string) $s['file_name']);
         });

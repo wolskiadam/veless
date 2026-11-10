@@ -30,7 +30,7 @@ final class KsiegowoscExtension extends AbstractExtension
         return new ExtensionManifest(
             type: 'ksiegowosc',
             name: 'Księgowość',
-            version: '0.6.0',
+            version: '0.7.0',
             author: 'Veless',
             description: 'Pełne księgi rachunkowe spółki: plan kont, dokumenty z dekretacją Wn/Ma, dziennik, storno, obroty i salda, kontrahenci, rejestry VAT, rozrachunki i wyciągi bankowe. Dane w osobnych tabelach (albo osobnej bazie), własne uprawnienia. Docelowo także faktury do KSeF, paragony, deklaracje i kadry.',
             icon: '📒',
@@ -102,6 +102,9 @@ final class KsiegowoscExtension extends AbstractExtension
         $page('wfirma_test', 'Pobieranie z wFirma', Access::MANAGE, static fn(Pages $p) => $p->wfirmaTest());
         $page('wfirma_ksieguj', 'Pobieranie z wFirma', Access::MANAGE, static fn(Pages $p) => $p->wfirmaBook());
         $page('wyciag_usun', 'Wyciąg bankowy', Access::BOOK, static fn(Pages $p) => $p->statementDelete());
+        $page('wyciag_pdf', 'Wyciąg bankowy', Access::BOOK, static fn(Pages $p) => $p->statementPdf());
+        $page('plik', 'Plik', Access::VIEW, static fn(Pages $p) => $p->fileDownload(), false, true);
+        $page('plik_usun', 'Plik', Access::BOOK, static fn(Pages $p) => $p->fileDelete());
         }
         $page('kontrahent', 'Kontrahent', Access::VIEW, static fn(Pages $p): string => $p->contractor());
         $page('kontrahent_zapisz', 'Kontrahent', Access::BOOK, static fn(Pages $p): string => $p->contractorSave());

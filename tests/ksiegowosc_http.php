@@ -145,7 +145,7 @@ try {
     ok(str_contains(request($jan, $url('obroty_csv'))['headers'], ' 403'), 'Raw CSV refused without access');
     $d = request($boss, $url('pulpit'))['body'];
     ok(str_contains($d, 'Księgowość jest gotowa do ustawienia') && str_contains($d, 'ext_ksg_'), 'Empty dashboard shows the first steps');
-    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 15, 'Own tables created on first use');
+    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 16, 'Own tables created on first use');
 
     $acc = request($boss, $url('dostep'))['body'];
     ok(str_contains($acc, 'name="level[2]"') && str_contains($acc, 'name="level[4]"') && !str_contains($acc, 'name="level[1]"') && str_contains($acc, 'Pełny (administrator CRM)'), 'Access page lists users (admin fixed)');
@@ -294,9 +294,23 @@ try {
         . ":61:2603210321D1230,00NTRF\n:86:020~20Faktura W/1/2026~32WOSKOWNIA\n:61:2603220322D2,00NMSC\n:86:073~20Prowizja\n:62F:C260322PLN8891,00\n-");
     $r = $post($vi, 'wyciag_import', ['account' => '130-01', 'file' => new CURLFile($sta)]);
     ok($r['status'] === 403 && (int) $one('SELECT COUNT(*) FROM ext_ksg_bank_statements') === 0, 'CRM viewer cannot import');
-    $r = $post($ola, 'wyciag_import', ['account' => '130-01', 'file' => new CURLFile($sta, 'text/plain', 'marzec.sta')]);
+    $badPdf = "$temp/zly.pdf";
+    file_put_contents($badPdf, '<html>nie pdf</html>');
+    $r = $post($ola, 'wyciag_import', ['account' => '130-01', 'file' => new CURLFile($sta, 'text/plain', 'marzec.sta'), 'pdf' => new CURLFile($badPdf, 'application/pdf', 'zly.pdf')]);
+    ok((int) $one('SELECT COUNT(*) FROM ext_ksg_bank_statements') === 0 && str_contains(request($ola, $url('bank'))['body'], 'To nie jest plik PDF'), 'Fake PDF stops the import before anything is saved');
+    $pdfFile = "$temp/marzec.pdf";
+    file_put_contents($pdfFile, "%PDF-1.4\n% wyciag marzec\n%%EOF");
+    $r = $post($ola, 'wyciag_import', ['account' => '130-01', 'file' => new CURLFile($sta, 'text/plain', 'marzec.sta'), 'pdf' => new CURLFile($pdfFile, 'application/pdf', 'wyciag marzec.pdf')]);
     $sid = $locId($r);
+    $srcId = (string) $one("SELECT id FROM ext_ksg_files WHERE owner_id = '$sid' AND kind = 'source'");
+    $pdfId = (string) $one("SELECT id FROM ext_ksg_files WHERE owner_id = '$sid' AND kind = 'pdf'");
+    ok($srcId !== '' && $pdfId !== '' && str_contains(request($ola, $url('bank'))['body'], '📎'), 'Original statement file and bank PDF kept in the archive');
+    $dl = request($vi, $url('plik', ['id' => $srcId]));
+    ok($dl['status'] === 200 && $dl['body'] === file_get_contents($sta) && stripos($dl['headers'], 'Content-Disposition: attachment') !== false && stripos($dl['headers'], 'nosniff') !== false, 'Viewer downloads the original MT940');
+    $dl = request($vi, $url('plik', ['id' => $pdfId]));
+    ok($dl['status'] === 200 && str_starts_with($dl['body'], '%PDF-') && stripos($dl['headers'], 'Content-Type: application/pdf') !== false && stripos($dl['headers'], 'inline') !== false, 'Bank PDF opens inline');
     $sv = request($ola, $url('wyciag', ['id' => $sid]))['body'];
+    ok(str_contains($sv, 'Pliki wyciągu') && str_contains($sv, 'wyciag marzec.pdf') && str_contains($sv, 'Dołącz PDF z banku'), 'Statement page lists its files');
     ok($r['status'] === 302 && str_contains($sv, 'Zaplata S/1/2026') && str_contains($sv, 'value="200-0001"') && str_contains($sv, 'value="202-0001"') && str_contains($sv, '✓'), 'Statement imported with suggestions and balance check');
     $r = $post($ola, 'wyciag_import', ['account' => '130-01', 'file' => new CURLFile($sta, 'text/plain', 'marzec.sta')]);
     ok(str_contains(request($ola, $url('bank'))['body'], 'już zaimportowane'), 'Duplicate import refused');
@@ -312,6 +326,11 @@ try {
     ok($wbId !== '' && $one("SELECT status FROM ext_ksg_docs WHERE id = '$wbId'") === 'posted' && (int) $one('SELECT COUNT(*) FROM ext_ksg_settle') === 3, 'Statement booked and invoices settled');
     $sv = request($vi, $url('wyciag', ['id' => $sid]))['body'];
     ok(str_contains($sv, 'WB/') && !str_contains($sv, 'name="lines['), 'Booked statement is read-only with the WB link');
+    $r = $post($ola, 'wyciag_pdf', ['id' => $sid, 'pdf' => new CURLFile($pdfFile, 'application/pdf', 'korekta.pdf')]);
+    ok((int) $one("SELECT COUNT(*) FROM ext_ksg_files WHERE owner_id = '$sid' AND kind = 'pdf'") === 2, 'PDF added later to a booked statement');
+    $post($ola, 'plik_usun', ['id' => $srcId]);
+    $post($ola, 'plik_usun', ['id' => $pdfId]);
+    ok((int) $one("SELECT COUNT(*) FROM ext_ksg_files WHERE owner_id = '$sid'") === 2 && $one("SELECT id FROM ext_ksg_files WHERE id = '$srcId'") === $srcId, 'PDF removable, original file stays');
     ok(str_contains(request($vi, $url('rozrachunki', ['r' => '202']))['body'], 'Brak nierozliczonych pozycji'), 'Payables settled');
     $dv = request($ola, $url('dokument', ['id' => $fzId]))['body'];
     ok(str_contains($dv, 'z wyciągu') && str_contains($dv, 'Cofnij'), 'Invoice shows the payment link');

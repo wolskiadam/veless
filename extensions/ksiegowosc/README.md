@@ -71,7 +71,7 @@ Kwoty są trzymane w groszach (`BIGINT`), bez liczb zmiennoprzecinkowych.
 
 ## Import z innego programu (np. wFirma)
 
-Zakładka Import (poziom zarządzanie) wczytuje pliki JPK - bez kluczy API do innego programu:
+Zakładka Import (poziom zarządzanie) wczytuje pliki JPK, a z wFirma pobiera też dokumenty po API:
 
 - **JPK_KR**: plan kont z zestawienia obrotów i sald (brakujące konta nadrzędne zakładane same), bilans otwarcia
   (z kolumn BO zestawienia, chyba że dziennik ma własny zapis BO) i każda pozycja dziennika jako zaksięgowany
@@ -82,6 +82,14 @@ Zakładka Import (poziom zarządzanie) wczytuje pliki JPK - bez kluczy API do in
 - **JPK_V7 (M/K)**: wiersze sprzedaży i zakupu przypinane do zaimportowanych dokumentów po numerze dowodu
   (porównanie samych liter i cyfr): kontrahent po NIP-ie (nowy - bez zakładania kont rozrachunkowych) i pozycje VAT
   według pól K_10…K_43. Wiersze bez dokumentu są wypisywane. Ponowny import miesiąca nie dubluje VAT.
+- **wFirma po API** (`Wfirma.php`, tylko odczyt): faktury sprzedaży (`invoices/find`, bez proform, szkiców i paragonów)
+  i wydatki (`expenses/find`) z okresu, zapisywane w `ext_ksg_wf_docs`. Przypinane do dokumentów z ksiąg po numerze:
+  uzupełniają kontrahenta, termin płatności i pozycje VAT, gdy dokument ich nie ma (JPK_V7 ma pierwszeństwo).
+  Strona „Porównanie zapłat” (`porownanie_wf`) zestawia „do zapłaty” z wFirma z naszymi rozrachunkami. Klucze
+  (accessKey, secretKey, appKey, ID firmy) są w ustawieniach wtyczki jako pola `secret` - rozszerzenie nie czyta kluczy
+  integracji wFirma z CRM. Pobieranie w tle przez `cron.tick` (ustawienie `wf_auto`): od początku poprzedniego miesiąca do dziś.
+  API wFirma nie wydaje dziennika ani obrotów kont, więc księgi przychodzą dalej z JPK_KR. Konto 201 (plan wFirma)
+  liczy się w rozrachunkach jak 200.
 
 ## Pliki
 
@@ -94,6 +102,7 @@ Zakładka Import (poziom zarządzanie) wczytuje pliki JPK - bez kluczy API do in
 | `Access.php` | poziomy dostępu |
 | `Inbox.php`, `Api.php` | jedyne wejście z CRM i jedyne wyjście do CRM |
 | `ChartTemplate.php`, `Money.php` | wzorcowy plan kont, kwoty w groszach |
+| `JpkImport.php`, `Wfirma.php` | import JPK_KR / JPK_V7, pobieranie z wFirma po API, porównania |
 | `Pages.php`, `Ui.php` | strony panelu |
 
 ## Następne etapy

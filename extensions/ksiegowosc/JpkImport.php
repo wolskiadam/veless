@@ -525,8 +525,8 @@ final class JpkImport
         });
     }
 
-    /** Kontrahent z wiersza JPK po NIP-ie (albo nazwie, gdy NIP-u brak); nowy bez zakładania kont rozrachunkowych. */
-    private function contractorFor(array $r, string $reg, string $user, int &$made): ?string
+    /** Kontrahent z wiersza JPK (albo dokumentu z wFirma) po NIP-ie (albo nazwie, gdy NIP-u brak); nowy bez zakładania kont rozrachunkowych. */
+    public function contractorFor(array $r, string $reg, string $user, int &$made, string $note = 'Z importu JPK_V7'): ?string
     {
         $country = strtoupper(trim((string) $r['country'])) ?: 'PL';
         $nip = Contractors::normalizeNip((string) $r['nip'], $country);
@@ -543,7 +543,7 @@ final class JpkImport
             return null;
         }
         $cs = new Contractors($this->db);
-        $in = ['name' => $name, 'nip' => $nip, 'country' => $country, 'kind' => $reg === 'S' ? 'customer' : 'supplier', 'notes' => 'Z importu JPK_V7'];
+        $in = ['name' => $name, 'nip' => $nip, 'country' => $country, 'kind' => $reg === 'S' ? 'customer' : 'supplier', 'notes' => $note];
         try {
             $c = $cs->save(null, $in, $user, false);
         } catch (\RuntimeException) {

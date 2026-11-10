@@ -21,7 +21,9 @@ final class Pages
 
     private readonly Ledger $ledger;
 
-    public function __construct(private readonly Db $db, private readonly array $ctx, private readonly string $level, private readonly PDO $crm)
+    /** @param ?\Closure():Wfirma $wfirma klient API wFirma z kluczami z ustawień wtyczki */
+    public function __construct(private readonly Db $db, private readonly array $ctx, private readonly string $level, private readonly PDO $crm,
+        private readonly ?\Closure $wfirma = null)
     {
         $this->ledger = new Ledger($db);
     }
@@ -1369,9 +1371,10 @@ final class Pages
         $form = fn(string $page, string $title, string $help): string => '<form method="post" enctype="multipart/form-data" action="' . U::h(U::url($page)) . '" class="kg-form card">' . U::csrf($this->ctx)
             . '<h3 style="margin-top:0">' . $title . '</h3><p class="kg-small" style="margin-top:-6px">' . $help . '</p>'
             . '<label>Plik XML<input type="file" name="file" accept=".xml" required></label><div><button class="btn" type="submit">Importuj</button></div></form>';
-        $html = $this->head('import') . '<div class="kg-top"><p>Przeniesienie ksiąg z innego programu (np. wFirma) z plików JPK - bez podawania kluczy API. Służy do porównania: po imporcie zakładka pokazuje, czy nasze obroty i salda zgadzają się z programem źródłowym.</p></div>'
+        $html = $this->head('import') . '<div class="kg-top"><p>Przeniesienie ksiąg z innego programu (np. wFirma): księgi i VAT z plików JPK, dokumenty i zapłaty z wFirma także po API. Służy do porównania: po imporcie zakładka pokazuje, czy nasze obroty i salda zgadzają się z programem źródłowym.</p></div>'
             . '<div class="kg-two">' . $form('import_kr', '1. JPK_KR - księgi', 'Plan kont, bilans otwarcia i wszystkie zapisy dziennika za rok obrotowy. Tworzy rok obrotowy (albo zastępuje poprzedni import tego roku). Nie działa na rok z dokumentami wprowadzonymi w CRM.')
             . $form('import_v7', '2. JPK_V7 - VAT i kontrahenci', 'Ewidencja VAT za miesiąc: kontrahenci z NIP-ami i pozycje VAT przypinane do zaimportowanych dokumentów po numerze. Importuj po JPK_KR, miesiąc po miesiącu.') . '</div>';
+        $html .= $this->wfirmaCard();
         $rows = $imp->imports();
         if ($rows !== []) {
             $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Kiedy</th><th>Plik</th><th>Rodzaj</th><th>Rok / okres</th><th></th></tr></thead><tbody>';
@@ -1383,6 +1386,105 @@ final class Pages
             $html .= '</tbody></table></div>';
         }
         return $html;
+    }
+
+    private function wf(): Wfirma
+    {
+        return $this->wfirma !== null ? ($this->wfirma)() : new Wfirma($this->db, []);
+    }
+
+    /** Karta „wFirma po API” na stronie importu: stan, pobranie za okres, sprawdzenie kluczy. */
+    private function wfirmaCard(): string
+    {
+        $wf = $this->wf();
+        $last = $wf->lastResult();
+        $html = '<div class="card"><h3 style="margin-top:0">3. wFirma po API - faktury, wydatki, zapłaty</h3>'
+            . '<p class="kg-small" style="margin-top:-6px">Faktury sprzedaży i wydatki z wFirma przypinane do dokumentów z JPK_KR po numerze: kontrahent, termin płatności, '
+            . 'pozycje VAT (gdy dokument ich nie ma - JPK_V7 ma pierwszeństwo) i stan zapłaty do porównania z naszymi rozrachunkami. '
+            . 'Dziennika księgowań API wFirma nie wydaje, więc księgi dalej przychodzą z pliku JPK_KR.</p>';
+        if (!$wf->configured()) {
+            return $html . '<p class="flash err">Brak kluczy API. Wpisz accessKey, secretKey, appKey i ID firmy w ustawieniach wtyczki Księgowość (Wtyczki → Księgowość). '
+                . 'Klucze zapisują się zaszyfrowane.</p></div>';
+        }
+        if (($last['ok'] ?? null) === false) {
+            $html .= '<p class="flash err">Ostatnie automatyczne pobranie (' . U::h($last['at'] ?? '') . ') nie udało się: ' . U::h($last['error'] ?? '') . '</p>';
+        } elseif (($last['at'] ?? '') !== '') {
+            $html .= '<p class="kg-small">Ostatnio pobrano ' . U::h(substr((string) $last['at'], 0, 16)) . ' (okres ' . U::h(($last['from'] ?? '') . ' - ' . ($last['to'] ?? ''))
+                . '): faktur ' . (int) ($last['sales'] ?? 0) . ', wydatków ' . (int) ($last['purchases'] ?? 0) . ', przypiętych do ksiąg ' . (int) ($last['matched'] ?? 0) . '.</p>';
+        }
+        $year = $this->ledger->currentYear();
+        $from = $year !== null ? (string) $year['starts_on'] : date('Y-01-01');
+        return $html . '<form method="post" action="' . U::h(U::url('wfirma_pobierz')) . '" class="kg-form">' . U::csrf($this->ctx) . '<div class="kg-grid">'
+            . U::input('from', $from, 'Od (data wystawienia)', 'type="date" required') . U::input('to', date('Y-m-d'), 'Do', 'type="date" required') . '</div>'
+            . '<div class="kg-actions"><button class="btn" type="submit">Pobierz z wFirma</button>'
+            . ' <button class="btn secondary" type="submit" formaction="' . U::h(U::url('wfirma_test')) . '" formnovalidate>Sprawdź połączenie</button>'
+            . ' <a class="btn secondary" href="' . U::h(U::url('porownanie_wf')) . '">Porównanie zapłat</a></div></form></div>';
+    }
+
+    public function wfirmaTest(): void
+    {
+        $this->need(Access::MANAGE);
+        try {
+            flash($this->wf()->test());
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+        }
+        $this->go('import');
+    }
+
+    public function wfirmaSync(): void
+    {
+        $this->need(Access::MANAGE);
+        try {
+            $r = $this->wf()->sync((string) ($_POST['from'] ?? ''), (string) ($_POST['to'] ?? ''), $this->user());
+            flash('Z wFirma: ' . $r['sales'] . ' faktur sprzedaży i ' . $r['purchases'] . ' wydatków (' . $r['from'] . ' - ' . $r['to'] . '). Przypięto do ksiąg ' . $r['matched']
+                . ', nowych kontrahentów ' . $r['contractors'] . '.'
+                . ($r['unmatched'] !== [] ? ' Bez dokumentu w księgach (' . count($r['unmatched']) . '): ' . implode(', ', array_slice($r['unmatched'], 0, 5)) . (count($r['unmatched']) > 5 ? '…' : '') . '.' : ''),
+                $r['unmatched'] !== [] ? 'err' : 'ok');
+            $this->go('porownanie_wf', ['od' => $r['from'], 'do' => $r['to']]);
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+            $this->go('import');
+        }
+    }
+
+    /** Stan zapłaty faktur i wydatków: wFirma vs nasze rozrachunki. */
+    public function wfirmaComparison(): string
+    {
+        $from = (string) ($_GET['od'] ?? '');
+        $to = (string) ($_GET['do'] ?? '');
+        $year = $this->ledger->currentYear();
+        $from = Ledger::validDate($from) ? $from : ($year !== null ? (string) $year['starts_on'] : date('Y-01-01'));
+        $to = Ledger::validDate($to) ? $to : date('Y-m-d');
+        $all = isset($_GET['wszystkie']);
+        $rows = $this->wf()->compare($from, $to);
+        $bad = array_values(array_filter($rows, static fn(array $r): bool => !$r['ok']));
+        $html = $this->head($this->can(Access::MANAGE) ? 'import' : 'rozrachunki')
+            . '<div class="kg-top"><p>Ile zostało do zapłaty według wFirma, a ile według rozrachunków w CRM (konta 200 i 202). Różnica zwykle znaczy, że zapłata nie jest '
+            . 'u nas rozliczona z fakturą - spróbuj „Rozlicz automatycznie” w Rozrachunkach.</p>'
+            . '<form method="get" action="ext.php" class="kg-filter"><input type="hidden" name="page" value="ksiegowosc.porownanie_wf">'
+            . '<input type="date" name="od" value="' . U::h($from) . '"> <input type="date" name="do" value="' . U::h($to) . '">'
+            . ($all ? '<input type="hidden" name="wszystkie" value="1">' : '') . ' <button class="btn secondary" type="submit">Pokaż</button>'
+            . ' <a class="btn secondary" href="' . U::h(U::url('porownanie_wf', ['od' => $from, 'do' => $to] + ($all ? [] : ['wszystkie' => 1]))) . '">' . ($all ? 'Tylko różnice' : 'Wszystkie dokumenty') . '</a></form></div>';
+        if ($rows === []) {
+            return $html . '<div class="card kg-muted">W tym okresie nie ma dokumentów pobranych z wFirma.</div>';
+        }
+        $html .= $bad === [] ? '<div class="flash ok">✓ Wszystkie ' . count($rows) . ' dokumentów zgadza się z wFirma.</div>'
+            : '<div class="flash err">Różnice na ' . count($bad) . ' z ' . count($rows) . ' dokumentów.</div>';
+        $show = $all ? $rows : $bad;
+        if ($show === []) {
+            return $html;
+        }
+        $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Rodzaj</th><th>Numer</th><th>Data</th><th>Kontrahent</th><th class="kg-num">Brutto</th>'
+            . '<th class="kg-num">Do zapłaty wFirma</th><th class="kg-num">Do zapłaty CRM</th></tr></thead><tbody>';
+        foreach ($show as $r) {
+            $num = $r['doc_id'] !== null ? '<a href="' . U::h(U::url('dokument', ['id' => $r['doc_id']])) . '">' . U::h($r['number']) . '</a>' : U::h($r['number']);
+            $ours = $r['ours_left'] === null ? '<span class="kg-bad">brak w księgach</span>' : U::money((int) $r['ours_left']);
+            $html .= '<tr><td>' . ($r['kind'] === 'sale' ? 'Sprzedaż' : 'Zakup') . '</td><td>' . $num . ($r['ok'] ? ' <span class="kg-ok">✓</span>' : '') . '</td><td>' . U::h($r['doc_date']) . '</td>'
+                . '<td>' . U::h($r['name']) . '</td><td class="kg-num">' . U::money((int) $r['gross_gr']) . ($r['currency'] !== 'PLN' ? ' ' . U::h($r['currency']) : '') . '</td>'
+                . '<td class="kg-num">' . U::money(max(0, (int) $r['wf_left'])) . '</td><td class="kg-num' . ($r['ok'] ? '' : ' kg-bad') . '">' . $ours . '</td></tr>';
+        }
+        return $html . '</tbody></table></div>';
     }
 
     public function importKr(): void
@@ -1558,7 +1660,7 @@ final class Pages
             'company.update' => 'Dane firmy', 'contractor.create' => 'Nowy kontrahent', 'contractor.update' => 'Zmiana kontrahenta',
             'contractor.activate' => 'Włączenie kontrahenta', 'contractor.deactivate' => 'Wyłączenie kontrahenta',
             'settle.link' => 'Rozliczenie', 'settle.unlink' => 'Cofnięcie rozliczenia', 'bank.import' => 'Wczytanie wyciągu', 'bank.update' => 'Poprawa wyciągu',
-            'bank.book' => 'Zaksięgowanie wyciągu', 'bank.delete' => 'Usunięcie wyciągu', 'import.jpk_kr' => 'Import JPK_KR', 'import.jpk_v7' => 'Import JPK_V7'];
+            'bank.book' => 'Zaksięgowanie wyciągu', 'bank.delete' => 'Usunięcie wyciągu', 'import.jpk_kr' => 'Import JPK_KR', 'import.jpk_v7' => 'Import JPK_V7', 'import.wfirma' => 'Pobranie z wFirma (API)'];
         $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Kiedy</th><th>Kto</th><th>Co</th><th>Szczegóły</th></tr></thead><tbody>';
         foreach ($rows as $r) {
             $link = $r['object_type'] === 'doc' && $r['action'] !== 'doc.delete' ? U::url('dokument', ['id' => $r['object_id']])

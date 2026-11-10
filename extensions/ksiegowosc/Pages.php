@@ -1410,15 +1410,59 @@ final class Pages
             $html .= '<p class="flash err">Ostatnie automatyczne pobranie (' . U::h($last['at'] ?? '') . ') nie udało się: ' . U::h($last['error'] ?? '') . '</p>';
         } elseif (($last['at'] ?? '') !== '') {
             $html .= '<p class="kg-small">Ostatnio pobrano ' . U::h(substr((string) $last['at'], 0, 16)) . ' (okres ' . U::h(($last['from'] ?? '') . ' - ' . ($last['to'] ?? ''))
-                . '): faktur ' . (int) ($last['sales'] ?? 0) . ', wydatków ' . (int) ($last['purchases'] ?? 0) . ', przypiętych do ksiąg ' . (int) ($last['matched'] ?? 0) . '.</p>';
+                . '): faktur ' . (int) ($last['sales'] ?? 0) . ', wydatków ' . (int) ($last['purchases'] ?? 0) . ', przypiętych do ksiąg ' . (int) ($last['matched'] ?? 0)
+                . ', zaksięgowanych ' . (int) ($last['booked'] ?? 0) . ', bez dokumentu ' . (int) ($last['unmatched'] ?? 0) . '.</p>';
         }
         $year = $this->ledger->currentYear();
         $from = $year !== null ? (string) $year['starts_on'] : date('Y-01-01');
+        [$saleAcc, $costAcc] = $wf->bookAccounts();
+        $opts = [];
+        if ($year !== null) {
+            foreach ($this->ledger->accounts((string) $year['id'], true) as $a) {
+                if (empty($a['has_children']) && (str_starts_with((string) $a['number'], '4') || str_starts_with((string) $a['number'], '7'))) {
+                    $opts[(string) $a['number']] = $a['number'] . ' ' . $a['name'];
+                }
+            }
+        }
+        $pickAcc = static function (string $name, string $current, string $label, string $prefix) use ($opts): string {
+            $o = array_filter($opts, static fn(string $k): bool => str_starts_with($k, $prefix), ARRAY_FILTER_USE_KEY);
+            $o += [$current => $current];
+            return U::select($name, $o, $current, $label);
+        };
+        $html .= '<form method="post" action="' . U::h(U::url('wfirma_ksieguj')) . '" class="kg-form" style="margin-bottom:10px">' . U::csrf($this->ctx)
+            . '<label class="kg-check"><input type="checkbox" name="book" value="1"' . ($this->db->meta('wf_book', '1') === '1' ? ' checked' : '') . '> '
+            . 'Księguj u nas faktury i wydatki z wFirma, których nie ma w księgach (bez VAT, kwotą brutto)</label><div class="kg-grid">'
+            . $pickAcc('sale', $saleAcc, 'Konto przychodu (sprzedaż)', '7') . $pickAcc('cost', $costAcc, 'Konto kosztów (wydatki)', '4') . '</div>'
+            . '<div class="kg-actions"><button class="btn secondary" type="submit">Zapisz i zaksięguj pobrane</button></div></form>';
         return $html . '<form method="post" action="' . U::h(U::url('wfirma_pobierz')) . '" class="kg-form">' . U::csrf($this->ctx) . '<div class="kg-grid">'
             . U::input('from', $from, 'Od (data wystawienia)', 'type="date" required') . U::input('to', date('Y-m-d'), 'Do', 'type="date" required') . '</div>'
             . '<div class="kg-actions"><button class="btn" type="submit">Pobierz z wFirma</button>'
             . ' <button class="btn secondary" type="submit" formaction="' . U::h(U::url('wfirma_test')) . '" formnovalidate>Sprawdź połączenie</button>'
             . ' <a class="btn secondary" href="' . U::h(U::url('porownanie_wf')) . '">Porównanie zapłat</a></div></form></div>';
+    }
+
+    /** Ustawienia księgowania dokumentów z wFirma i zaksięgowanie tych, które już są pobrane. */
+    public function wfirmaBook(): void
+    {
+        $this->need(Access::MANAGE);
+        $year = $this->ledger->currentYear();
+        foreach (['sale' => ['wf_sale', '7'], 'cost' => ['wf_cost', '4']] as $field => [$key, $prefix]) {
+            $v = trim((string) ($_POST[$field] ?? ''));
+            if ($v !== '' && str_starts_with($v, $prefix) && ($year === null || $this->ledger->accountByNumber((string) $year['id'], $v) !== null)) {
+                $this->db->setMeta($key, $v);
+            }
+        }
+        $on = isset($_POST['book']);
+        $this->db->setMeta('wf_book', $on ? '1' : '0');
+        if (!$on) {
+            flash('Zapisano: dokumenty z wFirma nie będą księgowane, tylko przypinane do ksiąg.');
+            $this->go('import');
+        }
+        $r = $this->wf()->book($this->user());
+        $this->db->log($this->user(), 'import.wfirma', 'wfirma', '', 'zaksięgowano ' . $r['booked'] . ($r['skipped'] !== [] ? ', pominięto ' . count($r['skipped']) : ''));
+        flash('Zaksięgowano dokumentów z wFirma: ' . $r['booked'] . '.' . ($r['skipped'] !== [] ? ' Pominięte (' . count($r['skipped']) . '): '
+            . implode('; ', array_slice($r['skipped'], 0, 5)) . (count($r['skipped']) > 5 ? '…' : '') . '.' : ''), $r['skipped'] !== [] ? 'err' : 'ok');
+        $this->go('import');
     }
 
     public function wfirmaTest(): void
@@ -1438,7 +1482,7 @@ final class Pages
         try {
             $r = $this->wf()->sync((string) ($_POST['from'] ?? ''), (string) ($_POST['to'] ?? ''), $this->user());
             flash('Z wFirma: ' . $r['sales'] . ' faktur sprzedaży i ' . $r['purchases'] . ' wydatków (' . $r['from'] . ' - ' . $r['to'] . '). Przypięto do ksiąg ' . $r['matched']
-                . ', nowych kontrahentów ' . $r['contractors'] . '.'
+                . ', zaksięgowano nowych ' . $r['booked'] . '.'
                 . ($r['unmatched'] !== [] ? ' Bez dokumentu w księgach (' . count($r['unmatched']) . '): ' . implode(', ', array_slice($r['unmatched'], 0, 5)) . (count($r['unmatched']) > 5 ? '…' : '') . '.' : ''),
                 $r['unmatched'] !== [] ? 'err' : 'ok');
             $this->go('porownanie_wf', ['od' => $r['from'], 'do' => $r['to']]);
@@ -1495,7 +1539,9 @@ final class Pages
             $r = (new JpkImport($this->db))->importKr($name, $xml, $this->user());
             flash('Zaimportowano księgi: ' . $r['accounts'] . ' kont, ' . $r['docs'] . ' dokumentów, ' . $r['entries'] . ' zapisów.'
                 . ($r['unbalanced'] !== [] ? ' Niezbilansowane w pliku: ' . implode(', ', array_slice($r['unbalanced'], 0, 5)) . (count($r['unbalanced']) > 5 ? '…' : '') . '.' : '')
-                . ($r['warnings'] !== [] ? ' ' . implode(' ', array_slice($r['warnings'], 0, 3)) : ''), $r['unbalanced'] !== [] ? 'err' : 'ok');
+                . ($r['warnings'] !== [] ? ' ' . implode(' ', array_slice($r['warnings'], 0, 3)) : '')
+                . ($r['wfirma']['matched'] + count($r['wfirma']['unmatched']) > 0 ? ' Dokumenty z wFirma: przypięto ' . $r['wfirma']['matched'] . ', bez dokumentu w księgach '
+                    . count($r['wfirma']['unmatched']) . '.' : ''), $r['unbalanced'] !== [] ? 'err' : 'ok');
             $this->go('porownanie', ['rok' => $r['year_id']]);
         } catch (\RuntimeException $e) {
             flash($e->getMessage(), 'err');

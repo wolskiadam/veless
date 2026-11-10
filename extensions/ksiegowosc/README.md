@@ -90,6 +90,12 @@ Zakładka Import (poziom zarządzanie) wczytuje pliki JPK, a z wFirma pobiera te
   a most przepuszcza tylko odczyt (`companies/get`, `invoices/find`, `expenses/find`). Odczyt konta wFirma przez most
   jest na liście odczytów rdzenia w sandboxie wtyczek (zgoda właściciela 2026-11-10). Pobieranie w tle przez
   `cron.tick` (ustawienie `wf_auto`): od początku poprzedniego miesiąca do dziś.
+  **Księgowanie dokumentów z wFirma** (ustawienie `wf_book`, domyślnie włączone - firma bez VAT i bez JPK_KR):
+  faktura bez odpowiednika w księgach staje się zaksięgowanym FS (Wn 200 / Ma konto przychodu `wf_sale`, domyślnie 700),
+  wydatek - FZ (Wn konto kosztów `wf_cost`, domyślnie 401 / Ma 202), zawsze brutto i bez VAT; korekta in minus odwrotnie.
+  Kontrahent dostaje analitykę 200/202, gdy konto ma już analityki. Źródło dokumentu (`source = wfirma`, `source_ref`
+  `s:`/`p:` + ID) pilnuje, żeby nic nie zaksięgowało się dwa razy, także przy tych samych numerach u różnych dostawców.
+  Import JPK_KR przypina wcześniej pobrane dokumenty od razu.
   API wFirma nie wydaje dziennika ani obrotów kont, więc księgi przychodzą dalej z JPK_KR. Konto 201 (plan wFirma)
   liczy się w rozrachunkach jak 200.
 

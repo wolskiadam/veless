@@ -197,7 +197,7 @@ final class JpkImport
     /**
      * Import JPK_KR: rok obrotowy (nowy albo z poprzedniego importu), plan kont, bilans otwarcia i dziennik jako
      * zaksięgowane dokumenty w kolejności pozycji dziennika.
-     * @return array{year_id:string,accounts:int,docs:int,entries:int,unbalanced:list<string>,warnings:list<string>}
+     * @return array{year_id:string,accounts:int,docs:int,entries:int,unbalanced:list<string>,warnings:list<string>,wfirma:array{matched:int,contractors:int,unmatched:list<string>}}
      */
     public function importKr(string $fileName, string $xml, string $user): array
     {
@@ -217,7 +217,7 @@ final class JpkImport
         if ($p['ctrl']['rows'] > 0 && $p['ctrl']['rows'] !== count(array_filter($p['journal'], static fn(array $j): bool => $j['lp'] !== PHP_INT_MAX))) {
             $warnings[] = 'Plik deklaruje ' . $p['ctrl']['rows'] . ' pozycji dziennika, a odczytano ' . count($p['journal']) . '.';
         }
-        return $this->db->tx(function () use ($p, $year, $ledger, $fileName, $user, $warnings): array {
+        $r = $this->db->tx(function () use ($p, $year, $ledger, $fileName, $user, $warnings): array {
             if ($year === null) {
                 $year = $ledger->createYear(substr($p['from'], 0, 4), $p['from'], $p['to'], 'empty', $user);
             } else {
@@ -318,6 +318,9 @@ final class JpkImport
                 . ($unbalanced !== [] ? ', niezbilansowanych: ' . count($unbalanced) : ''));
             return ['year_id' => $yearId, 'accounts' => count($names), 'docs' => $no, 'entries' => $entries, 'unbalanced' => $unbalanced, 'warnings' => $warnings];
         });
+        // Faktury i wydatki pobrane wcześniej z wFirma przypinają się od razu do nowych dokumentów.
+        $r['wfirma'] = (new Wfirma($this->db))->attach([], $user);
+        return $r;
     }
 
     /** Usuwa z roku wszystko z poprzedniego importu (dokumenty, zapisy, VAT, rozliczenia). */

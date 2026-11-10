@@ -117,6 +117,10 @@ Większe rozszerzenie z własną grupą menu, hakiem pakowania i sekcją karty z
 Rozszerzenie z kontem Meta, pracą w tle i hakami formularza Nowe zamówienie: **`extensions/meta/`** (rozmowy z Messengera
 i Instagrama, odpowiadanie, zamówienie z rozmowy). Opis: `extensions/meta/README.md`.
 
+Pełny moduł z własną bazą danych i własnymi uprawnieniami: **`extensions/ksiegowosc/`** (księgi rachunkowe - plan kont,
+dokumenty Wn/Ma, dziennik, storno, obroty i salda). Dane tylko w tabelach `ext_ksg_*` (albo osobnej bazie), z CRM łączy się
+wyłącznie hakiem zdarzeń i własnym `Api`. Opis: `extensions/ksiegowosc/README.md`.
+
 ## Katalog haków
 
 Priorytet (trzeci argument `addFilter`/`addAction`, domyślnie 10): mniejszy działa wcześniej.
@@ -301,6 +305,13 @@ System → Obciążenie serwera („Wtyczki rozszerzające”). Przykład: autom
 
 Rozszerzenie tworzy swoje tabele samo (`CREATE TABLE IF NOT EXISTS ...`), najlepiej z prefiksem `ext_<nazwa>_`.
 Składnia ma działać w MySQL (produkcja) i SQLite (testy) - patrz `examples/extensions/przyklad/Notes.php`.
+
+**Osobna baza.** Rozszerzenie może trzymać tabele w osobnej bazie: administrator wpisuje w `.env`
+`EXT_<NAZWA>_DB_DSN` (oraz `_USER`, `_PASS`), a rozszerzenie bierze połączenie z rdzenia:
+`\Pase\Plugin\ExtensionDatabase::connection('nazwa') ?? $this->pdo()`. Rozszerzenie nie czyta `.env` samo (sandbox to blokuje).
+
+**Lista użytkowników** (np. do własnych uprawnień): `\Pase\Support\AdminDirectory::activeUsers($pdo)` - id, login, nazwa
+i rola, bez haseł. Tabeli kont rozszerzenie nie czyta samo.
 
 ## Testy
 

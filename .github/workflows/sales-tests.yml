@@ -129,6 +129,8 @@ jobs:
       - run: php tests/paragony_http.php
       - run: php tests/meta_http.php
       - run: php tests/produkcja_http.php
+      - run: php tests/ksiegowosc.php
+      - run: php tests/ksiegowosc_http.php
       - run: php tests/allegro_offer_hooks_http.php
       - run: php tests/document_concurrency.php
       - run: php tests/order_list_sort.php
@@ -156,6 +158,12 @@ jobs:
           CRM_TEST_MYSQL_USER: root
           CRM_TEST_MYSQL_PASSWORD: isolated-test-only
       - run: php tests/handover_mysql.php
+        env:
+          CRM_TEST_MYSQL: '1'
+          CRM_TEST_MYSQL_USER: root
+          CRM_TEST_MYSQL_PASSWORD: isolated-test-only
+      - name: Księgowość na MySQL
+        run: php tests/ksiegowosc.php
         env:
           CRM_TEST_MYSQL: '1'
           CRM_TEST_MYSQL_USER: root

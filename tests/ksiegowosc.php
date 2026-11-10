@@ -194,6 +194,93 @@ ok($api->balance('130', '2026-12-31') === 377000 && $api->balance('130', '2027-0
 $l->lockUntil($y26['id'], '2026-06-30', 'adam');
 ok(!$api->periodOpen('2026-06-30') && $api->periodOpen('2026-07-01') && !$api->periodOpen('2030-01-01'), 'Api::periodOpen');
 
+// --- Kontrahenci (etap 2a)
+use PaseExt\Ksiegowosc\{Contractors, Vat};
+$cs = new Contractors($db);
+fails(fn() => $cs->save(null, ['name' => ''], 'adam'), 'nazwę', 'Contractor needs a name');
+fails(fn() => $cs->save(null, ['name' => 'X', 'nip' => '952-228-22-85'], 'adam'), 'sumę kontrolną', 'Bad NIP checksum rejected');
+fails(fn() => $cs->save(null, ['name' => 'X', 'country' => 'POL'], 'adam'), 'dwuliterowy', 'Bad country rejected');
+$wosk = $cs->save(null, ['name' => 'Woskownia Sp. z o.o.', 'nip' => 'PL 952-228-22-84', 'kind' => 'supplier', 'city' => 'Łódź'], 'adam');
+ok($wosk['code'] === '0001' && $wosk['nip'] === '9522282284' && $wosk['kind'] === 'supplier', 'Contractor saved with code and clean NIP');
+fails(fn() => $cs->save(null, ['name' => 'Kopia', 'nip' => '9522282284'], 'adam'), 'już jest', 'Duplicate NIP rejected');
+$de = $cs->save(null, ['name' => 'Kerzen GmbH', 'nip' => 'DE123456789', 'country' => 'de', 'kind' => 'customer'], 'adam');
+$both = $cs->save(null, ['name' => 'Hurtownia Świec', 'kind' => 'both'], 'adam');
+ok($de['code'] === '0002' && $de['country'] === 'DE' && $de['nip'] === 'DE123456789', 'Foreign VAT number kept');
+ok(Contractors::accountNumbers($wosk) === ['202' => '202-0001'] && Contractors::accountNumbers($de) === ['200' => '200-0002']
+    && Contractors::accountNumbers($both) === ['200' => '200-0003', '202' => '202-0003'], 'Settlement account numbers by kind');
+ok($l->accountByNumber($y27['id'], '202-0001') !== null && $l->accountByNumber($y27['id'], '200-0003') !== null
+    && $l->accountByNumber($y27['id'], '200-0001') === null, 'Settlement analytics created in open years');
+$cs->save($wosk['id'], ['name' => 'Woskownia SA', 'nip' => '9522282284', 'kind' => 'supplier'], 'adam');
+ok($l->accountByNumber($y27['id'], '202-0001')['name'] === 'Woskownia SA', 'Rename follows to the analytic account');
+ok(count($cs->list('wosk')) === 1 && count($cs->list('228')) === 1 && count($cs->list('')) === 3, 'Contractor search by name and NIP');
+$cs->setActive($de['id'], false, 'adam');
+ok(count($cs->list()) === 2 && count($cs->list('', true)) === 3, 'Inactive contractor hidden from the list');
+$cs->setActive($de['id'], true, 'adam');
+ok($cs->settlementAccount($wosk, $y27['id'], '202') === '202-0001' && $cs->settlementAccount($de, $y27['id'], '202') === null, 'settlementAccount');
+
+// --- VAT (etap 2a)
+ok(Vat::vatFor(100000, '23') === 23000 && Vat::vatFor(1, '23') === 0 && Vat::vatFor(3, '23') === 1 && Vat::vatFor(-3, '23') === -1
+    && Vat::vatFor(1000, '8') === 80 && Vat::vatFor(5000, 'zw') === 0 && Vat::vatFor(5000, '0') === 0, 'vatFor with rounding');
+ok(Vat::registerFor('FZ') === 'Z' && Vat::registerFor('FS') === 'S' && Vat::registerFor('PK') === 'S', 'Default register by document type');
+$p = Vat::parse([['rate' => '23', 'net' => '100'], ['rate' => '8', 'net' => '', 'vat' => ''], ['rate' => 'zw', 'net' => '50']], 'FS', '2027-02', '2027-03');
+ok(count($p) === 2 && $p[0]['vat_gr'] === 2300 && $p[0]['register'] === 'S' && $p[0]['period'] === '2027-02' && $p[1]['vat_gr'] === 0, 'Parse VAT rows (empty skipped, VAT computed)');
+$p = Vat::parse([['rate' => '23', 'net' => '1000', 'vat' => '230,01', 'deduct' => '50', 'kind' => 'fixed']], 'FZ', '2027-02', '2027-03');
+ok($p[0]['register'] === 'Z' && $p[0]['period'] === '2027-03' && $p[0]['vat_gr'] === 23001 && Vat::deductible($p[0]) === 11501 && $p[0]['kind'] === 'fixed', 'Purchase VAT: own amount, period, 50% deduction');
+fails(fn() => Vat::parse([['rate' => 'zw', 'net' => '10', 'vat' => '1']], 'FS', '2027-02', '2027-02'), 'musi być 0', 'VAT on exempt rate rejected');
+fails(fn() => Vat::parse([['rate' => '99', 'net' => '10']], 'FS', '2027-02', '2027-02'), 'stawkę', 'Unknown rate rejected');
+fails(fn() => Vat::parse([['rate' => '23', 'net' => '10', 'period' => '2027-13']], 'FS', '2027-02', '2027-02'), 'RRRR-MM', 'Bad VAT period rejected');
+
+// Podpowiedź dekretu i faktury z VAT.
+$vz = Vat::parse([['rate' => '23', 'net' => '1000'], ['rate' => '23', 'net' => '200', 'deduct' => '50']], 'FZ', '2027-02', '2027-02');
+$sug = $l->suggestLines($y27['id'], 'FZ', $wosk, $vz, '401 Zużycie materiałów');
+ok(array_column($sug, 'account') === ['401', '221', '202-0001'] && $sug[0]['debit'] === '1223,00' && $sug[1]['debit'] === '253,00' && $sug[2]['credit'] === '1476,00', 'Purchase posting suggestion (non-deductible VAT to cost)');
+$vs = Vat::parse([['rate' => '23', 'net' => '500'], ['rate' => '8', 'net' => '100']], 'FS', '2027-02', '2027-02');
+$sug = $l->suggestLines($y27['id'], 'FS', $de, $vs, '');
+ok(array_column($sug, 'account') === ['200-0002', '700', '222'] && $sug[0]['debit'] === '723,00' && $sug[2]['credit'] === '123,00', 'Sale posting suggestion');
+fails(fn() => $l->suggestLines($y27['id'], 'FS', null, [], ''), 'pozycje VAT', 'Suggestion needs VAT rows');
+
+$fs = $l->saveDraft(null, ['type' => 'FS', 'number' => 'FS/1/02/2027', 'posting_date' => '2027-02-10', 'op_date' => '2027-01-31', 'description' => 'Świece', 'contractor_id' => $de['id'],
+    'vat' => [['rate' => '23', 'net' => '500'], ['rate' => '8', 'net' => '100']], 'lines' => $l->suggestLines($y27['id'], 'FS', $de, $vs, '')], 'ola');
+ok($fs['counterparty'] === 'Kerzen GmbH' && $fs['contractor_id'] === $de['id'] && count((new Vat($db))->forDoc($fs['id'])) === 2, 'Sales invoice with contractor and VAT rows');
+ok((new Vat($db))->forDoc($fs['id'])[0]['period'] === '2027-01', 'Sales VAT period follows the operation date');
+ok($l->warnings($fs) === [], 'No warnings when VAT matches account 222');
+$fzv = $l->saveDraft(null, ['type' => 'FZ', 'number' => 'W/9', 'posting_date' => '2027-01-20', 'description' => 'Wosk', 'contractor_id' => $wosk['id'],
+    'vat' => [['rate' => '23', 'net' => '1000'], ['rate' => '23', 'net' => '200', 'deduct' => '50']], 'lines' => [$line('401', '1000', ''), $line('202-0001', '', '1000')]], 'ola');
+ok(count($l->warnings($fzv)) === 1 && str_contains($l->warnings($fzv)[0], 'konto 221') === false && str_contains($l->warnings($fzv)[0], '221'), 'Warning when VAT does not match account 221');
+$noVat = $l->saveDraft(null, ['type' => 'FS', 'posting_date' => '2027-01-21', 'description' => 'Bez VAT', 'lines' => [$line('130-01', '10', ''), $line('700', '', '10')]], 'ola');
+ok(count($l->warnings($noVat)) === 2, 'Invoice without VAT rows and contractor is warned about');
+$l->deleteDraft($noVat['id'], 'ola');
+$fzv = $l->saveDraft($fzv['id'], ['type' => 'FZ', 'number' => 'W/9', 'posting_date' => '2027-01-20', 'description' => 'Wosk', 'contractor_id' => $wosk['id'],
+    'vat' => [['rate' => '23', 'net' => '1000'], ['rate' => '23', 'net' => '200', 'deduct' => '50']], 'lines' => $l->suggestLines($y27['id'], 'FZ', $wosk, $vz, '401')], 'ola');
+ok($l->warnings($fzv) === [] && $l->postingProblems($fzv) === [], 'Suggested purchase posting is balanced and matches VAT');
+
+// Rejestry liczą tylko dokumenty zaksięgowane.
+$vat = new Vat($db);
+ok($vat->register('S', '2027-01')['docs'] === [], 'Draft not in the VAT register');
+$l->post($fs['id'], 'ola');
+$l->post($fzv['id'], 'ola');
+$rs = $vat->register('S', '2027-01');
+ok(count($rs['docs']) === 1 && $rs['net'] === 60000 && $rs['vat'] === 12300 && $rs['by_rate']['23']['vat'] === 11500 && $rs['by_rate']['8']['net'] === 10000
+    && $rs['docs'][0]['nip'] === 'DE123456789' && array_map('strval', array_keys($rs['by_rate'])) === ['23', '8'], 'Sales register with totals per rate');
+$rz = $vat->register('Z', '2027-01');
+ok(count($rz['docs']) === 1 && $rz['vat'] === 27600 && $rz['deductible'] === 25300, 'Purchase register with deductible VAT');
+ok($vat->settlement('2027-01') === ['due' => 12300, 'input' => 25300, 'balance' => -13000], 'VAT settlement for the month');
+ok($vat->settlement('2027-02') === ['due' => 0, 'input' => 0, 'balance' => 0], 'Empty month settles to zero');
+$stv = $l->reverse($fs['id'], '2027-02-15', 'ola', 'Zła faktura');
+ok(array_map(static fn(array $v): int => (int) $v['vat_gr'], $vat->forDoc($stv['id'])) === [-11500, -800] && $vat->forDoc($stv['id'])[0]['period'] === '2027-01'
+    && $stv['contractor_id'] === $de['id'], 'Storno copies VAT rows negated in the same period');
+$rs = $vat->register('S', '2027-01');
+ok(count($rs['docs']) === 2 && $rs['vat'] === 0 && $rs['net'] === 0, 'Reversed invoice nets out of the register');
+
+// Migracja ze schematu 1: brak kolumny contractor_id i nowych tabel.
+$old = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$old->exec('CREATE TABLE ext_ksg_meta (k VARCHAR(64) PRIMARY KEY, v TEXT)');
+$old->exec("INSERT INTO ext_ksg_meta VALUES ('schema', '1')");
+$old->exec('CREATE TABLE ext_ksg_docs (id VARCHAR(16) PRIMARY KEY, number VARCHAR(60))');
+$old->exec("INSERT INTO ext_ksg_docs VALUES ('aaaaaaaaaaaaaaaa', 'PK/1')");
+$mig = new Db($old);
+ok($mig->meta('schema') === Db::SCHEMA && $mig->one('SELECT contractor_id FROM ext_ksg_docs')['contractor_id'] === null && count($tablesOf($old)) === count(Db::tables()), 'Schema 1 migrates to schema 2');
+
 // --- Haki rozszerzenia: strony, menu, automation.event
 use Pase\Plugin\Hooks;
 Hooks::bootAs('ksiegowosc', static fn() => (new \PaseExt\Ksiegowosc\KsiegowoscExtension())->boot());

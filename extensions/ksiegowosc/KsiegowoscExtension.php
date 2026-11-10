@@ -13,7 +13,7 @@ use PDO;
  *
  * Etap 1: lata obrotowe, plan kont (wzór dla spółki z o.o.), dokumenty z dekretacją Wn/Ma, księgowanie z numerem
  * w dzienniku, storno, obroty i salda, zapisy na koncie, dziennik, własne uprawnienia, historia zmian i skrzynka
- * zdarzeń zamówień. Kolejne etapy (faktury i KSeF, paragony, deklaracje, kadry) - README.md.
+ * zdarzeń zamówień. Etap 2a: kontrahenci z kontami rozrachunkowymi, pozycje VAT w dokumentach, rejestry VAT. Kolejne etapy (faktury i KSeF, paragony, deklaracje, kadry) - README.md.
  *
  * Połączenie z CRM: tylko hak automation.event (do skrzynki) i klasa Api. Moduł nie czyta i nie pisze tabel CRM
  * (poza listą użytkowników przy nadawaniu dostępu - część wspólnego logowania).
@@ -21,14 +21,15 @@ use PDO;
 final class KsiegowoscExtension extends AbstractExtension
 {
     /** Pozycje menu: id strony => tytuł. */
-    private const MENU = ['pulpit' => 'Pulpit księgowości', 'dokumenty' => 'Dokumenty', 'dziennik' => 'Dziennik', 'konta' => 'Plan kont', 'obroty' => 'Obroty i salda'];
+    private const MENU = ['pulpit' => 'Pulpit księgowości', 'dokumenty' => 'Dokumenty', 'dziennik' => 'Dziennik', 'konta' => 'Plan kont', 'obroty' => 'Obroty i salda',
+        'kontrahenci' => 'Kontrahenci', 'vat' => 'Rejestry VAT'];
 
     public function manifest(): ExtensionManifest
     {
         return new ExtensionManifest(
             type: 'ksiegowosc',
             name: 'Księgowość',
-            version: '0.1.0',
+            version: '0.2.0',
             author: 'Veless',
             description: 'Pełne księgi rachunkowe spółki: plan kont, dokumenty z dekretacją Wn/Ma, dziennik, storno, obroty i salda. Dane w osobnych tabelach (albo osobnej bazie), własne uprawnienia. Docelowo także faktury do KSeF, paragony, deklaracje i kadry.',
             icon: '📒',
@@ -71,8 +72,14 @@ final class KsiegowoscExtension extends AbstractExtension
                 'dziennik' => static fn(Pages $p): string => $p->journal(),
                 'konta' => static fn(Pages $p): string => $p->accounts(),
                 'obroty' => static fn(Pages $p): string => $p->turnover(),
+                'kontrahenci' => static fn(Pages $p): string => $p->contractors(),
+                'vat' => static fn(Pages $p): string => $p->vatRegisters(),
             }, true);
         }
+        $page('kontrahent', 'Kontrahent', Access::VIEW, static fn(Pages $p): string => $p->contractor());
+        $page('kontrahent_zapisz', 'Kontrahent', Access::BOOK, static fn(Pages $p): string => $p->contractorSave());
+        $page('kontrahent_status', 'Kontrahent', Access::BOOK, static fn(Pages $p) => $p->contractorStatus());
+        $page('vat_csv', 'Rejestr VAT', Access::VIEW, static fn(Pages $p) => $p->vatCsv(), false, true);
         $page('dokument', 'Dokument', Access::VIEW, static fn(Pages $p): string => $p->doc());
         $page('dokument_nowy', 'Nowy dokument', Access::BOOK, static fn(Pages $p): string => $p->docForm());
         $page('dokument_edytuj', 'Popraw dokument', Access::BOOK, static fn(Pages $p): string => $p->docForm());

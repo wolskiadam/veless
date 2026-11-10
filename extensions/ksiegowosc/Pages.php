@@ -390,8 +390,13 @@ final class Pages
                 $html .= '<div class="kg-warn"><b>Przed zaksięgowaniem popraw:</b><ul><li>' . implode('</li><li>', array_map([U::class, 'h'], $problems)) . '</li></ul></div>';
             }
         }
+        if ($d['type'] !== 'ST' && ($warnings = $this->ledger->warnings($d)) !== []) {
+            $html .= '<div class="kg-warn" style="background:var(--surface-2);color:var(--ink-2)"><b>Do sprawdzenia:</b><ul><li>' . implode('</li><li>', array_map([U::class, 'h'], $warnings)) . '</li></ul></div>';
+        }
         $html .= '<div class="card"><dl class="kg-dl"><dt>Opis</dt><dd>' . U::h($d['description']) . '</dd>'
-            . ($d['counterparty'] !== '' ? '<dt>Kontrahent</dt><dd>' . U::h($d['counterparty']) . '</dd>' : '')
+            . (($c = ($d['contractor_id'] ?? null) ? (new Contractors($this->db))->get((string) $d['contractor_id']) : null) !== null
+                ? '<dt>Kontrahent</dt><dd><a href="' . U::h(U::url('kontrahent', ['id' => $c['id']])) . '">' . U::h($c['name']) . '</a>' . ($c['nip'] !== '' ? ' · NIP ' . U::h($c['nip']) : '') . '</dd>'
+                : ($d['counterparty'] !== '' ? '<dt>Kontrahent</dt><dd>' . U::h($d['counterparty']) . '</dd>' : ''))
             . '<dt>Data księgowania</dt><dd>' . U::date($d['posting_date']) . '</dd><dt>Data dokumentu</dt><dd>' . U::date($d['doc_date']) . '</dd>'
             . '<dt>Data operacji</dt><dd>' . U::date($d['op_date']) . '</dd>'
             . '<dt>Wprowadził</dt><dd>' . U::h($d['created_by']) . ' · ' . U::h(substr((string) $d['created_at'], 0, 16)) . ' UTC</dd>'
@@ -402,7 +407,7 @@ final class Pages
         if ($d['reversed_by'] !== null && ($rev = $this->ledger->doc((string) $d['reversed_by'])) !== null) {
             $html .= '<dt>Wystornowany przez</dt><dd><a href="' . U::h(U::url('dokument', ['id' => $rev['id']])) . '">' . U::h($rev['number']) . '</a> z ' . U::date($rev['posting_date']) . '</dd>';
         }
-        $html .= '</dl></div>' . $this->entriesTable($entries);
+        $html .= '</dl></div>' . $this->vatTable((new Vat($this->db))->forDoc((string) $d['id'])) . $this->entriesTable($entries);
         if ($d['status'] === 'posted' && $d['type'] !== 'ST' && ($d['reversed_by'] ?? null) === null && $this->can(Access::BOOK)) {
             $html .= '<div class="card"><h3 style="margin-top:0">Storno</h3><p class="kg-muted">Zaksięgowanego dokumentu nie zmienia się. Storno dopisuje dokument z tymi samymi kontami i kwotami z minusem, więc obroty wracają do stanu sprzed błędu. Potem wprowadź dokument jeszcze raz poprawnie.</p>'
                 . '<form method="post" action="' . U::h(U::url('dokument_storno')) . '" class="kg-form" onsubmit="return confirm(\'Wystornować ' . U::h($d['number']) . '?\')">' . U::csrf($this->ctx)
@@ -410,6 +415,24 @@ final class Pages
                 . U::input('reason', '', 'Powód', 'maxlength="150" placeholder="np. błędne konto"') . '</div><div><button class="btn secondary" type="submit">Wystornuj</button></div></form></div>';
         }
         return $html;
+    }
+
+    /** @param list<array<string,mixed>> $vat */
+    private function vatTable(array $vat): string
+    {
+        if ($vat === []) {
+            return '';
+        }
+        $html = '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Rejestr VAT</th><th>Okres</th><th>Stawka</th><th class="kg-num">Netto</th><th class="kg-num">VAT</th><th class="kg-num">Brutto</th></tr></thead><tbody>';
+        $n = $t = 0;
+        foreach ($vat as $x) {
+            $n += (int) $x['net_gr'];
+            $t += (int) $x['vat_gr'];
+            $html .= '<tr><td>' . ($x['register'] === 'S' ? 'Sprzedaż' : 'Zakup' . ' <span class="kg-small">' . U::h(Vat::PURCHASE_KINDS[$x['kind']] ?? '') . ($x['deduct'] !== '100' ? ', ' . U::h(Vat::DEDUCT[$x['deduct']] ?? '') : '') . '</span>') . '</td>'
+                . '<td><a href="' . U::h(U::url('vat', ['m' => $x['period'], 'r' => $x['register']])) . '">' . U::h($x['period']) . '</a></td><td>' . U::h(Vat::RATES[$x['rate']][0] ?? $x['rate']) . '</td>'
+                . '<td class="kg-num">' . U::money((int) $x['net_gr']) . '</td><td class="kg-num">' . U::money((int) $x['vat_gr']) . '</td><td class="kg-num">' . U::money((int) $x['net_gr'] + (int) $x['vat_gr']) . '</td></tr>';
+        }
+        return $html . '</tbody><tfoot><tr><td colspan="3">Razem</td><td class="kg-num">' . U::money($n) . '</td><td class="kg-num">' . U::money($t) . '</td><td class="kg-num">' . U::money($n + $t) . '</td></tr></tfoot></table></div>';
     }
 
     /** @param list<array<string,mixed>> $entries */
@@ -453,6 +476,41 @@ final class Pages
         while (count($lines) < 2) {
             $lines[] = ['account' => '', 'description' => '', 'debit' => '', 'credit' => ''];
         }
+        $vatRows = [];
+        if ($in !== null) {
+            $vatRows = array_values(array_filter((array) ($in['vat'] ?? []), 'is_array'));
+        } elseif ($doc !== null) {
+            foreach ((new Vat($this->db))->forDoc((string) $doc['id']) as $x) {
+                $vatRows[] = ['register' => $x['register'], 'rate' => $x['rate'], 'net' => Money::input((int) $x['net_gr']), 'vat' => Money::input((int) $x['vat_gr']),
+                    'period' => $x['period'], 'kind' => $x['kind'], 'deduct' => $x['deduct']];
+            }
+        }
+        while (count($vatRows) < 1) {
+            $vatRows[] = ['register' => '', 'rate' => '23', 'net' => '', 'vat' => '', 'period' => '', 'kind' => 'other', 'deduct' => '100'];
+        }
+        $rates = [];
+        foreach (Vat::RATES as $k => [$label]) {
+            $rates[(string) $k] = $label;
+        }
+        $vatRow = static function (int $i, array $x) use ($rates): string {
+            $reg = (string) ($x['register'] ?? '');
+            return '<tr><td>' . U::select('vat[' . $i . '][register]', ['' => 'wg rodzaju', 'S' => 'Sprzedaż', 'Z' => 'Zakup'], $reg) . '</td>'
+                . '<td>' . U::select('vat[' . $i . '][rate]', $rates, (string) ($x['rate'] ?? '23'), '', 'class="kg-vrate"') . '</td>'
+                . '<td><input class="kg-amt-v kg-vnet" name="vat[' . $i . '][net]" value="' . U::h($x['net'] ?? '') . '" inputmode="decimal" placeholder="Netto"></td>'
+                . '<td><input class="kg-amt-v kg-vvat" name="vat[' . $i . '][vat]" value="' . U::h($x['vat'] ?? '') . '" inputmode="decimal" placeholder="VAT (sam)"></td>'
+                . '<td><input type="month" name="vat[' . $i . '][period]" value="' . U::h($x['period'] ?? '') . '" title="Okres JPK; puste = miesiąc operacji (sprzedaż) albo księgowania (zakup)"></td>'
+                . '<td>' . U::select('vat[' . $i . '][kind]', Vat::PURCHASE_KINDS, (string) ($x['kind'] ?? 'other'))
+                . U::select('vat[' . $i . '][deduct]', Vat::DEDUCT, (string) ($x['deduct'] ?? '100')) . '</td>'
+                . '<td><button type="button" class="kg-del" title="Usuń pozycję">×</button></td></tr>';
+        };
+        $vatHtml = '';
+        foreach ($vatRows as $i => $x) {
+            $vatHtml .= $vatRow($i, $x);
+        }
+        $contractors = ['' => '- bez kontrahenta z kartoteki -'];
+        foreach ((new Contractors($this->db))->list() as $c) {
+            $contractors[(string) $c['id']] = $c['name'] . ($c['nip'] !== '' ? ' · NIP ' . $c['nip'] : '') . ' (' . $c['code'] . ')';
+        }
         $v = static fn(string $k, string $d = ''): string => (string) ($in[$k] ?? $doc[$k] ?? $d);
         $today = min(max(date('Y-m-d'), (string) $year['starts_on']), (string) $year['ends_on']);
         $types = array_intersect_key(Ledger::TYPES, array_flip(Ledger::MANUAL_TYPES));
@@ -480,7 +538,13 @@ final class Pages
             . U::input('doc_date', $v('doc_date'), 'Data dokumentu', 'type="date"', 'Puste = data księgowania.')
             . U::input('op_date', $v('op_date'), 'Data operacji', 'type="date"', 'Puste = data dokumentu.') . '</div>'
             . '<div class="kg-grid" style="margin-top:12px">' . U::input('description', $v('description'), 'Opis operacji', 'required maxlength="255"')
-            . U::input('counterparty', $v('counterparty'), 'Kontrahent', 'maxlength="200"') . '</div></div>'
+            . U::select('contractor_id', $contractors, $v('contractor_id'), 'Kontrahent z kartoteki')
+            . U::input('counterparty', $v('counterparty'), 'Kontrahent (tekst)', 'maxlength="200"', 'Puste = nazwa z kartoteki. <a href="' . U::h(U::url('kontrahent', ['nowy' => 1])) . '" target="_blank">+ nowy kontrahent</a>') . '</div></div>'
+            . '<div class="card kg-table"><h3 style="margin-top:0">VAT</h3><p class="kg-small" style="margin-top:-6px">Pozycje do rejestru VAT. Faktura sprzedaży trafia do rejestru sprzedaży, zakupu do rejestru zakupu (albo wybierz sam). Pole VAT puste = policzy się ze stawki. Rodzaj i odliczenie dotyczą tylko zakupu.</p>'
+            . '<table class="kg-lines"><thead><tr><th>Rejestr</th><th>Stawka</th><th class="kg-num">Netto</th><th class="kg-num">VAT</th><th>Okres</th><th>Zakup</th><th></th></tr></thead><tbody id="kg-vrows">' . $vatHtml . '</tbody></table>'
+            . '<div class="kg-actions" style="justify-content:space-between"><button type="button" class="btn secondary" id="kg-vadd">+ Stawka</button>'
+            . '<div class="kg-actions">' . U::input('counter_account', (string) ($in['counter_account'] ?? ''), '', 'list="kg-accounts" placeholder="Konto przychodu / kosztu (np. 700, 401)" style="min-width:260px" autocomplete="off"')
+            . '<button class="btn secondary" type="submit" name="suggest" value="1" formnovalidate title="Wypełnia dekretację z pozycji VAT i kontrahenta">↓ Podpowiedz dekret</button></div></div></div>'
             . '<div class="card kg-table"><h3 style="margin-top:0">Dekretacja</h3><datalist id="kg-accounts">' . $opts . '</datalist>'
             . '<table class="kg-lines"><thead><tr><th style="width:30%">Konto</th><th>Opis</th><th class="kg-num">Wn</th><th class="kg-num">Ma</th><th></th></tr></thead><tbody id="kg-rows">' . $rows . '</tbody></table>'
             . '<div class="kg-actions" style="justify-content:space-between"><button type="button" class="btn secondary" id="kg-add">+ Pozycja</button>'
@@ -496,7 +560,13 @@ final class Pages
             . 'document.getElementById("kg-add").addEventListener("click",function(){var r=tb.rows[tb.rows.length-1].cloneNode(true);'
             . 'r.querySelectorAll("input").forEach(function(i){i.value="";i.name=i.name.replace(/lines\[\d+\]/,"lines["+n+"]");});n++;tb.appendChild(r);r.querySelector("input").focus();});'
             . 'tb.addEventListener("click",function(e){if(e.target.classList.contains("kg-del")){if(tb.rows.length>1){e.target.closest("tr").remove();}else{e.target.closest("tr").querySelectorAll("input").forEach(function(i){i.value="";});}sum();}});'
-            . 'tb.addEventListener("input",sum);sum();})();</script>';
+            . 'tb.addEventListener("input",sum);sum();'
+            . 'var vb=document.getElementById("kg-vrows"),vn=vb.rows.length,pct={"23":23,"8":8,"5":5};'
+            . 'function vcalc(){vb.querySelectorAll("tr").forEach(function(r){var p=pct[r.querySelector(".kg-vrate").value]||0,g=num(r.querySelector(".kg-vnet").value);r.querySelector(".kg-vvat").placeholder=g?fmt(Math.round(g*p/100))+" (sam)":"VAT (sam)";});}'
+            . 'document.getElementById("kg-vadd").addEventListener("click",function(){var r=vb.rows[vb.rows.length-1].cloneNode(true);'
+            . 'r.querySelectorAll("input").forEach(function(i){i.value="";});r.querySelectorAll("input,select").forEach(function(i){i.name=i.name.replace(/vat\\[\\d+\\]/,"vat["+vn+"]");});vn++;vb.appendChild(r);vcalc();});'
+            . 'vb.addEventListener("click",function(e){if(e.target.classList.contains("kg-del")){if(vb.rows.length>1){e.target.closest("tr").remove();}else{e.target.closest("tr").querySelectorAll("input").forEach(function(i){i.value="";});}vcalc();}});'
+            . 'vb.addEventListener("input",vcalc);vb.addEventListener("change",vcalc);vcalc();})();</script>';
         return $html;
     }
 
@@ -505,6 +575,9 @@ final class Pages
         $this->need(Access::BOOK);
         $id = (string) ($_POST['id'] ?? '');
         $old = $id !== '' ? $this->ledger->doc($id) : null;
+        if (isset($_POST['suggest'])) {
+            return $this->docForm($old, $this->withSuggestion($_POST));
+        }
         try {
             $d = $this->ledger->saveDraft($id !== '' ? $id : null, $_POST, $this->user());
         } catch (\RuntimeException $e) {
@@ -522,6 +595,27 @@ final class Pages
             flash('Zapisano szkic ' . $d['number'] . '.');
         }
         $this->go('dokument', ['id' => $d['id']]);
+    }
+
+    /** Formularz z dekretacją podpowiedzianą z pozycji VAT (nic nie zapisuje). */
+    private function withSuggestion(array $in): array
+    {
+        try {
+            $type = (string) ($in['type'] ?? 'PK');
+            $posting = (string) ($in['posting_date'] ?? '');
+            $year = (Ledger::validDate($posting) ? $this->ledger->yearFor($posting) : null) ?? throw new \RuntimeException('Najpierw podaj datę księgowania w roku obrotowym.');
+            $op = (string) ($in['op_date'] ?? '') ?: ((string) ($in['doc_date'] ?? '') ?: $posting);
+            $vat = Vat::parse((array) ($in['vat'] ?? []), $type, substr($op, 0, 7), substr($posting, 0, 7));
+            $c = trim((string) ($in['contractor_id'] ?? '')) !== '' ? (new Contractors($this->db))->get((string) $in['contractor_id']) : null;
+            $in['lines'] = $this->ledger->suggestLines((string) $year['id'], $type, $c, $vat, (string) ($in['counter_account'] ?? ''));
+            if (trim((string) ($in['description'] ?? '')) === '' && $vat !== []) {
+                $in['description'] = ($vat[0]['register'] === 'S' ? 'Sprzedaż' : 'Zakup') . ($c !== null ? ' - ' . $c['name'] : '');
+            }
+            flash('Podpowiedziano dekretację - sprawdź konta i zapisz.');
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+        }
+        return $in;
     }
 
     public function docPost(): void
@@ -685,6 +779,208 @@ final class Pages
         return $html . '<div class="kg-sum">Razem okres: Wn ' . U::money($dt) . ' · Ma ' . U::money($ct) . '</div></div>';
     }
 
+    // ============================================================== kontrahenci
+
+    public function contractors(): string
+    {
+        $q = mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100);
+        $all = isset($_GET['wszyscy']);
+        $rows = (new Contractors($this->db))->list($q, $all);
+        $html = $this->head('kontrahenci') . '<div class="kg-top"><p>Kartoteka kontrahentów księgowości. Każdy ma własne konta rozrachunkowe (200-kod odbiorca, 202-kod dostawca).</p>'
+            . '<div class="kg-actions">' . ($this->can(Access::BOOK) ? '<a class="btn" href="' . U::h(U::url('kontrahent', ['nowy' => 1])) . '">+ Nowy kontrahent</a>' : '') . '</div></div>'
+            . '<form class="kg-filter" method="get" action="ext.php"><input type="hidden" name="page" value="ksiegowosc.kontrahenci">'
+            . '<input type="search" name="q" value="' . U::h($q) . '" placeholder="Szukaj po nazwie, NIP-ie, kodzie, mieście">'
+            . ($all ? '<input type="hidden" name="wszyscy" value="1">' : '') . '<button class="btn secondary" type="submit">Szukaj</button>'
+            . '<a class="btn secondary' . ($all ? ' on' : '') . '" href="' . U::h(U::url('kontrahenci', $all ? [] : ['wszyscy' => 1])) . '">' . ($all ? 'Tylko aktywni' : 'Także wyłączeni') . '</a></form>';
+        if ($rows === []) {
+            return $html . ($q === '' ? U::empty('Nie ma jeszcze kontrahentów', 'Dodaj odbiorców i dostawców, żeby faktury trafiały do rejestrów VAT z NIP-em, a rozrachunki z każdym liczyły się osobno.',
+                $this->can(Access::BOOK) ? '<a class="btn" href="' . U::h(U::url('kontrahent', ['nowy' => 1])) . '">+ Nowy kontrahent</a>' : '') : '<div class="card kg-muted">Nic nie pasuje.</div>');
+        }
+        $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Kod</th><th>Nazwa</th><th>NIP</th><th class="kg-hide-m">Miejscowość</th><th class="kg-hide-m">Rodzaj</th></tr></thead><tbody>';
+        foreach ($rows as $c) {
+            $html .= '<tr class="' . ((int) $c['active'] !== 1 ? 'off' : '') . '"><td class="kg-acc">' . U::h($c['code']) . '</td><td><a href="' . U::h(U::url('kontrahent', ['id' => $c['id']])) . '"><b>' . U::h($c['name']) . '</b></a></td>'
+                . '<td>' . U::h(($c['country'] !== 'PL' ? $c['country'] . ' ' : '') . $c['nip']) . '</td><td class="kg-hide-m">' . U::h($c['city']) . '</td>'
+                . '<td class="kg-hide-m">' . U::h(Contractors::KINDS[$c['kind']] ?? $c['kind']) . '</td></tr>';
+        }
+        return $html . '</tbody></table></div>';
+    }
+
+    private function contractorForm(?array $c, array $in = []): string
+    {
+        $v = static fn(string $k, string $d = ''): string => (string) ($in[$k] ?? $c[$k] ?? $d);
+        return '<form method="post" action="' . U::h(U::url('kontrahent_zapisz')) . '" class="kg-form">' . U::csrf($this->ctx)
+            . ($c !== null ? '<input type="hidden" name="id" value="' . U::h($c['id']) . '">' : '')
+            . '<div class="kg-grid">' . U::input('name', $v('name'), 'Nazwa', 'required maxlength="200"')
+            . U::input('nip', $v('nip'), 'NIP / numer VAT', 'maxlength="24"', 'Polski NIP sprawdzamy sumą kontrolną.')
+            . U::input('country', $v('country', 'PL'), 'Kraj', 'maxlength="2" style="text-transform:uppercase"')
+            . U::select('kind', Contractors::KINDS, $v('kind', 'both'), 'Rodzaj') . '</div>'
+            . '<div class="kg-grid">' . U::input('street', $v('street'), 'Ulica i numer', 'maxlength="200"') . U::input('postcode', $v('postcode'), 'Kod pocztowy', 'maxlength="12"')
+            . U::input('city', $v('city'), 'Miejscowość', 'maxlength="100"') . '</div>'
+            . '<div class="kg-grid">' . U::input('email', $v('email'), 'E-mail', 'type="email" maxlength="150"') . U::input('phone', $v('phone'), 'Telefon', 'maxlength="40"')
+            . U::input('bank_account', $v('bank_account'), 'Rachunek bankowy', 'maxlength="40"') . '</div>'
+            . '<label>Uwagi<textarea name="notes" rows="2" maxlength="2000">' . U::h($v('notes')) . '</textarea></label>'
+            . '<div><button class="btn" type="submit">' . ($c === null ? 'Dodaj kontrahenta' : 'Zapisz') . '</button></div></form>';
+    }
+
+    public function contractor(): string
+    {
+        $cs = new Contractors($this->db);
+        if (isset($_GET['nowy'])) {
+            $this->need(Access::BOOK);
+            return $this->head('kontrahenci') . U::back(U::url('kontrahenci'), 'Kontrahenci') . '<div class="card">' . $this->contractorForm(null) . '</div>';
+        }
+        $c = $cs->get((string) ($_GET['id'] ?? ''));
+        if ($c === null) {
+            return $this->head('kontrahenci') . '<div class="flash err">Nie ma takiego kontrahenta.</div>';
+        }
+        if (isset($_GET['edytuj']) && $this->can(Access::BOOK)) {
+            return $this->head('kontrahenci') . U::back(U::url('kontrahent', ['id' => $c['id']]), (string) $c['name']) . '<div class="card">' . $this->contractorForm($c) . '</div>';
+        }
+        $addr = trim($c['street'] . ', ' . trim($c['postcode'] . ' ' . $c['city']), ' ,');
+        $html = $this->head('kontrahenci') . U::back(U::url('kontrahenci'), 'Kontrahenci')
+            . '<div class="kg-top"><div><h2 style="margin:0">' . U::h($c['name']) . ((int) $c['active'] !== 1 ? ' <span class="kg-pill">wyłączony</span>' : '') . '</h2>'
+            . '<p>Kod <b>' . U::h($c['code']) . '</b>' . ($c['nip'] !== '' ? ' · NIP ' . U::h(($c['country'] !== 'PL' ? $c['country'] : '') . $c['nip']) : '') . ' · ' . U::h(Contractors::KINDS[$c['kind']] ?? '') . '</p></div>'
+            . '<div class="kg-actions">' . ($this->can(Access::BOOK) ? '<a class="btn secondary" href="' . U::h(U::url('kontrahent', ['id' => $c['id'], 'edytuj' => 1])) . '">Popraw</a>'
+                . U::postButton($this->ctx, 'kontrahent_status', ['id' => $c['id'], 'active' => (int) $c['active'] === 1 ? 0 : 1], (int) $c['active'] === 1 ? 'Wyłącz' : 'Włącz', 'btn secondary') : '') . '</div></div>';
+        $html .= '<div class="kg-two"><div class="card"><dl class="kg-dl">' . ($addr !== '' ? '<dt>Adres</dt><dd>' . U::h($addr) . ($c['country'] !== 'PL' ? ', ' . U::h($c['country']) : '') . '</dd>' : '')
+            . ($c['email'] !== '' ? '<dt>E-mail</dt><dd>' . U::h($c['email']) . '</dd>' : '') . ($c['phone'] !== '' ? '<dt>Telefon</dt><dd>' . U::h($c['phone']) . '</dd>' : '')
+            . ($c['bank_account'] !== '' ? '<dt>Rachunek</dt><dd class="kg-acc">' . U::h($c['bank_account']) . '</dd>' : '')
+            . ($c['notes'] !== '' ? '<dt>Uwagi</dt><dd>' . nl2br(U::h($c['notes'])) . '</dd>' : '') . '</dl></div>';
+        $year = $this->ledger->currentYear();
+        $html .= '<div class="card"><h3 style="margin-top:0">Rozrachunki' . ($year !== null ? ' ' . U::h($year['name']) : '') . '</h3>';
+        if ($year === null) {
+            $html .= '<p class="kg-muted">Brak roku obrotowego.</p>';
+        } else {
+            $any = false;
+            foreach (Contractors::accountNumbers($c) as $parent => $number) {
+                $a = $this->ledger->accountByNumber((string) $year['id'], $number);
+                if ($a === null) {
+                    continue;
+                }
+                $any = true;
+                $l = $this->ledger->accountLedger((string) $a['id'], (string) $year['starts_on'], (string) $year['ends_on']);
+                $bal = $l['opening'] + $l['debit'] - $l['credit'];
+                $label = $parent === Contractors::RECEIVABLE ? ($bal >= 0 ? 'Należność od kontrahenta' : 'Nadpłata kontrahenta') : ($bal <= 0 ? 'Zobowiązanie wobec kontrahenta' : 'Nadpłata u kontrahenta');
+                $html .= '<p><a class="kg-acc" href="' . U::h(U::url('konto', ['id' => $a['id']])) . '">' . U::h($number) . '</a> ' . $label . ': <b>' . U::money(abs($bal)) . ' zł</b></p>';
+            }
+            if (!$any) {
+                $html .= '<p class="kg-muted">Brak kont rozrachunkowych w tym roku (konto 200/202 ma już zapisy bez analityki).</p>';
+            }
+        }
+        $html .= '</div></div>';
+        $docs = $this->db->all('SELECT * FROM ext_ksg_docs WHERE contractor_id = ? ORDER BY posting_date DESC, created_at DESC LIMIT 100', [$c['id']]);
+        if ($docs !== []) {
+            $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Data</th><th>Numer</th><th>Opis</th><th class="kg-num">Kwota</th><th>Status</th></tr></thead><tbody>';
+            foreach ($docs as $d) {
+                $html .= '<tr><td>' . U::date($d['posting_date']) . '</td><td><a href="' . U::h(U::url('dokument', ['id' => $d['id']])) . '">' . U::h($d['number']) . '</a></td>'
+                    . '<td>' . U::h($d['description']) . '</td><td class="kg-num">' . U::money((int) $d['total_gr']) . '</td><td>' . U::status($d) . '</td></tr>';
+            }
+            $html .= '</tbody></table></div>';
+        }
+        return $html;
+    }
+
+    public function contractorSave(): string
+    {
+        $this->need(Access::BOOK);
+        $id = (string) ($_POST['id'] ?? '');
+        $cs = new Contractors($this->db);
+        try {
+            $c = $cs->save($id !== '' ? $id : null, $_POST, $this->user());
+            flash(($id === '' ? 'Dodano kontrahenta ' : 'Zapisano kontrahenta ') . $c['name'] . ' (kod ' . $c['code'] . ').');
+            $this->go('kontrahent', ['id' => $c['id']]);
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+            return $this->head('kontrahenci') . U::back(U::url('kontrahenci'), 'Kontrahenci') . '<div class="card">' . $this->contractorForm($id !== '' ? $cs->get($id) : null, $_POST) . '</div>';
+        }
+    }
+
+    public function contractorStatus(): void
+    {
+        $this->need(Access::BOOK);
+        $id = (string) ($_POST['id'] ?? '');
+        try {
+            (new Contractors($this->db))->setActive($id, (int) ($_POST['active'] ?? 0) === 1, $this->user());
+            flash((int) ($_POST['active'] ?? 0) === 1 ? 'Kontrahent włączony.' : 'Kontrahent wyłączony - nie podpowiada się w dokumentach.');
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+        }
+        $this->go('kontrahent', ['id' => $id]);
+    }
+
+    // ============================================================== rejestry VAT
+
+    private function vatPeriod(): string
+    {
+        $m = (string) ($_GET['m'] ?? '');
+        return preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $m) ? $m : date('Y-m', strtotime('first day of last month'));
+    }
+
+    public function vatRegisters(): string
+    {
+        $vat = new Vat($this->db);
+        $m = $this->vatPeriod();
+        $reg = ($_GET['r'] ?? 'S') === 'Z' ? 'Z' : 'S';
+        $r = $vat->register($reg, $m);
+        $set = $vat->settlement($m);
+        $prev = date('Y-m', strtotime($m . '-01 -1 month'));
+        $next = date('Y-m', strtotime($m . '-01 +1 month'));
+        $html = $this->head('vat') . '<div class="kg-top"><p>Rejestry VAT za miesiąc (tylko dokumenty zaksięgowane). Okres to miesiąc ujęcia w JPK.</p><div class="kg-actions">'
+            . '<a class="btn secondary" href="' . U::h(U::url('vat', ['m' => $prev, 'r' => $reg])) . '">←</a>'
+            . '<form method="get" action="ext.php" class="kg-inline"><input type="hidden" name="page" value="ksiegowosc.vat"><input type="hidden" name="r" value="' . $reg . '">'
+            . '<input type="month" name="m" value="' . U::h($m) . '" onchange="this.form.submit()"></form>'
+            . '<a class="btn secondary" href="' . U::h(U::url('vat', ['m' => $next, 'r' => $reg])) . '">→</a>'
+            . '<a class="btn secondary" href="' . U::h(U::url('vat_csv', ['m' => $m, 'r' => $reg])) . '">⬇ CSV</a></div></div>';
+        $html .= '<div class="kg-cards"><div class="card stat"><div class="label">VAT należny (sprzedaż)</div><div class="num">' . U::money($set['due']) . ' zł</div></div>'
+            . '<div class="card stat"><div class="label">VAT naliczony do odliczenia</div><div class="num">' . U::money($set['input']) . ' zł</div></div>'
+            . '<div class="card stat"><div class="label">' . ($set['balance'] >= 0 ? 'Do zapłaty za ' : 'Nadwyżka naliczonego za ') . U::h($m) . '</div><div class="num' . ($set['balance'] < 0 ? ' kg-ok' : '') . '">' . U::money(abs($set['balance'])) . ' zł</div>'
+            . '<div class="kg-small">bez nadwyżki z poprzednich miesięcy (dojdzie z deklaracją)</div></div></div>';
+        $html .= '<nav class="kg-tabs" style="margin-top:0">';
+        foreach (Vat::REGISTERS as $k => $label) {
+            $html .= '<a class="' . ($k === $reg ? 'on' : '') . '" href="' . U::h(U::url('vat', ['m' => $m, 'r' => $k])) . '">' . U::h($label) . '</a>';
+        }
+        $html .= '</nav>';
+        if ($r['docs'] === []) {
+            return $html . '<div class="card kg-muted">Brak zaksięgowanych dokumentów w tym rejestrze za ' . U::h($m) . '.</div>';
+        }
+        $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Lp.</th><th>Data</th><th>Dokument</th><th>Kontrahent</th><th>NIP</th><th>Stawki</th>'
+            . '<th class="kg-num">Netto</th><th class="kg-num">VAT</th>' . ($reg === 'Z' ? '<th class="kg-num">Do odliczenia</th>' : '') . '</tr></thead><tbody>';
+        foreach ($r['docs'] as $i => $d) {
+            $rates = implode(', ', array_unique(array_map(static fn(array $l): string => (string) (Vat::RATES[$l['rate']][0] ?? $l['rate']), $d['lines'])));
+            $html .= '<tr><td>' . ($i + 1) . '</td><td>' . U::date($reg === 'S' ? $d['op_date'] : $d['doc_date']) . '</td>'
+                . '<td><a href="' . U::h(U::url('dokument', ['id' => $d['id']])) . '">' . U::h($d['number']) . '</a>' . ($d['reversal'] ? ' <span class="kg-pill rev">storno</span>' : '') . '</td>'
+                . '<td>' . U::h($d['name']) . '</td><td>' . U::h(($d['country'] !== '' && $d['country'] !== 'PL' ? $d['country'] : '') . $d['nip']) . '</td><td>' . U::h($rates) . '</td>'
+                . '<td class="kg-num">' . U::money($d['net']) . '</td><td class="kg-num">' . U::money($d['vat']) . '</td>' . ($reg === 'Z' ? '<td class="kg-num">' . U::money($d['deductible']) . '</td>' : '') . '</tr>';
+        }
+        $html .= '</tbody><tfoot>';
+        foreach ($r['by_rate'] as $rate => $t) {
+            $html .= '<tr><td colspan="6" style="font-weight:400">Stawka ' . U::h(Vat::RATES[$rate][0] ?? $rate) . '</td><td class="kg-num" style="font-weight:400">' . U::money($t['net']) . '</td><td class="kg-num" style="font-weight:400">' . U::money($t['vat']) . '</td>' . ($reg === 'Z' ? '<td></td>' : '') . '</tr>';
+        }
+        return $html . '<tr><td colspan="6">Razem</td><td class="kg-num">' . U::money($r['net']) . '</td><td class="kg-num">' . U::money($r['vat']) . '</td>' . ($reg === 'Z' ? '<td class="kg-num">' . U::money($r['deductible']) . '</td>' : '') . '</tr></tfoot></table></div>';
+    }
+
+    public function vatCsv(): void
+    {
+        $m = $this->vatPeriod();
+        $reg = ($_GET['r'] ?? 'S') === 'Z' ? 'Z' : 'S';
+        $r = (new Vat($this->db))->register($reg, $m);
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="rejestr-vat-' . ($reg === 'S' ? 'sprzedaz' : 'zakup') . '-' . $m . '.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\u{FEFF}");
+        $n = static fn(int $gr): string => str_replace("\u{a0}", '', Money::format($gr));
+        $safe = static fn(string $t): string => preg_match('/^[=+\-@]/', $t) ? "'" . $t : $t;
+        fputcsv($out, ['Lp.', 'Data', 'Dokument', 'Kontrahent', 'Kraj', 'NIP', 'Stawka', 'Netto', 'VAT', 'Do odliczenia'], ';', '"', '');
+        foreach ($r['docs'] as $i => $d) {
+            foreach ($d['lines'] as $l) {
+                fputcsv($out, [$i + 1, $reg === 'S' ? $d['op_date'] : $d['doc_date'], $safe((string) $d['number']), $safe((string) $d['name']), $d['country'], $d['nip'],
+                    Vat::RATES[$l['rate']][0] ?? $l['rate'], $n($l['net_gr']), $n($l['vat_gr']), $reg === 'Z' ? $n(Vat::deductible($l)) : ''], ';', '"', '');
+            }
+        }
+        fputcsv($out, ['', '', '', 'Razem', '', '', '', $n($r['net']), $n($r['vat']), $reg === 'Z' ? $n($r['deductible']) : ''], ';', '"', '');
+        fclose($out);
+    }
+
     // ============================================================== firma, dostęp, historia, skrzynka
 
     public function companyPage(): string
@@ -789,11 +1085,13 @@ final class Pages
         $names = ['year.create' => 'Nowy rok', 'year.lock' => 'Zamknięcie okresu', 'account.create' => 'Nowe konto', 'account.update' => 'Zmiana konta',
             'account.activate' => 'Włączenie konta', 'account.deactivate' => 'Wyłączenie konta', 'account.delete' => 'Usunięcie konta', 'doc.create' => 'Nowy dokument',
             'doc.update' => 'Poprawa szkicu', 'doc.delete' => 'Usunięcie szkicu', 'doc.post' => 'Zaksięgowanie', 'doc.reverse' => 'Storno', 'access' => 'Dostęp',
-            'company.update' => 'Dane firmy'];
+            'company.update' => 'Dane firmy', 'contractor.create' => 'Nowy kontrahent', 'contractor.update' => 'Zmiana kontrahenta',
+            'contractor.activate' => 'Włączenie kontrahenta', 'contractor.deactivate' => 'Wyłączenie kontrahenta'];
         $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Kiedy</th><th>Kto</th><th>Co</th><th>Szczegóły</th></tr></thead><tbody>';
         foreach ($rows as $r) {
             $link = $r['object_type'] === 'doc' && $r['action'] !== 'doc.delete' ? U::url('dokument', ['id' => $r['object_id']])
-                : ($r['object_type'] === 'account' && $r['action'] !== 'account.delete' ? U::url('konto', ['id' => $r['object_id']]) : '');
+                : ($r['object_type'] === 'account' && $r['action'] !== 'account.delete' ? U::url('konto', ['id' => $r['object_id']])
+                : ($r['object_type'] === 'contractor' ? U::url('kontrahent', ['id' => $r['object_id']]) : ''));
             $html .= '<tr><td class="kg-num" style="text-align:left">' . U::h(substr((string) $r['created_at'], 0, 16)) . '</td><td>' . U::h($r['user_name']) . '</td>'
                 . '<td>' . U::h($names[$r['action']] ?? $r['action']) . '</td><td>' . ($link !== '' ? '<a href="' . U::h($link) . '">' . U::h($r['details']) . '</a>' : U::h($r['details'])) . '</td></tr>';
         }

@@ -105,6 +105,12 @@ final class Ledger
                 $this->db->insert('ext_ksg_accounts', ['id' => Db::id(), 'year_id' => $year['id'], 'number' => $r['number'], 'name' => $r['name'],
                     'kind' => $r['kind'], 'active' => (int) $r['active'], 'notes' => (string) $r['notes'], 'created_at' => Db::now(), 'updated_at' => Db::now()]);
             }
+            if ($chart === 'template') {
+                $contractors = new Contractors($this->db);
+                foreach ($contractors->list() as $c) {
+                    $contractors->ensureAccounts($c, $user);
+                }
+            }
             $this->db->log($user, 'year.create', 'year', $year['id'], $year['name'] . ' ' . $start . ' - ' . $end . ', plan kont: '
                 . ($chart === 'template' ? 'wzór' : ($chart === 'empty' ? 'pusty' : 'kopia ' . $source['name'])) . ' (' . count($rows) . ' kont)');
             return $year;
@@ -372,15 +378,21 @@ final class Ledger
             throw new \RuntimeException('Wpisz opis operacji (treść dokumentu).');
         }
         $lines = $this->parseLines((string) $year['id'], (array) ($in['lines'] ?? []));
+        $vat = Vat::parse((array) ($in['vat'] ?? []), $type, substr($opDate, 0, 7), substr($posting, 0, 7));
+        $contractor = null;
+        if (trim((string) ($in['contractor_id'] ?? '')) !== '') {
+            $contractor = (new Contractors($this->db))->get((string) $in['contractor_id']) ?? throw new \RuntimeException('Nie ma takiego kontrahenta.');
+        }
         $number = mb_substr(trim((string) ($in['number'] ?? '')), 0, 60);
-        return $this->db->tx(function () use ($old, $type, $posting, $docDate, $opDate, $year, $description, $lines, $number, $in, $user, $source, $sourceRef): array {
+        return $this->db->tx(function () use ($old, $type, $posting, $docDate, $opDate, $year, $description, $lines, $vat, $contractor, $number, $in, $user, $source, $sourceRef): array {
             if ($number === '') {
                 $number = $old !== null && $old['type'] === $type && substr((string) $old['posting_date'], 0, 7) === substr($posting, 0, 7)
                     ? (string) $old['number'] : $this->nextNumber((string) $year['id'], $type, $posting);
             }
             $row = ['year_id' => $year['id'], 'type' => $type, 'number' => $number, 'doc_date' => $docDate, 'op_date' => $opDate,
                 'posting_date' => $posting, 'description' => mb_substr($description, 0, 255),
-                'counterparty' => mb_substr(trim((string) ($in['counterparty'] ?? '')), 0, 200),
+                'counterparty' => mb_substr(trim((string) ($in['counterparty'] ?? '')) ?: (string) ($contractor['name'] ?? ''), 0, 200),
+                'contractor_id' => $contractor['id'] ?? null,
                 'total_gr' => array_sum(array_column($lines, 'debit_gr')), 'updated_at' => Db::now()];
             if ($old === null) {
                 $row += ['id' => Db::id(), 'journal_no' => null, 'status' => 'draft', 'reversal_of' => null, 'reversed_by' => null,
@@ -395,6 +407,7 @@ final class Ledger
             foreach ($lines as $i => $l) {
                 $this->db->insert('ext_ksg_entries', ['id' => Db::id(), 'doc_id' => $docId, 'position' => $i + 1] + $l);
             }
+            (new Vat($this->db))->replace($docId, $vat);
             $this->db->log($user, $old === null ? 'doc.create' : 'doc.update', 'doc', $docId, $number . ', ' . Money::format($row['total_gr']) . ' zł');
             return $this->doc($docId);
         });
@@ -408,6 +421,7 @@ final class Ledger
         }
         $this->db->tx(function () use ($id, $d, $user): void {
             $this->db->run('DELETE FROM ext_ksg_entries WHERE doc_id = ?', [$id]);
+            $this->db->run('DELETE FROM ext_ksg_vat WHERE doc_id = ?', [$id]);
             $this->db->run('DELETE FROM ext_ksg_docs WHERE id = ?', [$id]);
             $this->db->log($user, 'doc.delete', 'doc', $id, (string) $d['number']);
         });
@@ -449,6 +463,91 @@ final class Ledger
             }
         }
         return array_values(array_unique($problems));
+    }
+
+    /**
+     * Ostrzeżenia (nie blokują księgowania): VAT z rejestru niezgodny z zapisem na kontach 221/222, faktura bez VAT
+     * albo bez kontrahenta. @return list<string>
+     */
+    public function warnings(array $doc): array
+    {
+        $out = [];
+        $vat = (new Vat($this->db))->forDoc((string) $doc['id']);
+        $due = $input = 0;
+        foreach ($vat as $v) {
+            if ($v['register'] === 'S') {
+                $due += (int) $v['vat_gr'];
+            } else {
+                $input += Vat::deductible($v);
+            }
+        }
+        $on222 = $on221 = 0;
+        foreach ($this->entries((string) $doc['id']) as $e) {
+            $n = (string) $e['account_number'];
+            if ($n === '222' || str_starts_with($n, '222-')) {
+                $on222 += (int) $e['credit_gr'] - (int) $e['debit_gr'];
+            }
+            if ($n === '221' || str_starts_with($n, '221-')) {
+                $on221 += (int) $e['debit_gr'] - (int) $e['credit_gr'];
+            }
+        }
+        if ($due !== $on222) {
+            $out[] = 'VAT należny z rejestru (' . Money::format($due) . ') różni się od zapisu na koncie 222 (' . Money::format($on222) . ').';
+        }
+        if ($input !== $on221) {
+            $out[] = 'VAT naliczony do odliczenia z rejestru (' . Money::format($input) . ') różni się od zapisu na koncie 221 (' . Money::format($on221) . ').';
+        }
+        if (in_array($doc['type'], ['FS', 'FZ'], true) && $vat === []) {
+            $out[] = 'Faktura nie ma pozycji VAT - nie trafi do rejestru VAT.';
+        }
+        if (in_array($doc['type'], ['FS', 'FZ'], true) && ($doc['contractor_id'] ?? null) === null) {
+            $out[] = 'Faktura nie ma wybranego kontrahenta z kartoteki.';
+        }
+        return $out;
+    }
+
+    /**
+     * Podpowiedź dekretu z pozycji VAT: sprzedaż - Wn rozrachunki z odbiorcą (brutto), Ma przychód (netto), Ma 222 (VAT);
+     * zakup - Wn koszt (netto + VAT nieodliczony), Wn 221 (VAT do odliczenia), Ma rozrachunki z dostawcą (brutto).
+     * $counter = konto przychodu albo kosztu. @return list<array{account:string,debit:string,credit:string,description:string}>
+     */
+    public function suggestLines(string $yearId, string $type, ?array $contractor, array $vatLines, string $counter): array
+    {
+        if ($vatLines === []) {
+            throw new \RuntimeException('Najpierw wpisz pozycje VAT (netto i stawkę) - z nich powstanie dekret.');
+        }
+        $register = (string) $vatLines[0]['register'];
+        $net = $vat = $ded = 0;
+        foreach ($vatLines as $v) {
+            $net += (int) $v['net_gr'];
+            $vat += (int) $v['vat_gr'];
+            $ded += $register === 'Z' ? Vat::deductible($v) : (int) $v['vat_gr'];
+        }
+        $parent = $register === 'S' ? Contractors::RECEIVABLE : Contractors::PAYABLE;
+        $settle = $contractor !== null ? (new Contractors($this->db))->settlementAccount($contractor, $yearId, $parent) : null;
+        if ($settle === null) {
+            $p = $this->accountByNumber($yearId, $parent);
+            $settle = $p !== null && !$this->hasChildren($yearId, $parent) ? $parent : '';
+        }
+        $counter = trim((string) preg_split('/\s+/', trim($counter))[0]);
+        if ($counter === '') {
+            $counter = $register === 'S' ? ($type === 'FS' ? '700' : '730') : '401';
+        }
+        $m = static fn(int $gr): string => Money::input($gr);
+        $row = static fn(string $a, int $d, int $c, string $desc = ''): array => ['account' => $a, 'debit' => $d !== 0 ? $m($d) : '', 'credit' => $c !== 0 ? $m($c) : '', 'description' => $desc];
+        if ($register === 'S') {
+            $lines = [$row($settle, $net + $vat, 0), $row($counter, 0, $net)];
+            if ($vat !== 0) {
+                $lines[] = $row('222', 0, $vat, 'VAT należny');
+            }
+        } else {
+            $lines = [$row($counter, $net + ($vat - $ded), 0)];
+            if ($ded !== 0) {
+                $lines[] = $row('221', $ded, 0, 'VAT naliczony');
+            }
+            $lines[] = $row($settle, 0, $net + $vat);
+        }
+        return $lines;
     }
 
     /** Księgowanie: kolejny numer pozycji w dzienniku roku, od tej chwili dokument jest nieodwracalny. */
@@ -506,9 +605,12 @@ final class Ledger
             $this->db->insert('ext_ksg_docs', ['id' => $docId, 'year_id' => $year['id'], 'type' => 'ST',
                 'number' => $this->nextNumber((string) $year['id'], 'ST', $date), 'journal_no' => null, 'doc_date' => $date, 'op_date' => $date,
                 'posting_date' => $date, 'description' => mb_substr('Storno ' . $d['number'] . ($reason !== '' ? ': ' . $reason : ''), 0, 255),
-                'counterparty' => $d['counterparty'], 'status' => 'draft', 'total_gr' => $total, 'reversal_of' => $id, 'reversed_by' => null,
+                'counterparty' => $d['counterparty'], 'contractor_id' => $d['contractor_id'], 'status' => 'draft', 'total_gr' => $total, 'reversal_of' => $id, 'reversed_by' => null,
                 'source' => 'storno', 'source_ref' => $id, 'created_by' => $user, 'created_at' => Db::now(), 'posted_by' => null, 'posted_at' => null,
                 'updated_at' => Db::now()]);
+            // Pozycje VAT z minusem w tym samym okresie: błędny dokument znika z rejestru.
+            $vat = new Vat($this->db);
+            $vat->replace($docId, array_map(static fn(array $v): array => ['net_gr' => -(int) $v['net_gr'], 'vat_gr' => -(int) $v['vat_gr']] + $v, $vat->forDoc($id)));
             $st = $this->post($docId, $user);
             $this->db->update('ext_ksg_docs', $id, ['reversed_by' => $docId, 'updated_at' => Db::now()]);
             $this->db->log($user, 'doc.reverse', 'doc', $id, $d['number'] . ' → ' . $st['number']);

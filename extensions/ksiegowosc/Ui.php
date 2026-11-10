@@ -14,6 +14,8 @@ final class Ui
         'dokumenty' => ['Dokumenty', Access::VIEW],
         'dziennik' => ['Dziennik', Access::VIEW],
         'konta' => ['Plan kont', Access::VIEW],
+        'kontrahenci' => ['Kontrahenci', Access::VIEW],
+        'vat' => ['Rejestry VAT', Access::VIEW],
         'obroty' => ['Obroty i salda', Access::VIEW],
         'lata' => ['Lata obrotowe', Access::VIEW],
         'firma' => ['Firma', Access::MANAGE],

@@ -52,13 +52,31 @@ Administrator CRM ma zawsze pełny dostęp. Zapisywanie wymaga też roli CRM z e
 
 Kwoty są trzymane w groszach (`BIGINT`), bez liczb zmiennoprzecinkowych.
 
+## Co jest w etapie 2a
+
+- **Kontrahenci** (`ext_ksg_contractors`, osobno od klientów CRM): nazwa, NIP (polski z sumą kontrolną, zagraniczny
+  z prefiksem kraju), adres, rachunek, rodzaj (odbiorca / dostawca / oba). Każdy dostaje kod `0001`, `0002`… i własne
+  konta rozrachunkowe `200-kod` (odbiorca) i `202-kod` (dostawca), zakładane w otwartych latach i w każdym nowym roku
+  z planem wzorcowym. Konto nie powstaje, jeśli 200/202 ma już zapisy bez analityki. Zmiana nazwy przechodzi na konta.
+  Duplikat NIP-u jest odrzucany; kontrahenta można wyłączyć. Karta pokazuje salda rozrachunków i dokumenty.
+- **VAT w dokumencie** (`ext_ksg_vat`): pozycje z rejestrem (sprzedaż / zakup), okresem RRRR-MM, stawką (23, 8, 5, 0,
+  zw, np, oo), netto i VAT (liczonym sam), przy zakupie rodzaj (środki trwałe / pozostałe) i odliczenie 100/50/0%.
+  Domyślny okres: sprzedaż - miesiąc operacji, zakup - miesiąc księgowania.
+- **Podpowiedź dekretu** z pozycji VAT: sprzedaż Wn 200-kod brutto / Ma przychód netto / Ma 222 VAT; zakup Wn koszt
+  netto (+ VAT nieodliczony) / Wn 221 VAT do odliczenia / Ma 202-kod brutto. Nic nie zapisuje, tylko wypełnia formularz.
+- **Ostrzeżenia** przy dokumencie (nie blokują księgowania): VAT z rejestru różny od zapisu na 222/221, faktura bez
+  pozycji VAT albo bez kontrahenta.
+- **Rejestry VAT** za miesiąc (tylko dokumenty zaksięgowane): sprzedaż i zakup z sumami według stawek, rozliczenie
+  miesiąca (należny minus naliczony do odliczenia) i CSV. Storno kopiuje pozycje VAT z minusem do tego samego okresu.
+
 ## Pliki
 
 | Plik | Co robi |
 |---|---|
 | `KsiegowoscExtension.php` | manifest, strony (`ext.php?page=ksiegowosc.*`), grupa menu, hak zdarzeń |
 | `Db.php` | połączenie (baza CRM albo osobna), tabele, pomocnicze zapytania, historia zmian |
-| `Ledger.php` | lata, plan kont, dokumenty, księgowanie, storno, zestawienia |
+| `Ledger.php` | lata, plan kont, dokumenty, księgowanie, storno, zestawienia, podpowiedź dekretu |
+| `Contractors.php`, `Vat.php` | kartoteka kontrahentów z kontami rozrachunkowymi, pozycje i rejestry VAT |
 | `Access.php` | poziomy dostępu |
 | `Inbox.php`, `Api.php` | jedyne wejście z CRM i jedyne wyjście do CRM |
 | `ChartTemplate.php`, `Money.php` | wzorcowy plan kont, kwoty w groszach |
@@ -66,7 +84,7 @@ Kwoty są trzymane w groszach (`BIGINT`), bez liczb zmiennoprzecinkowych.
 
 ## Następne etapy
 
-Plan: kontrahenci i rejestry VAT z rozrachunkami i wyciągami bankowymi → faktury i przeniesienie wtyczki KSeF →
+Plan: rozrachunki (rozliczanie należności i zobowiązań) i import wyciągów bankowych → faktury i przeniesienie wtyczki KSeF →
 paragony (przeniesienie wtyczki Paragony) → deklaracje (JPK_V7, CIT-8, e-Sprawozdanie) → kadry i płace → zamknięcie roku.
 
 ## Testy

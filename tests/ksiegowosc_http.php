@@ -145,7 +145,7 @@ try {
     ok(str_contains(request($jan, $url('obroty_csv'))['headers'], ' 403'), 'Raw CSV refused without access');
     $d = request($boss, $url('pulpit'))['body'];
     ok(str_contains($d, 'Księgowość jest gotowa do ustawienia') && str_contains($d, 'ext_ksg_'), 'Empty dashboard shows the first steps');
-    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 8, 'Own tables created on first use');
+    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 10, 'Own tables created on first use');
 
     $acc = request($boss, $url('dostep'))['body'];
     ok(str_contains($acc, 'name="level[2]"') && str_contains($acc, 'name="level[4]"') && !str_contains($acc, 'name="level[1]"') && str_contains($acc, 'Pełny (administrator CRM)'), 'Access page lists users (admin fixed)');
@@ -240,9 +240,49 @@ try {
     $r = $post($ola, 'dokument_usun', ['id' => $late]);
     ok($one("SELECT COUNT(*) FROM ext_ksg_docs WHERE id = '$late'") == 0, 'Draft deleted');
 
+    // ---- Kontrahenci i rejestry VAT (etap 2a)
+    ok(str_contains(request($vi, $url('kontrahenci'))['body'], 'Nie ma jeszcze kontrahentów') && !str_contains(request($vi, $url('kontrahenci'))['body'], '+ Nowy kontrahent'), 'Empty contractor list, viewer has no add button');
+    $r = $post($vi, 'kontrahent_zapisz', ['name' => 'X']);
+    ok($r['status'] === 403 && (int) $one('SELECT COUNT(*) FROM ext_ksg_contractors') === 0, 'CRM viewer cannot add contractors');
+    $r = $post($ola, 'kontrahent_zapisz', ['name' => 'Zła Firma', 'nip' => '1234567890']);
+    ok($r['status'] === 200 && str_contains($r['body'], 'złą sumę kontrolną') && str_contains($r['body'], 'value="Zła Firma"'), 'Bad contractor NIP shows the form again');
+    $r = $post($ola, 'kontrahent_zapisz', ['name' => 'Woskownia <i>', 'nip' => '952-228-22-84', 'kind' => 'both', 'city' => 'Łódź']);
+    $cid = $locId($r);
+    ok($r['status'] === 302 && $one("SELECT code FROM ext_ksg_contractors WHERE id = '$cid'") === '0001'
+        && (int) $one("SELECT COUNT(*) FROM ext_ksg_accounts WHERE number IN ('200-0001', '202-0001')") === 2, 'Contractor added with settlement accounts');
+    $card = request($vi, $url('kontrahent', ['id' => $cid]))['body'];
+    ok(str_contains($card, 'Woskownia &lt;i&gt;') && str_contains($card, '9522282284') && str_contains($card, '200-0001') && !str_contains($card, '<i>'), 'Contractor card (escaped) with accounts');
+    ok(str_contains(request($vi, $url('kontrahenci', ['q' => '228']))['body'], 'Woskownia'), 'Contractor search by NIP');
+    $form = request($ola, $url('dokument_nowy'))['body'];
+    ok(str_contains($form, 'name="contractor_id"') && str_contains($form, 'name="vat[0][net]"') && str_contains($form, 'name="suggest"'), 'Document form has contractor and VAT rows');
+    $r = $post($ola, 'dokument_zapisz', ['type' => 'FZ', 'number' => 'W/1/2026', 'posting_date' => '2026-03-05', 'description' => '', 'contractor_id' => $cid, 'suggest' => '1',
+        'counter_account' => '401', 'vat' => [['rate' => '23', 'net' => '1000']], 'lines' => [['account' => '', 'debit' => '', 'credit' => '']]]);
+    ok($r['status'] === 200 && str_contains($r['body'], 'value="202-0001"') && str_contains($r['body'], 'value="1230,00"') && str_contains($r['body'], 'value="221"')
+        && (int) $one("SELECT COUNT(*) FROM ext_ksg_docs WHERE number = 'W/1/2026'") === 0, 'Suggest fills the posting without saving');
+    $r = $post($ola, 'dokument_zapisz', ['type' => 'FZ', 'number' => 'W/1/2026', 'posting_date' => '2026-03-05', 'description' => 'Wosk', 'contractor_id' => $cid, 'post' => '1',
+        'vat' => [['rate' => '23', 'net' => '1000']], 'lines' => [['account' => '401', 'debit' => '1000'], ['account' => '221', 'debit' => '230'], ['account' => '202-0001', 'credit' => '1230']]]);
+    $fzId = $locId($r);
+    $view = request($vi, $url('dokument', ['id' => $fzId]))['body'];
+    ok($one("SELECT status FROM ext_ksg_docs WHERE id = '$fzId'") === 'posted' && str_contains($view, 'Woskownia') && str_contains($view, 'Pozostałe nabycia') && str_contains($view, 'm=2026-03&amp;r=Z'), 'Purchase invoice with VAT posted and shown');
+    $r = $post($ola, 'dokument_zapisz', ['type' => 'FS', 'number' => 'S/1/2026', 'posting_date' => '2026-03-06', 'description' => 'Świece', 'contractor_id' => $cid,
+        'vat' => [['rate' => '23', 'net' => '100']], 'lines' => [['account' => '200-0001', 'debit' => '123'], ['account' => '700', 'credit' => '123']]]);
+    $fsId = $locId($r);
+    ok(str_contains(request($ola, $url('dokument', ['id' => $fsId]))['body'], 'różni się od zapisu na koncie 222'), 'VAT mismatch warning on the document');
+    $post($ola, 'dokument_ksieguj', ['id' => $fsId]);
+    $reg = request($vi, $url('vat', ['m' => '2026-03', 'r' => 'Z']))['body'];
+    ok(str_contains($reg, 'W/1/2026') && str_contains($reg, '9522282284') && str_contains($reg, "1\u{a0}000,00") && str_contains($reg, '230,00'), 'Purchase VAT register for the month');
+    $reg = request($vi, $url('vat', ['m' => '2026-03']))['body'];
+    ok(str_contains($reg, 'S/1/2026') && str_contains($reg, 'Nadwyżka naliczonego') && str_contains($reg, '207,00'), 'Sales register and month settlement');
+    $csv = request($vi, $url('vat_csv', ['m' => '2026-03', 'r' => 'Z']));
+    ok(str_contains($csv['headers'], 'text/csv') && str_contains($csv['body'], ';W/1/2026;') && str_contains($csv['headers'], 'rejestr-vat-zakup-2026-03'), 'VAT register CSV');
+    ok(str_contains($csv['body'], '1000,00;230,00;230,00'), 'VAT CSV amounts');
+    $r = $post($ola, 'kontrahent_status', ['id' => $cid, 'active' => '0']);
+    ok((int) $one("SELECT active FROM ext_ksg_contractors WHERE id = '$cid'") === 0 && !str_contains(request($vi, $url('kontrahenci'))['body'], 'Woskownia'), 'Contractor deactivated');
+    ok(str_contains(request($jan, $url('vat'))['body'], 'Brak dostępu do księgowości'), 'VAT registers need access');
+
     // ---- Historia i skrzynka
     $h = request($boss, $url('zmiany'))['body'];
-    ok(str_contains($h, 'Zaksięgowanie') && str_contains($h, 'Storno') && str_contains($h, 'Zamknięcie okresu') && str_contains($h, 'Ola'), 'History of changes');
+    ok(str_contains($h, 'Zaksięgowanie') && str_contains($h, 'Storno') && str_contains($h, 'Zamknięcie okresu') && str_contains($h, 'Ola') && str_contains($h, 'Nowy kontrahent'), 'History of changes');
     $pdo->exec("INSERT INTO ext_ksg_inbox (id, event, ref_type, ref_id, payload, received_at, processed_at, result) VALUES
         ('aaaaaaaaaaaaaaaa', 'order.imported', 'order', '501', '{\"total\":\"114.80\",\"currency\":\"PLN\",\"billing\":{\"first_name\":\"Anna\",\"last_name\":\"Kowalska\"}}', '2026-11-10 10:00:00', NULL, '')");
     $ib = request($boss, $url('skrzynka'))['body'];

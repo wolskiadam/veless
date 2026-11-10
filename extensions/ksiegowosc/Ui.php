@@ -21,6 +21,7 @@ final class Ui
         'obroty' => ['Obroty i salda', Access::VIEW],
         'lata' => ['Lata obrotowe', Access::VIEW],
         'firma' => ['Firma', Access::MANAGE],
+        'import' => ['Import', Access::MANAGE],
         'dostep' => ['Dostęp', Access::MANAGE],
         'zmiany' => ['Historia zmian', Access::MANAGE],
         'skrzynka' => ['Zdarzenia z CRM', Access::MANAGE],

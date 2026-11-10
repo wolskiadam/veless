@@ -1226,15 +1226,9 @@ final class Pages
     public function bankImport(): string
     {
         $this->need(Access::BOOK);
-        $f = $_FILES['file'] ?? null;
         try {
-            if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $f['tmp_name'])) {
-                throw new \RuntimeException('Wybierz plik wyciągu.');
-            }
-            if ((int) $f['size'] > 5 * 1024 * 1024) {
-                throw new \RuntimeException('Plik jest za duży (najwyżej 5 MB).');
-            }
-            $s = (new Bank($this->db))->import((string) ($_POST['account'] ?? ''), basename((string) $f['name']), (string) file_get_contents((string) $f['tmp_name']), $this->user());
+            [$name, $content] = $this->uploaded(5);
+            $s = (new Bank($this->db))->import((string) ($_POST['account'] ?? ''), $name, $content, $this->user());
             flash('Wczytano wyciąg' . ($s['skipped'] > 0 ? ', pominięto ' . $s['skipped'] . ' operacji wczytanych wcześniej' : '') . '. Sprawdź konta i zaksięguj.');
             $this->go('wyciag', ['id' => $s['id']]);
         } catch (\RuntimeException $e) {
@@ -1353,6 +1347,110 @@ final class Pages
         $this->go('bank');
     }
 
+    // ============================================================== import z innego programu (JPK)
+
+    /** Treść przesłanego pliku (pole „file”). @return array{0:string,1:string} [nazwa, treść] */
+    private function uploaded(int $maxMb): array
+    {
+        $f = $_FILES['file'] ?? null;
+        if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $f['tmp_name'])) {
+            throw new \RuntimeException('Wybierz plik.');
+        }
+        if ((int) $f['size'] > $maxMb * 1024 * 1024) {
+            throw new \RuntimeException('Plik jest za duży (najwyżej ' . $maxMb . ' MB).');
+        }
+        return [basename((string) $f['name']), (string) file_get_contents((string) $f['tmp_name'])];
+    }
+
+    public function importPage(): string
+    {
+        $this->need(Access::MANAGE);
+        $imp = new JpkImport($this->db);
+        $form = fn(string $page, string $title, string $help): string => '<form method="post" enctype="multipart/form-data" action="' . U::h(U::url($page)) . '" class="kg-form card">' . U::csrf($this->ctx)
+            . '<h3 style="margin-top:0">' . $title . '</h3><p class="kg-small" style="margin-top:-6px">' . $help . '</p>'
+            . '<label>Plik XML<input type="file" name="file" accept=".xml" required></label><div><button class="btn" type="submit">Importuj</button></div></form>';
+        $html = $this->head('import') . '<div class="kg-top"><p>Przeniesienie ksiąg z innego programu (np. wFirma) z plików JPK - bez podawania kluczy API. Służy do porównania: po imporcie zakładka pokazuje, czy nasze obroty i salda zgadzają się z programem źródłowym.</p></div>'
+            . '<div class="kg-two">' . $form('import_kr', '1. JPK_KR - księgi', 'Plan kont, bilans otwarcia i wszystkie zapisy dziennika za rok obrotowy. Tworzy rok obrotowy (albo zastępuje poprzedni import tego roku). Nie działa na rok z dokumentami wprowadzonymi w CRM.')
+            . $form('import_v7', '2. JPK_V7 - VAT i kontrahenci', 'Ewidencja VAT za miesiąc: kontrahenci z NIP-ami i pozycje VAT przypinane do zaimportowanych dokumentów po numerze. Importuj po JPK_KR, miesiąc po miesiącu.') . '</div>';
+        $rows = $imp->imports();
+        if ($rows !== []) {
+            $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Kiedy</th><th>Plik</th><th>Rodzaj</th><th>Rok / okres</th><th></th></tr></thead><tbody>';
+            foreach ($rows as $r) {
+                $html .= '<tr><td>' . U::h(substr((string) $r['created_at'], 0, 16)) . '</td><td>' . U::h($r['file_name']) . '</td><td>' . U::h(JpkImport::KINDS[$r['kind']] ?? $r['kind']) . '</td>'
+                    . '<td>' . U::h($r['year_name'] ?? '') . ($r['period'] !== '' ? ' · ' . U::h($r['period']) : '') . '</td>'
+                    . '<td>' . ($r['kind'] === 'jpk_kr' ? '<a href="' . U::h(U::url('porownanie', ['rok' => $r['year_id']])) . '">Porównanie</a>' : '') . '</td></tr>';
+            }
+            $html .= '</tbody></table></div>';
+        }
+        return $html;
+    }
+
+    public function importKr(): void
+    {
+        $this->need(Access::MANAGE);
+        try {
+            [$name, $xml] = $this->uploaded(60);
+            $r = (new JpkImport($this->db))->importKr($name, $xml, $this->user());
+            flash('Zaimportowano księgi: ' . $r['accounts'] . ' kont, ' . $r['docs'] . ' dokumentów, ' . $r['entries'] . ' zapisów.'
+                . ($r['unbalanced'] !== [] ? ' Niezbilansowane w pliku: ' . implode(', ', array_slice($r['unbalanced'], 0, 5)) . (count($r['unbalanced']) > 5 ? '…' : '') . '.' : '')
+                . ($r['warnings'] !== [] ? ' ' . implode(' ', array_slice($r['warnings'], 0, 3)) : ''), $r['unbalanced'] !== [] ? 'err' : 'ok');
+            $this->go('porownanie', ['rok' => $r['year_id']]);
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+            $this->go('import');
+        }
+    }
+
+    public function importV7(): void
+    {
+        $this->need(Access::MANAGE);
+        try {
+            [$name, $xml] = $this->uploaded(30);
+            $r = (new JpkImport($this->db))->importV7($name, $xml, $this->user());
+            flash('JPK_V7 za ' . $r['period'] . ': przypięto ' . $r['matched'] . ' faktur, nowych kontrahentów ' . $r['contractors'] . '.'
+                . ($r['unmatched'] !== [] ? ' Bez dokumentu w księgach (' . count($r['unmatched']) . '): ' . implode(', ', array_slice($r['unmatched'], 0, 5)) . (count($r['unmatched']) > 5 ? '…' : '') . '.' : ''),
+                $r['unmatched'] !== [] ? 'err' : 'ok');
+            $this->go('vat', ['m' => $r['period']]);
+        } catch (\RuntimeException $e) {
+            flash($e->getMessage(), 'err');
+            $this->go('import');
+        }
+    }
+
+    public function comparison(): string
+    {
+        $year = $this->pickYear();
+        if ($year === null) {
+            return $this->noYear('import');
+        }
+        $cmp = (new JpkImport($this->db))->compare((string) $year['id']);
+        $html = $this->head($this->can(Access::MANAGE) ? 'import' : 'obroty') . U::yearPicker('porownanie', $this->ledger->years(), (string) $year['id']);
+        if ($cmp === null) {
+            return $html . '<div class="card kg-muted">Dla roku ' . U::h($year['name']) . ' nie było importu JPK_KR - nie ma z czym porównać.</div>';
+        }
+        $all = isset($_GET['wszystkie']);
+        $html .= '<div class="kg-top"><p>Zestawienie obrotów i sald z pliku <b>' . U::h($cmp['file']) . '</b> (import ' . U::h(substr($cmp['created_at'], 0, 16)) . ') porównane z księgami w CRM na dziś. Obroty narastająco bez bilansu otwarcia, saldo netto (Wn - Ma).</p>'
+            . '<div class="kg-actions"><a class="btn secondary" href="' . U::h(U::url('porownanie', ['rok' => $year['id']] + ($all ? [] : ['wszystkie' => 1]))) . '">' . ($all ? 'Tylko różnice' : 'Wszystkie konta') . '</a></div></div>'
+            . ($cmp['diff'] === 0 ? '<div class="flash ok">✓ Wszystkie ' . count($cmp['rows']) . ' kont zgadza się z plikiem.</div>'
+                : '<div class="flash err">Różnice na ' . $cmp['diff'] . ' z ' . count($cmp['rows']) . ' kont.</div>');
+        $rows = $all ? $cmp['rows'] : array_filter($cmp['rows'], static fn(array $r): bool => !$r['ok']);
+        if ($rows === []) {
+            return $html;
+        }
+        $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Konto</th><th>Nazwa</th><th class="kg-num">BO plik</th><th class="kg-num">BO CRM</th>'
+            . '<th class="kg-num">Obroty Wn plik</th><th class="kg-num">Obroty Wn CRM</th><th class="kg-num">Obroty Ma plik</th><th class="kg-num">Obroty Ma CRM</th>'
+            . '<th class="kg-num">Saldo plik</th><th class="kg-num">Saldo CRM</th></tr></thead><tbody>';
+        foreach ($rows as $r) {
+            $f = $r['file'];
+            $o = $r['ours'];
+            $cell = static fn(int $a, int $b): string => '<td class="kg-num">' . U::money($a) . '</td><td class="kg-num' . ($a !== $b ? ' kg-bad' : '') . '">' . U::money($b) . '</td>';
+            $html .= '<tr><td class="kg-acc">' . U::h($r['number']) . '</td><td>' . U::h($r['name']) . ($r['ok'] ? ' <span class="kg-ok">✓</span>' : '') . '</td>'
+                . $cell((int) $f['bo_d'] - (int) $f['bo_c'], $o['bo_d'] - $o['bo_c']) . $cell((int) $f['to_d'], $o['to_d']) . $cell((int) $f['to_c'], $o['to_c'])
+                . $cell($r['file_saldo'], $o['saldo']) . '</tr>';
+        }
+        return $html . '</tbody></table></div>';
+    }
+
     // ============================================================== firma, dostęp, historia, skrzynka
 
     public function companyPage(): string
@@ -1460,7 +1558,7 @@ final class Pages
             'company.update' => 'Dane firmy', 'contractor.create' => 'Nowy kontrahent', 'contractor.update' => 'Zmiana kontrahenta',
             'contractor.activate' => 'Włączenie kontrahenta', 'contractor.deactivate' => 'Wyłączenie kontrahenta',
             'settle.link' => 'Rozliczenie', 'settle.unlink' => 'Cofnięcie rozliczenia', 'bank.import' => 'Wczytanie wyciągu', 'bank.update' => 'Poprawa wyciągu',
-            'bank.book' => 'Zaksięgowanie wyciągu', 'bank.delete' => 'Usunięcie wyciągu'];
+            'bank.book' => 'Zaksięgowanie wyciągu', 'bank.delete' => 'Usunięcie wyciągu', 'import.jpk_kr' => 'Import JPK_KR', 'import.jpk_v7' => 'Import JPK_V7'];
         $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Kiedy</th><th>Kto</th><th>Co</th><th>Szczegóły</th></tr></thead><tbody>';
         foreach ($rows as $r) {
             $link = $r['object_type'] === 'doc' && $r['action'] !== 'doc.delete' ? U::url('dokument', ['id' => $r['object_id']])

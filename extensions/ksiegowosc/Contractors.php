@@ -54,7 +54,7 @@ final class Contractors
         return $nip;
     }
 
-    public function save(?string $id, array $in, string $user): array
+    public function save(?string $id, array $in, string $user, bool $accounts = true): array
     {
         $old = $id !== null ? ($this->get($id) ?? throw new \RuntimeException('Nie ma takiego kontrahenta.')) : null;
         $name = trim((string) ($in['name'] ?? ''));
@@ -99,7 +99,9 @@ final class Contractors
             $this->db->log($user, 'contractor.update', 'contractor', $old['id'], $old['code'] . ' ' . $row['name']);
             $c = $this->get($old['id']);
         }
-        $this->ensureAccounts($c, $user);
+        if ($accounts) {
+            $this->ensureAccounts($c, $user);
+        }
         return $c;
     }
 

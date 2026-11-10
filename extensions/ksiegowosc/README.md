@@ -69,6 +69,20 @@ Kwoty są trzymane w groszach (`BIGINT`), bez liczb zmiennoprzecinkowych.
 - **Rejestry VAT** za miesiąc (tylko dokumenty zaksięgowane): sprzedaż i zakup z sumami według stawek, rozliczenie
   miesiąca (należny minus naliczony do odliczenia) i CSV. Storno kopiuje pozycje VAT z minusem do tego samego okresu.
 
+## Import z innego programu (np. wFirma)
+
+Zakładka Import (poziom zarządzanie) wczytuje pliki JPK - bez kluczy API do innego programu:
+
+- **JPK_KR**: plan kont z zestawienia obrotów i sald (brakujące konta nadrzędne zakładane same), bilans otwarcia
+  (z kolumn BO zestawienia, chyba że dziennik ma własny zapis BO) i każda pozycja dziennika jako zaksięgowany
+  dokument w tej samej kolejności. Rok obrotowy powstaje sam; ponowny import tego roku zastępuje poprzedni. Import
+  nie działa na rok z dokumentami wprowadzonymi w CRM. Zestawienie z pliku zostaje w `ext_ksg_imports`.
+- **Porównanie**: obroty narastająco, bilans otwarcia i saldo z pliku obok naszych - do sprawdzenia, czy system
+  liczy to samo co program źródłowy (też po dopisaniu własnych dokumentów).
+- **JPK_V7 (M/K)**: wiersze sprzedaży i zakupu przypinane do zaimportowanych dokumentów po numerze dowodu
+  (porównanie samych liter i cyfr): kontrahent po NIP-ie (nowy - bez zakładania kont rozrachunkowych) i pozycje VAT
+  według pól K_10…K_43. Wiersze bez dokumentu są wypisywane. Ponowny import miesiąca nie dubluje VAT.
+
 ## Pliki
 
 | Plik | Co robi |

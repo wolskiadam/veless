@@ -18,7 +18,7 @@ use PDO;
  */
 final class Db
 {
-    public const SCHEMA = '3';
+    public const SCHEMA = '4';
 
     /** @var array<int,bool> spl_object_id(PDO) => schemat sprawdzony */
     private static array $ready = [];
@@ -84,6 +84,8 @@ final class Db
             'ext_ksg_bank_lines' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, statement_id VARCHAR(16) NOT NULL, position INT NOT NULL, op_date VARCHAR(10) NOT NULL,
                 amount_gr BIGINT NOT NULL, title VARCHAR(500) NOT NULL, party_name VARCHAR(200) NOT NULL, party_iban VARCHAR(40) NOT NULL, hash VARCHAR(40) NOT NULL,
                 contractor_id VARCHAR(16) NULL, account VARCHAR(30) NOT NULL, match_entry_id VARCHAR(16) NULL, status VARCHAR(10) NOT NULL',
+            'ext_ksg_imports' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, year_id VARCHAR(16) NOT NULL, kind VARCHAR(10) NOT NULL, period VARCHAR(7) NOT NULL,
+                file_name VARCHAR(200) NOT NULL, data LONGTEXT NOT NULL, created_by VARCHAR(100) NOT NULL, created_at DATETIME NOT NULL',
             'ext_ksg_inbox' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, event VARCHAR(60) NOT NULL, ref_type VARCHAR(20) NOT NULL, ref_id VARCHAR(40) NOT NULL,
                 payload TEXT NOT NULL, received_at DATETIME NOT NULL, processed_at DATETIME NULL, result VARCHAR(255) NOT NULL',
         ];

@@ -145,7 +145,7 @@ try {
     ok(str_contains(request($jan, $url('obroty_csv'))['headers'], ' 403'), 'Raw CSV refused without access');
     $d = request($boss, $url('pulpit'))['body'];
     ok(str_contains($d, 'Księgowość jest gotowa do ustawienia') && str_contains($d, 'ext_ksg_'), 'Empty dashboard shows the first steps');
-    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 13, 'Own tables created on first use');
+    ok((int) $one("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name LIKE 'ext_ksg_%'") === 14, 'Own tables created on first use');
 
     $acc = request($boss, $url('dostep'))['body'];
     ok(str_contains($acc, 'name="level[2]"') && str_contains($acc, 'name="level[4]"') && !str_contains($acc, 'name="level[1]"') && str_contains($acc, 'Pełny (administrator CRM)'), 'Access page lists users (admin fixed)');
@@ -324,9 +324,26 @@ try {
     ok((int) $one('SELECT COUNT(*) FROM ext_ksg_settle') === 3, 'Auto match from the list');
     ok(str_contains(request($vi, $url('kontrahent', ['id' => $cid]))['body'], 'Rozrachunki'), 'Contractor card still renders');
 
+    // ---- Import JPK (wFirma i inne programy)
+    $kr = dirname(__DIR__) . '/tests/fixtures/ksiegowosc/jpk_kr_2025.xml';
+    ok(str_contains(request($ola, $url('import'))['body'], 'Brak dostępu'), 'Book level cannot open the import');
+    $r = $post($ola, 'import_kr', ['file' => new CURLFile($kr, 'text/xml', 'jpk_kr_2025.xml')]);
+    ok((int) $one("SELECT COUNT(*) FROM ext_ksg_years WHERE name = '2025'") === 0, 'Book level cannot import');
+    $ip = request($boss, $url('import'))['body'];
+    ok(str_contains($ip, 'JPK_KR') && str_contains($ip, 'name="file"'), 'Import page with upload forms');
+    $r = $post($boss, 'import_kr', ['file' => new CURLFile($kr, 'text/xml', 'jpk_kr_2025.xml')]);
+    $y25 = (string) $one("SELECT id FROM ext_ksg_years WHERE name = '2025'");
+    $cv = request($boss, $url('porownanie', ['rok' => $y25]))['body'];
+    ok($r['status'] === 302 && $y25 !== '' && str_contains($cv, 'Wszystkie 3 kont zgadza się z plikiem') && str_contains($cv, 'Zaimportowano księgi: 3 kont, 2 dokumentów'), 'JPK_KR imported, comparison all green');
+    $cv = request($vi, $url('porownanie', ['rok' => $y25, 'wszystkie' => 1]))['body'];
+    ok(str_contains($cv, 'Usługi obce &lt;test&gt;') && str_contains($cv, "4\u{a0}900,00"), 'Viewer sees the full comparison (escaped)');
+    $r = $post($boss, 'import_kr', ['file' => new CURLFile(__FILE__, 'text/xml', 'zly.xml')]);
+    ok(str_contains(request($boss, $url('import'))['body'], 'poprawny plik XML'), 'Wrong file rejected with a message');
+    ok(str_contains(request($boss, $url('import'))['body'], 'Porównanie'), 'Import listed with a comparison link');
+
     // ---- Historia i skrzynka
     $h = request($boss, $url('zmiany'))['body'];
-    ok(str_contains($h, 'Zaksięgowanie') && str_contains($h, 'Storno') && str_contains($h, 'Zamknięcie okresu') && str_contains($h, 'Ola') && str_contains($h, 'Nowy kontrahent') && str_contains($h, 'Zaksięgowanie wyciągu'), 'History of changes');
+    ok(str_contains($h, 'Zaksięgowanie') && str_contains($h, 'Storno') && str_contains($h, 'Zamknięcie okresu') && str_contains($h, 'Ola') && str_contains($h, 'Nowy kontrahent') && str_contains($h, 'Zaksięgowanie wyciągu') && str_contains($h, 'Import JPK_KR'), 'History of changes');
     $pdo->exec("INSERT INTO ext_ksg_inbox (id, event, ref_type, ref_id, payload, received_at, processed_at, result) VALUES
         ('aaaaaaaaaaaaaaaa', 'order.imported', 'order', '501', '{\"total\":\"114.80\",\"currency\":\"PLN\",\"billing\":{\"first_name\":\"Anna\",\"last_name\":\"Kowalska\"}}', '2026-11-10 10:00:00', NULL, '')");
     $ib = request($boss, $url('skrzynka'))['body'];

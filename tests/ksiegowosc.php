@@ -370,6 +370,90 @@ ok($bank->lines($s2['id'])[1]['status'] === 'skip', 'Operation skipped');
 $bank->delete($s2['id'], 'ola');
 ok($bank->statement($s2['id']) === null && $bank->lines($s2['id']) === [], 'Open statement deleted');
 
+// --- Import z innego programu: JPK_KR i JPK_V7
+use PaseExt\Ksiegowosc\JpkImport;
+ok(JpkImport::gr('1234.56') === 123456 && JpkImport::gr('-0.5') === -50 && JpkImport::gr('10') === 1000 && JpkImport::gr('1.005') === 101 && JpkImport::gr('') === 0, 'JPK amounts');
+ok(JpkImport::docType('Faktura sprzedaży', 'FV/1') === 'FS' && JpkImport::docType('', 'FZ 7/2028') === 'FZ' && JpkImport::docType('Wyciąg bankowy', '1') === 'WB' && JpkImport::docType('', 'PK/3') === 'PK', 'Document type from source program');
+ok(JpkImport::rateOf(10000, 2300) === '23' && JpkImport::rateOf(10000, 800) === '8' && JpkImport::rateOf(10000, 0) === '0', 'Purchase rate from VAT ratio');
+$zo = static fn(string $n, string $name, string $type, string $bod, string $boc, string $od, string $oc, string $sd, string $sc): string =>
+    "<tns:ZOiS><tns:KodKonta>$n</tns:KodKonta><tns:OpisKonta>$name</tns:OpisKonta><tns:TypKonta>$type</tns:TypKonta><tns:KodZespolu>1</tns:KodZespolu>"
+    . "<tns:BilansOtwarciaWinien>$bod</tns:BilansOtwarciaWinien><tns:BilansOtwarciaMa>$boc</tns:BilansOtwarciaMa><tns:ObrotyWinien>$od</tns:ObrotyWinien><tns:ObrotyMa>$oc</tns:ObrotyMa>"
+    . "<tns:ObrotyWinienNarast>$od</tns:ObrotyWinienNarast><tns:ObrotyMaNarast>$oc</tns:ObrotyMaNarast><tns:SaldoWinien>$sd</tns:SaldoWinien><tns:SaldoMa>$sc</tns:SaldoMa></tns:ZOiS>";
+$dz = static fn(int $lp, string $nr, string $doc, string $kind, string $date, string $desc, string $amt): string =>
+    "<tns:Dziennik><tns:LpZapisuDziennika>$lp</tns:LpZapisuDziennika><tns:NrZapisuDziennika>$nr</tns:NrZapisuDziennika><tns:OpisDziennika>Dziennik</tns:OpisDziennika>"
+    . "<tns:NrDowoduKsiegowego>$doc</tns:NrDowoduKsiegowego><tns:RodzajDowodu>$kind</tns:RodzajDowodu><tns:DataOperacji>$date</tns:DataOperacji><tns:DataDowodu>$date</tns:DataDowodu>"
+    . "<tns:DataKsiegowania>$date</tns:DataKsiegowania><tns:KodOperatora>ksiegowa</tns:KodOperatora><tns:OpisOperacji>$desc</tns:OpisOperacji><tns:DziennikKwotaOperacji>$amt</tns:DziennikKwotaOperacji></tns:Dziennik>";
+$kz = static fn(int $lp, string $nr, string $wn, string $wa, string $ma, string $mamt): string =>
+    "<tns:KontoZapis><tns:LpZapisu>$lp</tns:LpZapisu><tns:NrZapisu>$nr</tns:NrZapisu><tns:KodKontaWinien>$wn</tns:KodKontaWinien><tns:KwotaWinien>$wa</tns:KwotaWinien>"
+    . "<tns:KodKontaMa>$ma</tns:KodKontaMa><tns:KwotaMa>$mamt</tns:KwotaMa></tns:KontoZapis>";
+$kr = '<?xml version="1.0" encoding="UTF-8"?><tns:JPK xmlns:tns="http://jpk.mf.gov.pl/wzor/2016/03/09/03091/" xmlns:etd="http://crd.gov.pl/xml/schematy/dziedzinowe/mf/2016/01/25/eD/DefinicjeTypy/">'
+    . '<tns:Naglowek><tns:KodFormularza kodSystemowy="JPK_KR (1)" wersjaSchemy="1-0">JPK_KR</tns:KodFormularza><tns:CelZlozenia>1</tns:CelZlozenia><tns:DataWytworzeniaJPK>2029-01-15T10:00:00</tns:DataWytworzeniaJPK>'
+    . '<tns:DataOd>2028-01-01</tns:DataOd><tns:DataDo>2028-12-31</tns:DataDo><tns:DomyslnyKodWaluty>PLN</tns:DomyslnyKodWaluty></tns:Naglowek>'
+    . '<tns:Podmiot1><tns:IdentyfikatorPodmiotu><etd:NIP>9522282284</etd:NIP><etd:PelnaNazwa>Klub</etd:PelnaNazwa></tns:IdentyfikatorPodmiotu></tns:Podmiot1>'
+    . $zo('130', 'Rachunek bankowy', 'Bilansowe', '10000.00', '0.00', '1230.00', '0.00', '11230.00', '0.00')
+    . $zo('201', 'Rozrachunki z odbiorcami', 'Bilansowe', '0.00', '0.00', '1230.00', '1230.00', '0.00', '0.00')
+    . $zo('201-1-1-0001', 'Hurt Sp. z o.o.', 'Bilansowe', '0.00', '0.00', '1230.00', '1230.00', '0.00', '0.00')
+    . $zo('202-1-1-0001', 'Dostawca wosku', 'Bilansowe', '0.00', '0.00', '0.00', '615.00', '0.00', '615.00')
+    . $zo('221', 'VAT naliczony', 'Bilansowe', '0.00', '0.00', '115.00', '0.00', '115.00', '0.00')
+    . $zo('222', 'VAT należny', 'Bilansowe', '0.00', '0.00', '0.00', '230.00', '0.00', '230.00')
+    . $zo('401', 'Zużycie materiałów', 'Wynikowe', '0.00', '0.00', '500.00', '0.00', '500.00', '0.00')
+    . $zo('700', 'Przychody ze sprzedaży', 'Wynikowe', '0.00', '0.00', '0.00', '1000.00', '0.00', '1000.00')
+    . $zo('800', 'Kapitał zakładowy', 'Bilansowe', '0.00', '10000.00', '0.00', '0.00', '0.00', '10000.00')
+    . $dz(1, 'D1', 'FV/1/2028', 'Faktura sprzedaży', '2028-01-10', 'Sprzedaż świec', '1230.00')
+    . $dz(2, 'D2', 'FZ 7/2028', 'Faktura zakupu', '2028-01-12', 'Wosk', '615.00')
+    . $dz(3, 'D3', 'WB/1/2028', 'Wyciąg bankowy', '2028-01-20', 'Zapłata FV/1/2028', '1230.00')
+    . '<tns:DziennikCtrl><tns:LiczbaWierszyDziennika>3</tns:LiczbaWierszyDziennika><tns:SumaKwotOperacji>3075.00</tns:SumaKwotOperacji></tns:DziennikCtrl>'
+    . $kz(1, 'D1', '201-1-1-0001', '1230.00', '700', '1000.00') . $kz(2, 'D1', 'null', '0.00', '222', '230.00')
+    . $kz(3, 'D2', '401', '500.00', '202-1-1-0001', '615.00') . $kz(4, 'D2', '221', '115.00', 'null', '0.00')
+    . $kz(5, 'D3', '130', '1230.00', '201-1-1-0001', '1230.00')
+    . '<tns:KontoZapisCtrl><tns:LiczbaWierszyKontoZapisj>5</tns:LiczbaWierszyKontoZapisj></tns:KontoZapisCtrl></tns:JPK>';
+$pk = JpkImport::parseKr($kr);
+ok($pk['from'] === '2028-01-01' && count($pk['zois']) === 9 && count($pk['journal']) === 3 && count($pk['journal'][0]['lines']) === 3 && $pk['ctrl']['rows'] === 3, 'JPK_KR parsed (namespaced, both sides per row)');
+fails(fn() => JpkImport::parseKr('<?xml version="1.0"?><!DOCTYPE x [<!ENTITY e SYSTEM "file:///etc/passwd">]><x>&e;</x>'), 'DOCTYPE', 'XML with DOCTYPE refused');
+fails(fn() => JpkImport::parseKr('<JPK><Naglowek><KodFormularza>JPK_V7M</KodFormularza></Naglowek></JPK>'), 'potrzebny jest JPK_KR', 'Other JPK refused');
+$ji = new JpkImport($db);
+$r1 = $ji->importKr('jpk_kr_2028.xml', $kr, 'adam');
+$y28 = $l->year($r1['year_id']);
+ok($y28['starts_on'] === '2028-01-01' && $r1['docs'] === 4 && $r1['entries'] === 10 && $r1['unbalanced'] === [] && $r1['warnings'] === [], 'JPK_KR imported: BO + 3 documents');
+ok($l->accountByNumber($y28['id'], '201-1-1') !== null && $l->accountByNumber($y28['id'], '201-1') !== null && $l->accountByNumber($y28['id'], '401')['kind'] === 'W', 'Missing parent accounts created, kinds from file');
+$d28 = $l->docs($y28['id'])['rows'];
+$byNo = array_column($d28, null, 'number');
+ok($byNo['BO/2028']['type'] === 'BO' && (int) $byNo['BO/2028']['journal_no'] === 1 && $byNo['FV/1/2028']['type'] === 'FS' && $byNo['FZ 7/2028']['type'] === 'FZ' && (int) $byNo['WB/1/2028']['journal_no'] === 4, 'Documents typed and numbered in journal order');
+$cmp = $ji->compare($y28['id']);
+ok($cmp['diff'] === 0 && count($cmp['rows']) === 9, 'Books match the file after import');
+$r2 = $ji->importKr('jpk_kr_2028.xml', $kr, 'adam');
+ok($r2['year_id'] === $y28['id'] && count($l->docs($y28['id'])['rows']) === 4 && $ji->compare($y28['id'])['diff'] === 0, 'Re-import replaces the previous import');
+$byNo = array_column($l->docs($y28['id'])['rows'], null, 'number'); // nowe dokumenty po ponownym imporcie
+// JPK_V7: kontrahenci i VAT przypięte do dokumentów po numerze.
+$v7 = '<?xml version="1.0" encoding="UTF-8"?><JPK xmlns="http://crd.gov.pl/wzor/2021/12/27/11148/"><Naglowek><KodFormularza kodSystemowy="JPK_V7M (2)">JPK_VAT</KodFormularza>'
+    . '<WariantFormularza>2</WariantFormularza><Rok>2028</Rok><Miesiac>1</Miesiac></Naglowek><Ewidencja>'
+    . '<SprzedazWiersz><LpSprzedazy>1</LpSprzedazy><NrKontrahenta>5260250274</NrKontrahenta><NazwaKontrahenta>Hurt Sp. z o.o.</NazwaKontrahenta><DowodSprzedazy>FV/1/2028</DowodSprzedazy>'
+    . '<DataWystawienia>2028-01-10</DataWystawienia><K_19>1000.00</K_19><K_20>230.00</K_20></SprzedazWiersz>'
+    . '<SprzedazWiersz><LpSprzedazy>2</LpSprzedazy><NrKontrahenta>brak</NrKontrahenta><NazwaKontrahenta>Sprzedaż detaliczna</NazwaKontrahenta><DowodSprzedazy>FV/99/2028</DowodSprzedazy>'
+    . '<DataWystawienia>2028-01-11</DataWystawienia><K_19>10.00</K_19><K_20>2.30</K_20></SprzedazWiersz>'
+    . '<ZakupWiersz><LpZakupu>1</LpZakupu><NrDostawcy>9522282284</NrDostawcy><NazwaDostawcy>Woskownia SA</NazwaDostawcy><DowodZakupu>FZ-7/2028</DowodZakupu><DataZakupu>2028-01-12</DataZakupu>'
+    . '<K_42>500.00</K_42><K_43>115.00</K_43></ZakupWiersz></Ewidencja></JPK>';
+$pv = JpkImport::parseV7($v7);
+ok($pv['period'] === '2028-01' && count($pv['sales']) === 2 && $pv['sales'][0]['lines'][0]['rate'] === '23' && $pv['purchases'][0]['lines'][0]['rate'] === '23' && $pv['purchases'][0]['lines'][0]['vat_gr'] === 11500, 'JPK_V7 parsed');
+$before = count($cs->list('', true));
+$v = $ji->importV7('jpk_v7m_2028_01.xml', $v7, 'adam');
+ok($v['matched'] === 2 && $v['contractors'] === 1 && count($v['unmatched']) === 1 && str_contains($v['unmatched'][0], 'FV/99/2028'), 'JPK_V7: two rows matched by number, one reported');
+ok(count($cs->list('', true)) === $before + 1 && $l->accountByNumber($y28['id'], '200-' . $cs->list('Hurt')[0]['code']) === null, 'New contractor created without settlement accounts');
+$fvDoc = $l->doc($byNo['FV/1/2028']['id']);
+ok($fvDoc['contractor_id'] === $cs->list('Hurt')[0]['id'] && $l->doc($byNo['FZ 7/2028']['id'])['contractor_id'] === $wosk['id'], 'Documents linked to contractors (existing one by NIP)');
+$rs = (new Vat($db))->register('S', '2028-01');
+$rz = (new Vat($db))->register('Z', '2028-01');
+ok($rs['vat'] === 23000 && $rz['deductible'] === 11500 && $l->warnings($fvDoc) === [], 'VAT registers filled; VAT matches account 222');
+$ji->importV7('jpk_v7m_2028_01.xml', $v7, 'adam');
+ok(count((new Vat($db))->forDoc($fvDoc['id'])) === 1, 'Re-import of the same month does not duplicate VAT');
+// Ręczny dokument w roku z importu: porównanie pokazuje różnicę, ponowny import jest zablokowany.
+$l->post($l->saveDraft(null, ['type' => 'PK', 'posting_date' => '2028-02-01', 'description' => 'Ręcznie', 'lines' => [$line('401', '50', ''), $line('130', '', '50')]], 'adam')['id'], 'adam');
+$cmp = $ji->compare($y28['id']);
+$bad = array_column(array_filter($cmp['rows'], static fn(array $r): bool => !$r['ok']), 'number');
+ok($cmp['diff'] === 2 && in_array('130', array_map('strval', $bad), true) && in_array('401', array_map('strval', $bad), true), 'Comparison shows accounts that differ');
+fails(fn() => $ji->importKr('jpk_kr_2028.xml', $kr, 'adam'), 'dokumenty wprowadzone w CRM', 'Import refused into a year with CRM documents');
+fails(fn() => $ji->importKr('x.xml', str_replace(['2028-01-01', '2028-12-31'], ['2027-07-01', '2028-06-30'], $kr), 'adam'), 'nachodzi', 'Overlapping period refused');
+
 // --- Haki rozszerzenia: strony, menu, automation.event
 use Pase\Plugin\Hooks;
 Hooks::bootAs('ksiegowosc', static fn() => (new \PaseExt\Ksiegowosc\KsiegowoscExtension())->boot());

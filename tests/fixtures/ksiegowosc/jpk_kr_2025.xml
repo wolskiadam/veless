@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tns:JPK xmlns:tns="http://jpk.mf.gov.pl/wzor/2016/03/09/03091/">
+  <tns:Naglowek>
+    <tns:KodFormularza kodSystemowy="JPK_KR (1)" wersjaSchemy="1-0">JPK_KR</tns:KodFormularza>
+    <tns:DataOd>2025-01-01</tns:DataOd>
+    <tns:DataDo>2025-12-31</tns:DataDo>
+  </tns:Naglowek>
+  <tns:ZOiS><tns:KodKonta>130</tns:KodKonta><tns:OpisKonta>Rachunek bankowy</tns:OpisKonta><tns:TypKonta>Bilansowe</tns:TypKonta>
+    <tns:BilansOtwarciaWinien>5000.00</tns:BilansOtwarciaWinien><tns:BilansOtwarciaMa>0.00</tns:BilansOtwarciaMa>
+    <tns:ObrotyWinienNarast>0.00</tns:ObrotyWinienNarast><tns:ObrotyMaNarast>100.00</tns:ObrotyMaNarast>
+    <tns:SaldoWinien>4900.00</tns:SaldoWinien><tns:SaldoMa>0.00</tns:SaldoMa></tns:ZOiS>
+  <tns:ZOiS><tns:KodKonta>402</tns:KodKonta><tns:OpisKonta>Usługi obce &lt;test&gt;</tns:OpisKonta><tns:TypKonta>Wynikowe</tns:TypKonta>
+    <tns:BilansOtwarciaWinien>0.00</tns:BilansOtwarciaWinien><tns:BilansOtwarciaMa>0.00</tns:BilansOtwarciaMa>
+    <tns:ObrotyWinienNarast>100.00</tns:ObrotyWinienNarast><tns:ObrotyMaNarast>0.00</tns:ObrotyMaNarast>
+    <tns:SaldoWinien>100.00</tns:SaldoWinien><tns:SaldoMa>0.00</tns:SaldoMa></tns:ZOiS>
+  <tns:ZOiS><tns:KodKonta>800</tns:KodKonta><tns:OpisKonta>Kapitał zakładowy</tns:OpisKonta><tns:TypKonta>Bilansowe</tns:TypKonta>
+    <tns:BilansOtwarciaWinien>0.00</tns:BilansOtwarciaWinien><tns:BilansOtwarciaMa>5000.00</tns:BilansOtwarciaMa>
+    <tns:ObrotyWinienNarast>0.00</tns:ObrotyWinienNarast><tns:ObrotyMaNarast>0.00</tns:ObrotyMaNarast>
+    <tns:SaldoWinien>0.00</tns:SaldoWinien><tns:SaldoMa>5000.00</tns:SaldoMa></tns:ZOiS>
+  <tns:Dziennik><tns:LpZapisuDziennika>1</tns:LpZapisuDziennika><tns:NrZapisuDziennika>1</tns:NrZapisuDziennika>
+    <tns:NrDowoduKsiegowego>WB/1/2025</tns:NrDowoduKsiegowego><tns:RodzajDowodu>Wyciąg bankowy</tns:RodzajDowodu>
+    <tns:DataOperacji>2025-03-03</tns:DataOperacji><tns:DataDowodu>2025-03-03</tns:DataDowodu><tns:DataKsiegowania>2025-03-03</tns:DataKsiegowania>
+    <tns:OpisOperacji>Opłata za hosting</tns:OpisOperacji><tns:DziennikKwotaOperacji>100.00</tns:DziennikKwotaOperacji></tns:Dziennik>
+  <tns:DziennikCtrl><tns:LiczbaWierszyDziennika>1</tns:LiczbaWierszyDziennika><tns:SumaKwotOperacji>100.00</tns:SumaKwotOperacji></tns:DziennikCtrl>
+  <tns:KontoZapis><tns:LpZapisu>1</tns:LpZapisu><tns:NrZapisu>1</tns:NrZapisu><tns:KodKontaWinien>402</tns:KodKontaWinien><tns:KwotaWinien>100.00</tns:KwotaWinien>
+    <tns:KodKontaMa>130</tns:KodKontaMa><tns:KwotaMa>100.00</tns:KwotaMa></tns:KontoZapis>
+</tns:JPK>

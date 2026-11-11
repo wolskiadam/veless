@@ -116,7 +116,7 @@ function renderPrintablePage(string $pageSize, string $title, string $body, bool
     body { margin: 0; padding: <?= $withToolbar ? '24px' : '0' ?>; font-family: -apple-system, "Segoe UI", sans-serif; color: #22252b; }
     table { border-collapse: collapse; }
     .print-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 16px; }
-    .print-toolbar button { background: #9c6b2e; color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
+    .print-toolbar button { background: var(--accent, #9c6b2e); color: #fff; border: 0; border-radius: 8px; padding: 9px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
     @media print { .print-toolbar { display: none; } body { padding: 0; } }
 </style>
 </head>

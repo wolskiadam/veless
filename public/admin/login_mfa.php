@@ -60,7 +60,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:#1c1f24;color:#22252b;font:16px system-ui}
 main{background:white;padding:32px;border-radius:14px;width:min(390px,calc(100vw - 80px))}
 input,button{font:inherit;box-sizing:border-box;width:100%;padding:12px;margin:12px 0;border-radius:8px;border:1px solid #ddd}
-button{background:#9c6b2e;color:white;border:0;cursor:pointer}.secondary{background:#eee;color:#222}.error{padding:12px;background:#fbe6e1;color:#a3341f;border-radius:8px}p{line-height:1.5}
+button{background:<?= htmlspecialchars(\Pase\Support\Theme::accent($pdo)) ?>;color:white;border:0;cursor:pointer}.secondary{background:#eee;color:#222}.error{padding:12px;background:#fbe6e1;color:#a3341f;border-radius:8px}p{line-height:1.5}
 </style></head><body><main>
 <h1>Potwierdź logowanie</h1>
 <p>Wpisz sześciocyfrowy kod z Google Authenticator lub jeden z zapisanych kodów odzyskiwania. Ten krok wygasa po 5 minutach.</p>

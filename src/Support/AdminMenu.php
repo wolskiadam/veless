@@ -172,6 +172,7 @@ final class AdminMenu
             $groups['orders']['items'][] = ['href' => 'document_operations.php', 'label' => t('nav.documents_check'), 'desc' => ''];
             $groups['config']['items'][] = ['href' => 'plugins.php', 'label' => t('nav.plugins'), 'desc' => ''];
             $groups['config']['items'][] = ['href' => 'menu_order.php', 'label' => t('nav.menu_order'), 'desc' => ''];
+            $groups['config']['items'][] = ['href' => 'appearance.php', 'label' => t('nav.appearance'), 'desc' => ''];
             $groups['system']['items'][] = ['href' => 'users.php', 'label' => t('nav.users'), 'desc' => ''];
             $groups['system']['items'][] = ['href' => 'server_usage.php', 'label' => t('nav.server_usage'), 'desc' => ''];
             $groups['system']['items'][] = ['href' => 'backup.php', 'label' => t('nav.backup'), 'desc' => ''];

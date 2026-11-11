@@ -27,7 +27,7 @@ $pick = $ids ? array_values(array_filter($all, static fn($l) => in_array($l['id'
     * { box-sizing:border-box; }
     body { margin:0; font-family:system-ui, "Segoe UI", sans-serif; color:#111; background:#f3f1ec; }
     .bar { position:sticky; top:0; display:flex; gap:10px; align-items:center; padding:12px 16px; background:#fff; border-bottom:1px solid #ddd; }
-    .bar button { padding:9px 16px; border:0; border-radius:8px; background:#9c6b2e; color:#fff; font-weight:700; cursor:pointer; font-size:14px; }
+    .bar button { padding:9px 16px; border:0; border-radius:8px; background:var(--accent,#9c6b2e); color:#fff; font-weight:700; cursor:pointer; font-size:14px; }
     .sheet { width:190mm; margin:12px auto; display:grid; grid-template-columns:1fr 1fr; gap:4mm; }
     .label { background:#fff; border:1px dashed #bbb; height:50mm; padding:4mm; display:flex; gap:4mm; align-items:center; break-inside:avoid; }
     .label canvas { width:40mm; height:40mm; flex-shrink:0; image-rendering:pixelated; }

@@ -7,6 +7,15 @@ declare(strict_types=1);
  * Bez logowania - przeglądarka pobiera manifest bez ciasteczek.
  */
 
+// Kolor paska aplikacji z Konfiguracja → Wygląd; bez bazy (np. instalator) - kolor domyślny.
+$themeColor = '#9c6b2e';
+try {
+    require_once __DIR__ . '/db_admin.php';
+    /** @var PDO $pdo */
+    $themeColor = \Pase\Support\Theme::accent($pdo);
+} catch (\Throwable) {
+}
+
 header('Content-Type: application/manifest+json; charset=utf-8');
 header('Cache-Control: public, max-age=3600');
 
@@ -18,7 +27,7 @@ echo json_encode([
     'scope'            => './',
     'display'          => 'standalone',
     'background_color' => '#f6f5f2',
-    'theme_color'      => '#9c6b2e',
+    'theme_color'      => $themeColor,
     'icons'            => [
         ['src' => 'assets/app-icon-192.png', 'sizes' => '192x192', 'type' => 'image/png'],
         ['src' => 'assets/app-icon-512.png', 'sizes' => '512x512', 'type' => 'image/png'],

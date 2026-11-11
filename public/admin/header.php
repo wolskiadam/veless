@@ -25,7 +25,7 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Veless">
-    <meta name="theme-color" content="#9c6b2e">
+    <meta name="theme-color" content="<?= htmlspecialchars(\Pase\Support\Theme::accent($pdo ?? null)) ?>">
     <title><?= htmlspecialchars($pageTitle) ?> — Veless</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
     <style>
@@ -102,6 +102,8 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
         .alert-chip.ok .n { background:var(--success-bg); color:var(--success-ink); }
         @media (max-width:700px) { .page-title-row { flex-wrap:wrap; } .alert-chips { order:3; flex-basis:100%; } .alert-chip .lb { display:none; } }
     </style>
+    <?php // Kolorystyka instalacji (Konfiguracja → Wygląd) - nadpisuje zmienne :root powyżej. ?>
+    <?= \Pase\Support\Theme::styleTag($pdo ?? null) ?>
     <?php // Style strony ładowane w <head>, żeby nic nie „mignęło” przed ich wczytaniem (np. duże ikony). ?>
     <?= $PAGE_HEAD ?? '' ?>
     <?php // Rozszerzenia (extensions/): własne style i skrypty na wszystkich stronach panelu + hak admin.head. ?>

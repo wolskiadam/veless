@@ -93,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Veless">
-    <meta name="theme-color" content="#9c6b2e">
+    <meta name="theme-color" content="<?= htmlspecialchars(\Pase\Support\Theme::accent($pdo)) ?>">
     <title><?= htmlspecialchars(t('login.title')) ?></title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
     <style>
@@ -108,7 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:16px; font-family:inherit; margin-bottom:18px; box-sizing:border-box; }
         input:focus { border-color:var(--accent); outline:none; box-shadow:0 0 0 3px var(--accent-soft); }
         .btn-login { width:100%; padding:12px; background:var(--accent); color:#fff; border:0; border-radius:8px; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer; transition:background .15s; }
-        .btn-login:hover { background:#835a24; }
+        .btn-login:hover { background:var(--accent-hover,#835a24); }
         .pw-row { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
         .forgot { font-size:.82em; color:var(--ink-2); margin-bottom:5px; }
         .forgot:hover { color:var(--ink); }
@@ -117,6 +117,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         /* Telefon: bez przesuwania na boki; 16px w polach, żeby iOS nie powiększał strony przy wpisywaniu. */
         @media (max-width:480px) { .login-card { padding:28px 22px; } }
     </style>
+    <?= \Pase\Support\Theme::styleTag($pdo ?? null) ?>
 </head>
 <body>
     <div class="login-card">
@@ -144,7 +145,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?php foreach (\Pase\Support\I18n::available() as $code => $name):
                 $cur = $code === \Pase\Support\I18n::locale(); ?>
                 <a href="login.php?setlang=<?= htmlspecialchars($code) ?>"
-                   style="font-size:12px;margin:0 5px;text-decoration:none;<?= $cur ? 'font-weight:700;color:#9c6b2e' : 'color:#aaa' ?>"><?= htmlspecialchars($name) ?></a>
+                   style="font-size:12px;margin:0 5px;text-decoration:none;<?= $cur ? 'font-weight:700;color:var(--accent)' : 'color:#aaa' ?>"><?= htmlspecialchars($name) ?></a>
             <?php endforeach; ?>
         </p>
     </div>

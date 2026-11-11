@@ -17,12 +17,14 @@ $v = static fn(string $f): string => $assetBase . '/' . $f . '?v=' . (@filemtime
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#9c6b2e">
+    <meta name="theme-color" content="<?= htmlspecialchars(\Pase\Support\Theme::accent($pdo ?? null)) ?>">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="robots" content="noindex">
     <title>Pakowanie — Veless</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap">
     <link rel="stylesheet" href="<?= htmlspecialchars($v('packing.css')) ?>">
+    <?php // Kolorystyka instalacji (Konfiguracja → Wygląd). ?>
+    <?= \Pase\Support\Theme::styleTag($pdo ?? null) ?>
 </head>
 <body class="pk-mode-<?= htmlspecialchars((string) $app['mode']) ?>">
 <div class="pk" id="pk">

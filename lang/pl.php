@@ -135,6 +135,7 @@ return [
     'nav.orders.history' => '🕘 Historia zmian',
     'nav.documents_check' => '📄 Dokumenty do sprawdzenia',
     'nav.menu_order' => '🧭 Układ menu',
+    'nav.appearance' => '🎨 Wygląd',
     'nav.server_usage' => '🖥️ Obciążenie serwera',
     'nav.backup' => '💾 Kopia zapasowa',
     'nav.handover' => '🔁 Przeniesienie danych',

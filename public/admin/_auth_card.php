@@ -29,10 +29,11 @@ declare(strict_types=1);
         input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:14px; font-family:inherit; margin-bottom:18px; }
         input:focus { border-color:var(--accent); outline:none; box-shadow:0 0 0 3px var(--accent-soft); }
         .btn-login { width:100%; padding:12px; background:var(--accent); color:#fff; border:0; border-radius:8px; font-size:15px; font-weight:700; font-family:inherit; cursor:pointer; transition:background .15s; }
-        .btn-login:hover { background:#835a24; }
+        .btn-login:hover { background:var(--accent-hover,#835a24); }
         .back { display:block; text-align:center; margin-top:18px; font-size:13px; color:var(--ink-2); }
         .back:hover { color:var(--ink); }
     </style>
+    <?= \Pase\Support\Theme::styleTag($pdo ?? null) ?>
 </head>
 <body>
     <div class="login-card">

@@ -115,6 +115,7 @@ final class PagePermissions
             'url_migration' => ['label' => 'Adres URL panelu', 'group' => 'Konfiguracja', 'legacy' => 'editor', 'files' => ['url_migration.php']],
             'plugins' => ['label' => 'Wtyczki', 'group' => 'Konfiguracja', 'legacy' => 'admin', 'files' => ['plugins.php']],
             'menu_order' => ['label' => 'Układ menu', 'group' => 'Konfiguracja', 'legacy' => 'admin', 'files' => ['menu_order.php']],
+            'appearance' => ['label' => 'Wygląd (kolor systemu)', 'group' => 'Konfiguracja', 'legacy' => 'admin', 'files' => ['appearance.php']],
 
             // --- System ---
             'dashboard' => ['label' => 'Pulpit / stan', 'group' => 'System', 'legacy' => 'viewer', 'files' => ['dashboard.php']],

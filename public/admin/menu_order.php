@@ -47,7 +47,7 @@ foreach ($groups as $gk => $g) {
         if (isset($it['children'])) { $groups[$gk]['items'][$i] += ['name' => '', 'default' => $it['label']]; }
     }
 }
-$adminOnly = ['document_operations.php', 'plugins.php', 'menu_order.php', 'users.php', 'server_usage.php', 'backup.php', 'handover.php'];
+$adminOnly = ['document_operations.php', 'plugins.php', 'menu_order.php', 'appearance.php', 'users.php', 'server_usage.php', 'backup.php', 'handover.php'];
 $custom = static fn(string $k): bool => (bool) preg_match(AdminMenu::CUSTOM_KEY, $k);
 
 // Jedna pozycja menu (strona).

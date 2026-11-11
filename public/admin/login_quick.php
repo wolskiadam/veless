@@ -122,9 +122,9 @@ main{background:white;padding:32px 24px;border-radius:14px;width:100%;max-width:
 h1{font-size:22px;margin:0 0 12px}p{line-height:1.5}
 .code{font:700 32px ui-monospace,monospace;letter-spacing:.12em;margin:8px 0;user-select:all}
 canvas{max-width:220px;width:100%;image-rendering:pixelated}
-button{font:inherit;width:100%;padding:12px;margin:8px 0;border-radius:8px;border:0;background:#9c6b2e;color:white;cursor:pointer}
+button{font:inherit;width:100%;padding:12px;margin:8px 0;border-radius:8px;border:0;background:<?= htmlspecialchars(\Pase\Support\Theme::accent($pdo)) ?>;color:white;cursor:pointer}
 .secondary{background:#eee;color:#222}.muted{color:#6d7076;font-size:14px}
-.error{padding:12px;background:#fbe6e1;color:#a3341f;border-radius:8px}a{color:#9c6b2e}
+.error{padding:12px;background:#fbe6e1;color:#a3341f;border-radius:8px}a{color:<?= htmlspecialchars(\Pase\Support\Theme::accent($pdo)) ?>}
 </style></head><body><main>
 <h1>Zaloguj innym urządzeniem</h1>
 <?php if ($error !== null): ?><p class="error" role="alert"><?= $e($error) ?></p><?php endif; ?>

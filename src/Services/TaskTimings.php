@@ -23,6 +23,8 @@ final class TaskTimings
         'ARCHIVE_AFTER_DAYS' => ['Archiwizuj zamówienia starsze niż', 'Wiek zamówienia (od daty złożenia), po którym trafia do archiwum.', 'dni', 90, 7, 3650, false, null],
         'TOKENS_EVERY' => ['Odświeżanie tokenów Allegro i sklepów', 'Co ile minut sprawdzać, czy token wygasa (odnawiany 15 min przed końcem). Nie da się wyłączyć - bez tokenów integracje przestają działać.', 'min', 5, 1, 10, false, 'TOKENS_REFRESH_AT'],
         'TRACKING_MAX_AGE_DAYS' => ['Śledź przesyłki nadane w ostatnich', 'Starszych paczek nie odpytujemy już u przewoźnika - mniej zapytań do API.', 'dni', 45, 1, 365, false, null],
+        'TRACKING_FRESH_DAYS' => ['Świeże przesyłki: sprawdzaj w każdym przebiegu paczki z ostatnich', 'Te paczki śledzenie sprawdza zawsze i jako pierwsze (przy każdym przebiegu „Śledzenia przesyłek”).', 'dni', 10, 1, 60, false, null],
+        'TRACKING_OLD_RECHECK_HOURS' => ['Starsze niedoręczone przesyłki: sprawdzaj co', 'Paczki starsze niż powyżej i paczki bez rozpoznanego przewoźnika. Doręczonych i zwróconych nie sprawdzamy wcale.', 'godz.', 6, 1, 168, false, null],
         'QUEUE_KEEP_DONE_DAYS' => ['Usuwaj wykonane zadania kolejki starsze niż', 'Zadania z błędem zostają, dopóki ich nie ponowisz lub nie usuniesz. 0 = nie usuwaj.', 'dni', 14, 1, 365, true, null],
         'QUEUE_CLEANUP_EVERY' => ['Czyszczenie kolejki', 'Co ile minut usuwać stare wykonane zadania.', 'min', 60, 5, 10080, false, 'QUEUE_CLEANUP_AT'],
         'PRINT_POLL_ACTIVE' => ['Agent drukarki: pytaj o wydruki w trakcie pracy co', 'Gdy ktoś pracuje w panelu lub niedawno drukowano. Mniej = szybszy wydruk, więcej zapytań.', 's', 4, 2, 60, false, null],

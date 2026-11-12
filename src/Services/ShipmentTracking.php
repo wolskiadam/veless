@@ -130,17 +130,21 @@ final class ShipmentTracking
     public function run(): int
     {
         // Ile dni wstecz śledzić: Konfiguracja → Synchronizacja (TRACKING_MAX_AGE_DAYS), domyślnie MAX_AGE_DAYS.
+        // Świeże paczki i co ile godzin starsze: TRACKING_FRESH_DAYS / TRACKING_OLD_RECHECK_HOURS (domyślnie HOT_DAYS / COLD_RECHECK_HOURS).
         try {
-            $days = TaskTimings::get(new \Pase\Repository\SettingsRepository($this->pdo), 'TRACKING_MAX_AGE_DAYS');
+            $settings = new \Pase\Repository\SettingsRepository($this->pdo);
+            $days = TaskTimings::get($settings, 'TRACKING_MAX_AGE_DAYS');
+            $hotDays = TaskTimings::get($settings, 'TRACKING_FRESH_DAYS');
+            $coldHours = TaskTimings::get($settings, 'TRACKING_OLD_RECHECK_HOURS');
         } catch (\Throwable) {
-            $days = self::MAX_AGE_DAYS;
+            [$days, $hotDays, $coldHours] = [self::MAX_AGE_DAYS, self::HOT_DAYS, self::COLD_RECHECK_HOURS];
         }
         $since = date('Y-m-d H:i:s', strtotime('-' . $days . ' days'));
-        $hot   = date('Y-m-d H:i:s', strtotime('-' . self::HOT_DAYS . ' days'));
-        $cold  = date('Y-m-d H:i:s', time() - self::COLD_RECHECK_HOURS * 3600);
+        $hot   = date('Y-m-d H:i:s', strtotime('-' . $hotDays . ' days'));
+        $cold  = date('Y-m-d H:i:s', time() - $coldHours * 3600);
 
-        // Świeże paczki (nadane w ostatnich HOT_DAYS dniach, z rozpoznanym przewoźnikiem) sprawdzamy w KAŻDYM przebiegu
-        // i przed innymi. Starsze, które utknęły (przewoźnik nic nie zwraca, nieznany kurier), tylko co COLD_RECHECK_HOURS.
+        // Świeże paczki (nadane w ostatnich TRACKING_FRESH_DAYS dniach, z rozpoznanym przewoźnikiem) sprawdzamy w KAŻDYM przebiegu
+        // i przed innymi. Starsze, które utknęły (przewoźnik nic nie zwraca, nieznany kurier), tylko co TRACKING_OLD_RECHECK_HOURS.
         // Wcześniej wszystkie aktywne paczki szły po kolei od najdawniej sprawdzonej, po BATCH_LIMIT na przebieg - przy
         // kilkuset zalegających paczkach świeża paczka czekała na swoją kolej kilka godzin (np. One Box nadana o 19:17,
         // status zaktualizowany dopiero po 23:00).
@@ -168,10 +172,10 @@ final class ShipmentTracking
         return $this->track($rows)['changed'];
     }
 
-    /** Paczki nadane w ostatnich tylu dniach sprawdzamy w każdym przebiegu (przed starszymi). */
+    /** Domyślnie: paczki nadane w ostatnich tylu dniach sprawdzamy w każdym przebiegu (przed starszymi). */
     private const HOT_DAYS = 10;
 
-    /** Starsze, wciąż niedoręczone paczki (i paczki bez rozpoznanego przewoźnika) - co tyle godzin. */
+    /** Domyślnie: starsze, wciąż niedoręczone paczki (i paczki bez rozpoznanego przewoźnika) - co tyle godzin. */
     private const COLD_RECHECK_HOURS = 6;
 
     /**

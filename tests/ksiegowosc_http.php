@@ -210,6 +210,12 @@ try {
     ok((int) $one("SELECT journal_no FROM ext_ksg_docs WHERE id = '$fs'") === 2, 'Sales invoice posted as position 2');
     $list = request($vi, $url('dokumenty', ['q' => 'świec']))['body'];
     ok(str_contains($list, 'FV/1/2026') && !str_contains($list, 'BO/1/01/2026') && str_contains($list, "1\u{a0}230,00"), 'Document list with search');
+    $list = request($vi, $url('dokumenty'))['body'];
+    ok(str_contains($list, 'Luty 2026') && str_contains($list, 'Sprzedaż') && str_contains($list, 'Zakupy') && str_contains($list, 'lut 26'), 'Document list grouped by month with sales/purchases tabs');
+    $list = request($vi, $url('dokumenty', ['g' => 'zakupy']))['body'];
+    ok(!str_contains($list, 'FV/1/2026'), 'Purchases tab hides sales invoices');
+    $list = request($vi, $url('dokumenty', ['g' => 'sprzedaz', 'sort' => 'asc']))['body'];
+    ok(str_contains($list, 'FV/1/2026') && !str_contains($list, 'BO/1/01/2026'), 'Sales tab shows sales invoices only');
 
     // ---- Storno
     $r = $post($ola, 'dokument_storno', ['id' => $fs, 'date' => '2026-02-28', 'reason' => 'zły kontrahent']);

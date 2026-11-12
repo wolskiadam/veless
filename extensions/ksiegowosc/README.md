@@ -41,6 +41,8 @@ Administrator CRM ma zawsze pełny dostęp. Zapisywanie wymaga też roli CRM z e
 - **Dokumenty** (PK, FS, FZ, WB, RK, LP, BO): numer własny albo nadany sam (`PK/3/11/2026`), daty księgowania,
   dokumentu i operacji, kontrahent, dekretacja z podpowiedzią kont i sumą Wn/Ma na żywo. Szkic może być niezbilansowany;
   lista problemów pokazuje, co poprawić przed księgowaniem.
+  Lista dokumentów ma zakładki Wszystkie / Sprzedaż (FS) / Zakupy (FZ) / Pozostałe i zakładki miesięcy roku obrotowego
+  z liczbą dokumentów; wiersze są pogrupowane po miesiącach, od najnowszych albo od najstarszych.
 - **Księgowanie**: Wn = Ma, konta aktywne i bez analityki, rok otwarty, okres niezamknięty. Dokument dostaje kolejny
   numer pozycji w dzienniku roku i od tej chwili nie da się go zmienić ani usunąć.
 - **Storno** (czerwone): nowy dokument ST z tymi samymi kontami i kwotami z minusem, od razu zaksięgowany; w innym roku

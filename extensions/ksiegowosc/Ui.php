@@ -95,6 +95,22 @@ final class Ui
     }
 
     /** Wybór roku obrotowego (GET, zostawia pozostałe parametry strony). @param list<array<string,mixed>> $years */
+    private const MONTHS = ['styczeń', 'luty', 'marzec', 'kwiecień', 'maj', 'czerwiec', 'lipiec', 'sierpień', 'wrzesień', 'październik', 'listopad', 'grudzień'];
+
+    /** RRRR-MM => „Listopad 2026”. */
+    public static function monthName(string $ym): string
+    {
+        $n = (int) substr($ym, 5, 2);
+        return $n >= 1 && $n <= 12 ? mb_convert_case(self::MONTHS[$n - 1], MB_CASE_TITLE) . ' ' . substr($ym, 0, 4) : $ym;
+    }
+
+    /** RRRR-MM => „lis 2026” (zakładki). */
+    public static function monthShort(string $ym): string
+    {
+        $n = (int) substr($ym, 5, 2);
+        return $n >= 1 && $n <= 12 ? mb_substr(self::MONTHS[$n - 1], 0, 3) . ' ' . substr($ym, 2, 2) : $ym;
+    }
+
     public static function yearPicker(string $page, array $years, string $current, array $keep = []): string
     {
         if (count($years) < 2) {
@@ -137,6 +153,9 @@ final class Ui
 .kg-tabs a{padding:8px 12px;color:var(--ink-2);text-decoration:none;font-weight:600;font-size:14px;border-bottom:2px solid transparent;margin-bottom:-1px}
 .kg-tabs a.on{color:var(--accent);border-bottom-color:var(--accent)}
 .kg-tabs a:hover{color:var(--ink)}
+.kg-months a{font-size:13px;padding:7px 9px}
+.kg-months a.kg-none{color:var(--ink-3)}
+.kg-table tr.kg-month-row td{font-weight:700;background:var(--surface-2);padding-top:9px}
 .kg-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:14px}
 .kg-top p{margin:0;color:var(--ink-2)}
 .kg-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}

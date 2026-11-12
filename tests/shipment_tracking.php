@@ -281,6 +281,20 @@ check($row($recentOld)['tracking_checked_at'] < date('Y-m-d H:i:s', time() - 60)
 $checkedOld = (int) $pdo->query("SELECT COUNT(*) FROM shipments WHERE waybill_no LIKE 'OLD%' AND tracking_checked_at >= '" . date('Y-m-d H:i:s', time() - 60) . "'")->fetchColumn();
 check($checkedOld === 299, 'the rest of the batch goes to the oldest-checked older parcels');
 
+// Progi z ustawień (Konfiguracja → Synchronizacja): 1 godz. zamiast 6 - starsza paczka sprawdzona godzinę temu też idzie.
+$pdo->exec("INSERT OR REPLACE INTO settings (setting_key, setting_value) VALUES ('TRACKING_OLD_RECHECK_HOURS', '1')");
+$pdo->prepare('UPDATE shipments SET tracking_checked_at = ? WHERE id = ?')->execute([date('Y-m-d H:i:s', time() - 3700), $recentOld]);
+$pdo->exec("UPDATE shipments SET tracking_checked_at = '" . date('Y-m-d H:i:s') . "' WHERE waybill_no LIKE 'OLD%'");
+$trk->run();
+check($row($recentOld)['tracking_checked_at'] >= date('Y-m-d H:i:s', time() - 60), 'recheck hours taken from settings');
+$pdo->exec("INSERT OR REPLACE INTO settings (setting_key, setting_value) VALUES ('TRACKING_FRESH_DAYS', '30')");
+$pdo->exec("UPDATE shipments SET tracking_checked_at = '" . date('Y-m-d H:i:s', time() - 7200) . "'");
+$pdo->exec("UPDATE shipments SET tracking_checked_at = '" . date('Y-m-d H:i:s', time() - 300) . "' WHERE id = {$recentOld}");
+$pdo->exec("UPDATE shipments SET tracking_checked_at = '" . date('Y-m-d H:i:s', time() - 120) . "' WHERE waybill_no LIKE 'OLD%'");
+$trk->run();
+check($row($recentOld)['tracking_checked_at'] >= date('Y-m-d H:i:s', time() - 60), 'fresh days taken from settings (20-day-old parcel counts as fresh with 30)');
+$pdo->exec("DELETE FROM settings WHERE setting_key IN ('TRACKING_OLD_RECHECK_HOURS', 'TRACKING_FRESH_DAYS')");
+
 // Ikona wysyłki na liście zamówień: etap przesyłki (także ustawiony ręcznie) zmienia jej kolor.
 $ship = static fn(array $shipments, string $pase = 'processing') => \Pase\Services\OrderIndicators::forOrder(
     ['pase_status' => $pase, 'status' => 'processing'], ['shipping_lines' => [['method_id' => 'flat_rate:1']]], $shipments)['shipping'];

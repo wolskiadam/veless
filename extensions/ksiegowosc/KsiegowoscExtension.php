@@ -30,7 +30,7 @@ final class KsiegowoscExtension extends AbstractExtension
         return new ExtensionManifest(
             type: 'ksiegowosc',
             name: 'Księgowość',
-            version: '0.7.0',
+            version: '0.7.1',
             author: 'Veless',
             description: 'Pełne księgi rachunkowe spółki: plan kont, dokumenty z dekretacją Wn/Ma, dziennik, storno, obroty i salda, kontrahenci, rejestry VAT, rozrachunki i wyciągi bankowe. Dane w osobnych tabelach (albo osobnej bazie), własne uprawnienia. Docelowo także faktury do KSeF, paragony, deklaracje i kadry.',
             icon: '📒',

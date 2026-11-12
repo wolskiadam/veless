@@ -335,22 +335,40 @@ final class Pages
             return $this->noYear('dokumenty');
         }
         $f = ['month' => (string) ($_GET['m'] ?? ''), 'status' => (string) ($_GET['status'] ?? ''), 'type' => (string) ($_GET['type'] ?? ''),
-            'q' => mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100)];
+            'q' => mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100), 'sort' => ($_GET['sort'] ?? '') === 'asc' ? 'asc' : '',
+            'group' => isset(Ledger::GROUPS[$_GET['g'] ?? '']) ? (string) $_GET['g'] : ''];
         $p = max(1, (int) ($_GET['s'] ?? 1));
         $per = 50;
         $res = $this->ledger->docs((string) $year['id'], $f, $per, ($p - 1) * $per);
-        $months = ['' => 'Cały rok'];
-        for ($t = strtotime(substr((string) $year['starts_on'], 0, 7) . '-01'); date('Y-m-d', $t) <= $year['ends_on']; $t = strtotime('+1 month', $t)) {
-            $months[date('Y-m', $t)] = date('m.Y', $t);
+        $keep = static fn(array $over): array => array_filter(array_merge(['rok' => $year['id'], 'g' => $f['group'], 'm' => $f['month'], 'status' => $f['status'], 'type' => $f['type'],
+            'q' => $f['q'], 'sort' => $f['sort']], $over), static fn($v): bool => $v !== '');
+        // Zakładki miesięcy roku obrotowego z liczbą dokumentów (najnowszy miesiąc z prawej, jak w kalendarzu).
+        $counts = $this->ledger->docMonths((string) $year['id'], $f['group']);
+        // Zakładki: wszystkie / sprzedaż / zakupy / pozostałe (rodzaj z listy zawęża dalej).
+        $tabs = '<nav class="kg-tabs">';
+        foreach (['' => 'Wszystkie'] + Ledger::GROUPS as $g => $label) {
+            $n = array_sum($this->ledger->docMonths((string) $year['id'], (string) $g));
+            $tabs .= '<a class="' . ($f['group'] === (string) $g ? 'on' : '') . '" href="' . U::h(U::url('dokumenty', $keep(['g' => (string) $g, 'type' => '', 's' => '']))) . '">'
+                . U::h($label) . ' <span class="kg-small">' . $n . '</span></a>';
         }
-        $html = $this->head('dokumenty') . '<div class="kg-top"><p>Dokumenty księgowe roku <b>' . U::h($year['name']) . '</b>: szkice i zaksięgowane.</p><div class="kg-actions">'
+        $tabs .= '</nav><nav class="kg-tabs kg-months"><a class="' . ($f['month'] === '' ? 'on' : '') . '" href="' . U::h(U::url('dokumenty', $keep(['m' => '']))) . '">Cały rok <span class="kg-small">' . array_sum($counts) . '</span></a>';
+        for ($t = strtotime(substr((string) $year['starts_on'], 0, 7) . '-01'); date('Y-m-d', $t) <= $year['ends_on']; $t = strtotime('+1 month', $t)) {
+            $m = date('Y-m', $t);
+            $tabs .= '<a class="' . ($f['month'] === $m ? 'on' : '') . (isset($counts[$m]) ? '' : ' kg-none') . '" href="' . U::h(U::url('dokumenty', $keep(['m' => $m]))) . '" title="' . U::h(U::monthName($m)) . '">'
+                . U::h(U::monthShort($m)) . ' <span class="kg-small">' . ($counts[$m] ?? 0) . '</span></a>';
+        }
+        $tabs .= '</nav>';
+        $html = $this->head('dokumenty') . '<div class="kg-top"><p>Dokumenty księgowe roku <b>' . U::h($year['name']) . '</b>: szkice i zaksięgowane, pogrupowane po miesiącach.</p><div class="kg-actions">'
             . U::yearPicker('dokumenty', $this->ledger->years(), (string) $year['id'])
             . ($this->can(Access::BOOK) ? '<a class="btn" href="' . U::h(U::url('dokument_nowy')) . '">+ Nowy dokument</a>' : '') . '</div></div>'
+            . $tabs
             . '<form class="kg-filter" method="get" action="ext.php"><input type="hidden" name="page" value="ksiegowosc.dokumenty"><input type="hidden" name="rok" value="' . U::h($year['id']) . '">'
+            . ($f['month'] !== '' ? '<input type="hidden" name="m" value="' . U::h($f['month']) . '">' : '')
+            . ($f['group'] !== '' ? '<input type="hidden" name="g" value="' . U::h($f['group']) . '">' : '')
             . '<input type="search" name="q" value="' . U::h($f['q']) . '" placeholder="Szukaj po numerze, opisie, kontrahencie">'
-            . U::select('m', $months, $f['month'], '', 'onchange="this.form.submit()"')
             . U::select('type', ['' => 'Wszystkie rodzaje'] + Ledger::TYPES, $f['type'], '', 'onchange="this.form.submit()"')
             . U::select('status', ['' => 'Wszystkie', 'draft' => 'Szkice', 'posted' => 'Zaksięgowane'], $f['status'], '', 'onchange="this.form.submit()"')
+            . U::select('sort', ['' => 'Od najnowszych', 'asc' => 'Od najstarszych'], $f['sort'], '', 'onchange="this.form.submit()"')
             . '<button class="btn secondary" type="submit">Szukaj</button></form>';
         if ($res['rows'] === []) {
             return $html . ($res['total'] === 0 && array_filter($f) === []
@@ -360,13 +378,19 @@ final class Pages
         }
         $html .= '<div class="card kg-table" style="padding:6px 10px"><table><thead><tr><th>Data</th><th class="kg-num">Poz.</th><th>Numer</th><th>Opis</th><th class="kg-hide-m">Kontrahent</th>'
             . '<th class="kg-num">Kwota</th><th>Status</th></tr></thead><tbody>';
+        $cur = null;
         foreach ($res['rows'] as $d) {
+            $m = substr((string) $d['posting_date'], 0, 7);
+            if ($m !== $cur) {
+                $cur = $m;
+                $html .= '<tr class="kg-month-row"><td colspan="7">' . U::h(U::monthName($m)) . ' <span class="kg-small">' . ($counts[$m] ?? 0) . ' dok.</span></td></tr>';
+            }
             $html .= '<tr><td>' . U::date($d['posting_date']) . '</td><td class="kg-num">' . ($d['journal_no'] ?? '') . '</td>'
                 . '<td><a href="' . U::h(U::url('dokument', ['id' => $d['id']])) . '"><b>' . U::h($d['number']) . '</b></a><div class="kg-small">' . U::h(Ledger::TYPES[$d['type']] ?? $d['type']) . '</div></td>'
                 . '<td>' . U::h($d['description']) . '</td><td class="kg-hide-m">' . U::h($d['counterparty']) . '</td>'
                 . '<td class="kg-num">' . U::money((int) $d['total_gr']) . '</td><td>' . U::status($d) . '</td></tr>';
         }
-        $q = array_filter(['rok' => $year['id'], 'm' => $f['month'], 'status' => $f['status'], 'type' => $f['type'], 'q' => $f['q']], static fn($v): bool => $v !== '');
+        $q = $keep([]);
         return $html . '</tbody></table></div>' . U::pager('dokumenty', $q, $res['total'], $per, $p);
     }
 

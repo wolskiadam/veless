@@ -161,6 +161,16 @@ ok((int) $l->post($late['id'], 'ola')['journal_no'] === 6, 'Unlocked period post
 
 // Lista dokumentów.
 ok($l->docs($y26['id'], ['q' => 'wosk'])['total'] === 1 && $l->docs($y26['id'], ['month' => '2026-03'])['total'] === 3 && $l->docs($y26['id'], ['type' => 'ST'])['total'] === 1, 'Document filters');
+$all26 = $l->docs($y26['id'])['total'];
+$fsN = $l->docs($y26['id'], ['type' => 'FS'])['total'];
+$fzN = $l->docs($y26['id'], ['type' => 'FZ'])['total'];
+ok($l->docs($y26['id'], ['group' => 'sprzedaz'])['total'] === $fsN && $l->docs($y26['id'], ['group' => 'zakupy'])['total'] === $fzN
+    && $l->docs($y26['id'], ['group' => 'inne'])['total'] === $all26 - $fsN - $fzN, 'Documents split into sales, purchases and the rest');
+$asc = $l->docs($y26['id'], ['sort' => 'asc'], 500)['rows'];
+$desc = $l->docs($y26['id'], [], 500)['rows'];
+ok($asc !== [] && $asc[0]['posting_date'] <= end($asc)['posting_date'] && $desc[0]['posting_date'] >= end($desc)['posting_date'], 'Documents sorted newest or oldest first');
+$months = $l->docMonths($y26['id']);
+ok(($months['2026-03'] ?? 0) === 3 && array_sum($months) === $all26 && array_sum($l->docMonths($y26['id'], 'sprzedaz')) === $fsN, 'Document counts per month');
 $j = $l->journal($y26['id'], '2026-01-01', '2026-12-31');
 ok(array_map(static fn(array $d): int => (int) $d['journal_no'], $j) === [1, 2, 3, 4, 5, 6], 'Journal in posting order');
 

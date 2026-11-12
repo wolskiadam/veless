@@ -24,6 +24,24 @@ final class Ledger
         'BO' => 'Bilans otwarcia',
         'ST' => 'Storno',
     ];
+    /** Podział listy dokumentów: sprzedaż, zakupy i reszta (wyciągi, PK, kasa, płace...). */
+    public const GROUPS = ['sprzedaz' => 'Sprzedaż', 'zakupy' => 'Zakupy', 'inne' => 'Pozostałe'];
+    private const GROUP_TYPES = ['sprzedaz' => ['FS'], 'zakupy' => ['FZ']];
+
+    /** Warunek SQL rodzaju dokumentu dla grupy (pusty, gdy grupa nieznana). @return array{0:string,1:list<string>} */
+    public static function groupWhere(string $group): array
+    {
+        if (isset(self::GROUP_TYPES[$group])) {
+            $t = self::GROUP_TYPES[$group];
+            return ['type IN (' . implode(',', array_fill(0, count($t), '?')) . ')', $t];
+        }
+        if ($group === 'inne') {
+            $t = array_merge(...array_values(self::GROUP_TYPES));
+            return ['type NOT IN (' . implode(',', array_fill(0, count($t), '?')) . ')', $t];
+        }
+        return ['', []];
+    }
+
     /** Rodzaje, które można wybrać w formularzu (storno powstaje tylko z przycisku). */
     public const MANUAL_TYPES = ['PK', 'FS', 'FZ', 'WB', 'RK', 'LP', 'BO'];
     public const MAX_LINES = 500;
@@ -265,11 +283,12 @@ final class Ledger
     }
 
     /**
-     * Lista dokumentów roku z filtrami: miesiąc RRRR-MM, status, rodzaj, szukany tekst.
+     * Lista dokumentów roku z filtrami: miesiąc RRRR-MM, grupa (sprzedaż/zakupy/pozostałe), status, rodzaj, szukany tekst, kolejność (sort=asc).
      * @return array{rows:list<array<string,mixed>>,total:int}
      */
     public function docs(string $yearId, array $f = [], int $limit = 50, int $offset = 0): array
     {
+        $dir = ($f['sort'] ?? '') === 'asc' ? 'ASC' : 'DESC';
         $where = ['year_id = ?'];
         $args = [$yearId];
         if (preg_match('/^\d{4}-\d{2}$/', (string) ($f['month'] ?? ''))) {
@@ -279,6 +298,11 @@ final class Ledger
         if (in_array($f['status'] ?? '', ['draft', 'posted'], true)) {
             $where[] = 'status = ?';
             $args[] = $f['status'];
+        }
+        [$gw, $ga] = self::groupWhere((string) ($f['group'] ?? ''));
+        if ($gw !== '') {
+            $where[] = $gw;
+            array_push($args, ...$ga);
         }
         if (isset(self::TYPES[$f['type'] ?? ''])) {
             $where[] = 'type = ?';
@@ -292,9 +316,24 @@ final class Ledger
         }
         $w = implode(' AND ', $where);
         $total = (int) ($this->db->one("SELECT COUNT(*) AS n FROM ext_ksg_docs WHERE {$w}", $args)['n'] ?? 0);
-        $rows = $this->db->all("SELECT * FROM ext_ksg_docs WHERE {$w} ORDER BY posting_date DESC, CASE WHEN journal_no IS NULL THEN 1 ELSE 0 END DESC,
-            journal_no DESC, created_at DESC LIMIT " . max(1, $limit) . ' OFFSET ' . max(0, $offset), $args);
+        $rows = $this->db->all("SELECT * FROM ext_ksg_docs WHERE {$w} ORDER BY posting_date {$dir}, CASE WHEN journal_no IS NULL THEN 1 ELSE 0 END {$dir},
+            journal_no {$dir}, created_at {$dir} LIMIT " . max(1, $limit) . ' OFFSET ' . max(0, $offset), $args);
         return ['rows' => $rows, 'total' => $total];
+    }
+
+    /**
+     * Liczba dokumentów roku (opcjonalnie z grupy sprzedaż/zakupy/pozostałe) w każdym miesiącu (RRRR-MM => liczba), do zakładek miesięcy na liście dokumentów.
+     * @return array<string,int>
+     */
+    public function docMonths(string $yearId, string $group = ''): array
+    {
+        [$gw, $ga] = self::groupWhere($group);
+        $out = [];
+        foreach ($this->db->all('SELECT SUBSTR(posting_date, 1, 7) AS m, COUNT(*) AS n FROM ext_ksg_docs WHERE year_id = ?' . ($gw !== '' ? ' AND ' . $gw : '')
+            . ' GROUP BY SUBSTR(posting_date, 1, 7)', [$yearId, ...$ga]) as $r) {
+            $out[(string) $r['m']] = (int) $r['n'];
+        }
+        return $out;
     }
 
     /** Kolejny numer dokumentu danego rodzaju w miesiącu: PK/3/11/2026. */

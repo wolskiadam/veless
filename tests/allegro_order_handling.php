@@ -28,7 +28,7 @@ $fetch = function (string $id) use (&$calls, &$offers): ?array { $calls[] = $id;
 H::record($pdo, 1, $payload, $fetch, $now);
 check($calls === ['111', '222'], 'each offer fetched once');
 $r = H::forOrder($pdo, 1, $payload);
-check(count($r) === 2 && $r[0]['handling'] === '24 godziny' && $r[1]['handling'] === '2 dni' && !$r[0]['current'], 'saved handling per offer');
+check(count($r) === 2 && $r[0]['handling'] === '24 godziny' && $r[1]['handling'] === '2 dni' , 'saved handling per offer');
 check($r[0]['name'] === 'Świeca A', 'offer name from line item');
 
 // Zmiana w ofercie po zakupie nie zmienia zapisu.
@@ -37,19 +37,18 @@ H::record($pdo, 1, $payload, $fetch, $now);
 check(count($calls) === 2, 'second record does nothing');
 check(H::forOrder($pdo, 1, $payload)[0]['handling'] === '24 godziny', 'value from purchase time kept');
 
-// Stare zamówienie (import historyczny): nie zapisujemy, pokazujemy obecny czas z oferty.
+// Stare zamówienie (import historyczny): nie zapisujemy i nie pokazujemy obecnego czasu z oferty (inny niż przy zakupie).
 $old = ['boughtAt' => '2026-09-01T10:00:00Z'] + $payload;
 H::record($pdo, 2, $old, $fetch, $now);
 check(count($calls) === 2, 'old order: no API calls');
 check(H::forOrder($pdo, 2, $old) === [], 'old order without cached offer: nothing shown');
 $pdo->exec("INSERT INTO allegro_offer_details VALUES ('111', 'P3D', NULL, '2026-10-25')");
-$r = H::forOrder($pdo, 2, $old);
-check(count($r) === 1 && $r[0]['handling'] === '3 dni' && $r[0]['current'], 'old order: current offer value marked as current');
+check(H::forOrder($pdo, 2, $old) === [], 'old order: current offer value is not shown');
 
 // Oferta, której nie udało się pobrać.
 $fail = fn(string $id): ?array => null;
 H::record($pdo, 3, $payload, $fail, $now);
-check(H::forOrder($pdo, 3, $payload)[0]['current'] === true, 'failed fetch falls back to current offer value');
+check(H::forOrder($pdo, 3, $payload) === [], 'failed fetch: nothing shown');
 check(H::forOrder($pdo, 4, []) === [], 'no line items');
 
 echo "\n{$checks} checks passed\n";

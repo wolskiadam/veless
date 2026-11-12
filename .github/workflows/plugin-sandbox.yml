@@ -38,7 +38,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Pobierz kod (PR)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: pr
           fetch-depth: 0
@@ -48,7 +48,7 @@ jobs:
       # „poprawia” sandbox albo rdzeń, nie może sam sobie wystawić czystego raportu. Gdy gałąź docelowa
       # nie ma jeszcze sandboxu (PR, który go wprowadza) - bierzemy go z PR.
       - name: Pobierz gałąź docelową (sandbox i rdzeń)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: base
           ref: ${{ github.event.pull_request.base.sha || github.sha }}

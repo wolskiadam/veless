@@ -75,6 +75,12 @@ final class AllegroOrderMessage
      */
     public static function send(object $client, array $order, string $body, ?array $attachment = null): void
     {
+        $bare = self::bareAddresses($body);
+        if ($bare !== []) {
+            throw new \RuntimeException('Wiadomość nie została wysłana: Allegro zatrzyma ją, bo zawiera sam adres strony sklepu ('
+                . implode(', ', $bare) . '). Linki do konkretnej strony, np. do zamówienia, są w porządku – usuń z treści goły adres. '
+                . 'Jeśli pochodzi z podpisu {{shop_name}}, zmień nazwę nadawcy w Konfiguracja → E-mail (np. „Mój Sklep” zamiast „mojsklep.pl”).');
+        }
         $login = self::buyerLogin($order);
         if ($login === '') {
             throw new \RuntimeException('Wiadomość nie została wysłana: brak loginu kupującego Allegro w zamówieniu.');
@@ -105,6 +111,42 @@ final class AllegroOrderMessage
                 throw new \RuntimeException('Wiadomość nie została wysłana na Allegro' . $sent . ': ' . ($r['message'] ?? ''));
             }
         }
+    }
+
+    /**
+     * Gołe adresy stron w treści: sama domena („sklep.pl”, „www.sklep.pl”) albo link bez ścieżki
+     * („https://sklep.pl/”). Allegro traktuje je jako kierowanie kupującego do zewnętrznego sklepu
+     * i zatrzymuje wiadomość. Link do konkretnej strony (ścieżka albo parametry, np. strona
+     * zamówienia z tokenem) Allegro przepuszcza; adresy Allegro i e-maile są pomijane.
+     * @return array<int,string>
+     */
+    public static function bareAddresses(string $text): array
+    {
+        $found = [];
+        // Linki z protokołem: zgłaszamy tylko te bez ścieżki i parametrów.
+        if (preg_match_all('#https?://([^\s/?\#<>"\')]+)(/?)(?=[\s<>"\'),.;:!]*(?:\s|$))#iu', $text, $m, PREG_SET_ORDER)) {
+            foreach ($m as $hit) {
+                if (!self::isAllegroHost($hit[1])) {
+                    $found[] = rtrim($hit[0], '.,;:!');
+                }
+            }
+        }
+        // Domeny bez protokołu (poza linkami i adresami e-mail).
+        $rest = preg_replace('#https?://\S+#iu', ' ', $text) ?? $text;
+        if (preg_match_all('#(?<![@\w./-])((?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,24})(?![\w@-]|\.\w|/\S)#iu', $rest, $m2)) {
+            foreach ($m2[1] as $host) {
+                if (preg_match('#\.(pl|eu|com|net|org|info|biz|shop|store|online|sklep|de|uk|cz|sk|io|co|me)$#i', $host) && !self::isAllegroHost($host)) {
+                    $found[] = $host;
+                }
+            }
+        }
+        return array_values(array_unique($found));
+    }
+
+    private static function isAllegroHost(string $host): bool
+    {
+        $host = strtolower(preg_replace('#:\d+$#', '', $host) ?? $host);
+        return (bool) preg_match('#(^|\.)allegro\.pl$|(^|\.)allegrolokalnie\.pl$#', $host);
     }
 
     /** @return array<string,mixed> */

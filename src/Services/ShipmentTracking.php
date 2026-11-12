@@ -129,23 +129,50 @@ final class ShipmentTracking
     /** Przebieg harmonogramu: sprawdza aktywne przesyłki. @return int liczba zmian etapu */
     public function run(): int
     {
-        $stmt = $this->pdo->prepare(
-            "SELECT * FROM shipments
-             WHERE status = 'created' AND waybill_no IS NOT NULL AND waybill_no <> ''
-               AND (tracking_status IS NULL OR tracking_status NOT IN ('delivered','returned'))
-               AND created_at >= ?
-             ORDER BY tracking_checked_at IS NOT NULL, tracking_checked_at ASC, id DESC
-             LIMIT " . self::BATCH_LIMIT
-        );
         // Ile dni wstecz śledzić: Konfiguracja → Synchronizacja (TRACKING_MAX_AGE_DAYS), domyślnie MAX_AGE_DAYS.
         try {
             $days = TaskTimings::get(new \Pase\Repository\SettingsRepository($this->pdo), 'TRACKING_MAX_AGE_DAYS');
         } catch (\Throwable) {
             $days = self::MAX_AGE_DAYS;
         }
-        $stmt->execute([date('Y-m-d H:i:s', strtotime('-' . $days . ' days'))]);
-        return $this->track($stmt->fetchAll(PDO::FETCH_ASSOC))['changed'];
+        $since = date('Y-m-d H:i:s', strtotime('-' . $days . ' days'));
+        $hot   = date('Y-m-d H:i:s', strtotime('-' . self::HOT_DAYS . ' days'));
+        $cold  = date('Y-m-d H:i:s', time() - self::COLD_RECHECK_HOURS * 3600);
+
+        // Świeże paczki (nadane w ostatnich HOT_DAYS dniach, z rozpoznanym przewoźnikiem) sprawdzamy w KAŻDYM przebiegu
+        // i przed innymi. Starsze, które utknęły (przewoźnik nic nie zwraca, nieznany kurier), tylko co COLD_RECHECK_HOURS.
+        // Wcześniej wszystkie aktywne paczki szły po kolei od najdawniej sprawdzonej, po BATCH_LIMIT na przebieg - przy
+        // kilkuset zalegających paczkach świeża paczka czekała na swoją kolej kilka godzin (np. One Box nadana o 19:17,
+        // status zaktualizowany dopiero po 23:00).
+        $isHot = "(created_at >= ? AND COALESCE(tracking_code, '') <> '" . self::NO_CARRIER . "')";
+        $where = "status = 'created' AND waybill_no IS NOT NULL AND waybill_no <> ''
+               AND (tracking_status IS NULL OR tracking_status NOT IN ('delivered','returned'))
+               AND created_at >= ?
+               AND ({$isHot} OR tracking_checked_at IS NULL OR tracking_checked_at < ?)";
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM shipments WHERE {$where}
+             ORDER BY CASE WHEN {$isHot} THEN 0 ELSE 1 END, tracking_checked_at IS NOT NULL, tracking_checked_at ASC, id DESC
+             LIMIT " . self::BATCH_LIMIT
+        );
+        $stmt->execute([$since, $hot, $cold, $hot]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        if (count($rows) >= self::BATCH_LIMIT) {
+            try {
+                $c = $this->pdo->prepare("SELECT COUNT(*) FROM shipments WHERE {$where}");
+                $c->execute([$since, $hot, $cold]);
+                Logger::warn('Śledzenie przesyłek: do sprawdzenia ' . (int) $c->fetchColumn() . ' paczek, w jednym przebiegu '
+                    . self::BATCH_LIMIT . ' (najpierw świeże) - reszta w kolejnych.');
+            } catch (\Throwable) {
+            }
+        }
+        return $this->track($rows)['changed'];
     }
+
+    /** Paczki nadane w ostatnich tylu dniach sprawdzamy w każdym przebiegu (przed starszymi). */
+    private const HOT_DAYS = 10;
+
+    /** Starsze, wciąż niedoręczone paczki (i paczki bez rozpoznanego przewoźnika) - co tyle godzin. */
+    private const COLD_RECHECK_HOURS = 6;
 
     /**
      * Sprawdzenie „na żądanie" (przycisk na stronie zamówienia) - także przesyłek już doręczonych.

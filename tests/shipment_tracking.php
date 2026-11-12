@@ -260,6 +260,27 @@ $pdo->exec("UPDATE shipments SET waybill_no = 'AD0LRDD1577GSTJC5', tracking_stat
 $r = (new ShipmentTracking($pdo, $client2, [], static fn(string $w): ?array => null))->checkOne($one);
 check($r['ok'] && $row($one)['tracking_status'] === 'in_transit', 'Allegro One parcel "nadana" moves from pending to in transit');
 
+// Harmonogram: świeża paczka (One Box nadana dziś) nie czeka, aż przejdą setki zalegających starszych paczek.
+$pdo->exec("DELETE FROM shipments");
+$client->knows = 'ALLEGRO'; $client->failFor = []; $client->asked = [];
+$old = date('Y-m-d H:i:s', strtotime('-20 days'));
+$ins = $pdo->prepare("INSERT INTO shipments (courier_code, waybill_no, status, created_at, tracking_carrier, tracking_checked_at) VALUES ('DHL', ?, 'created', ?, 'DHL', ?)");
+for ($i = 0; $i < 320; $i++) {
+    $ins->execute(['OLD' . $i, $old, date('Y-m-d H:i:s', time() - 7 * 3600 - $i)]);
+}
+$ins->execute(['RECENT_OLD', $old, date('Y-m-d H:i:s', time() - 3600)]);
+$recentOld = (int) $pdo->lastInsertId();
+$pdo->prepare("INSERT INTO shipments (courier_code, waybill_no, status, created_at, tracking_status, tracking_carrier, tracking_checked_at)
+    VALUES ('Allegro · ALLEGRO', 'A0067FHGG2', 'created', ?, 'pending', 'ALLEGRO', ?)")
+    ->execute([date('Y-m-d H:i:s', time() - 7 * 3600), date('Y-m-d H:i:s', time() - 1800)]);
+$fresh = (int) $pdo->lastInsertId();
+$trk = new ShipmentTracking($pdo, $client, [], static fn(string $w): ?array => null, [], static fn(string $w): ?string => null);
+$trk->run();
+check($row($fresh)['tracking_status'] === 'in_transit', 'fresh parcel checked first even with 320 older parcels waiting');
+check($row($recentOld)['tracking_checked_at'] < date('Y-m-d H:i:s', time() - 60), 'older parcel checked within the last 6 h is skipped');
+$checkedOld = (int) $pdo->query("SELECT COUNT(*) FROM shipments WHERE waybill_no LIKE 'OLD%' AND tracking_checked_at >= '" . date('Y-m-d H:i:s', time() - 60) . "'")->fetchColumn();
+check($checkedOld === 299, 'the rest of the batch goes to the oldest-checked older parcels');
+
 // Ikona wysyłki na liście zamówień: etap przesyłki (także ustawiony ręcznie) zmienia jej kolor.
 $ship = static fn(array $shipments, string $pase = 'processing') => \Pase\Services\OrderIndicators::forOrder(
     ['pase_status' => $pase, 'status' => 'processing'], ['shipping_lines' => [['method_id' => 'flat_rate:1']]], $shipments)['shipping'];

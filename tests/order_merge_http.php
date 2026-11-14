@@ -151,7 +151,7 @@ try {
     $pdo->exec('DELETE FROM shipments');
 
     $page = request($boss, 'admin/index.php');
-    ok(!str_contains($page['body'], 'order_view.php?id=502') && str_contains($page['body'], '169.70') && !str_contains($page['body'], '114.8'), 'Order list shows one order with the combined price');
+    ok(!str_contains($page['body'], 'order_view.php?id=502') && str_contains($page['body'], '169,70') && !str_contains($page['body'], '114,80'), 'Order list shows one order with the combined price');
     ok(str_contains($page['body'], '+ 502'), 'Main order row names the merged order number');
     $page = request($boss, 'admin/orders_search.php?q=502');
     ok(str_contains((string) ($page['json']['html'] ?? ''), 'order_view.php?id=501'), 'Searching the merged order number finds the main order');

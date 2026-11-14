@@ -116,13 +116,14 @@ function ordersSparkChart(array $dailyCounts, string $ariaLabel): string
 
     $bars = '';
     $i = 0;
+    $lastDay = array_key_last($dailyCounts);
     foreach ($dailyCounts as $day => $count) {
         $barH  = $count > 0 ? max(2, round($count / $max * ($h - 4))) : 1.5;
         $x     = round($i * ($barW + $gap), 2);
         $y     = round($h - $barH, 2);
         $title = htmlspecialchars(date('d.m', strtotime($day)) . ': ' . $count);
         $bars .= '<rect x="' . $x . '" y="' . $y . '" width="' . round($barW, 2) . '" height="' . $barH
-            . '" rx="1.5" style="fill:var(--brand);fill-opacity:' . ($count > 0 ? '0.85' : '0.18') . '">'
+            . '" rx="1.5" style="fill:' . ($day === $lastDay ? 'var(--accent)' : 'var(--ink-3)') . ';fill-opacity:' . ($day === $lastDay ? '1' : ($count > 0 ? '0.55' : '0.2')) . '">'
             . '<title>' . $title . '</title></rect>';
         $i++;
     }
@@ -502,6 +503,82 @@ $PAGE_HEAD = <<<'CSS'
     .oi-all { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
     .oi-all h3 { margin:10px 0 4px; font-size:13px; color:var(--ink-2); }
     .oi-all .oi-row { padding:3px 0; }
+    /* ===== Wygląd listy (unslop, wersja 2): spokojna rama, kolor tylko w statusach, przewoźnikach i pasku dnia. ===== */
+    .page-title-row h1 { font-size:30px; font-weight:500; letter-spacing:-.01em; }
+    .orders-layout { grid-template-columns:220px minmax(0,1fr); gap:24px; }
+    /* Panel boczny to nawigacja na tle strony, nie osobna karta. */
+    @media (min-width:821px) {
+        .orders-side { background:transparent; border:0; box-shadow:none; padding:0; }
+        .orders-side .side-search { background:var(--surface); border-color:var(--line); height:40px; margin-bottom:12px; }
+        .orders-side .side-item { height:34px; }
+        .orders-side .side-item.active { background:var(--surface); color:var(--ink); box-shadow:0 0 0 1px var(--line), 0 1px 2px rgba(30,25,15,.05); }
+        .orders-side .side-item.active .side-count.has { color:var(--ink); }
+        .orders-side .side-sep { margin:8px 10px; }
+        .orders-stats { display:none; }
+    }
+    /* Pasek dnia */
+    .orders-band { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:32px; align-items:end; margin:0 0 24px; padding:20px 24px;
+        background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+    .band-head { display:flex; align-items:baseline; gap:8px; margin-bottom:12px; }
+    .band-total { font-size:32px; font-weight:500; line-height:1; font-variant-numeric:tabular-nums; }
+    .band-label { font-size:14px; color:var(--ink-2); }
+    .band-bar { display:flex; gap:3px; height:10px; }
+    .band-bar a { min-width:6px; border-radius:3px; background:var(--st); transition:opacity .15s cubic-bezier(.22,1,.36,1); }
+    .band-bar:hover a { opacity:.45; } .band-bar a:hover, .band-bar a:focus-visible { opacity:1; }
+    .band-legend { display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:12px; }
+    .band-key { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--ink-2); text-decoration:none; }
+    .band-key b { font-weight:500; color:var(--ink); font-variant-numeric:tabular-nums; }
+    .band-key:hover, .band-key.on { color:var(--ink); }
+    .band-key .status-dot { width:8px; height:8px; border-radius:50%; background:var(--st); }
+    .band-stats { display:grid; grid-template-columns:repeat(3, auto) 200px; gap:24px; align-items:end; color:inherit; text-decoration:none;
+        padding:8px 12px; margin:-8px -12px; border-radius:10px; transition:background .15s cubic-bezier(.22,1,.36,1); }
+    .band-stats:hover { background:var(--surface-2); }
+    .band-fig { display:flex; flex-direction:column; gap:4px; }
+    .band-fig span { font-size:12px; color:var(--ink-2); white-space:nowrap; }
+    .band-fig b { font-size:22px; font-weight:500; line-height:1; font-variant-numeric:tabular-nums; }
+    .band-chart svg { display:block; height:44px; }
+    /* Tabela: pasek akcji jako spokojny rząd narzędzi, aktywny dopiero po zaznaczeniu. */
+    @media (min-width:821px) {
+        .orders-list-card { padding:0; border-radius:14px; overflow:hidden; }
+        .orders-list-card .actionbar { margin:0; padding:12px 16px; border:0; border-bottom:1px solid var(--line); border-radius:0; background:var(--surface); }
+        .orders-list-card .actionbar .btn, .orders-list-card .actionbar .flag-btn { opacity:.5; transition:opacity .15s cubic-bezier(.22,1,.36,1), background .15s; }
+        body.orders-has-selection .orders-list-card .actionbar .btn, body.orders-has-selection .orders-list-card .actionbar .flag-btn { opacity:1; }
+        .orders-list-card .actionbar:focus-within .btn, .orders-list-card .actionbar:focus-within .flag-btn { opacity:1; }
+        body.orders-has-selection .actionbar-count { color:var(--ink); font-weight:500; }
+        .orders-table th:first-child, .orders-table td:first-child { padding-left:20px; }
+        .orders-table th:last-child, .orders-table td:last-child { padding-right:16px; }
+        .orders-table tr.orders-head th { padding-top:12px; padding-bottom:12px; background:var(--surface-2); }
+        .orders-table td { padding-top:14px; padding-bottom:14px; }
+        .orders-table tr:last-child td { border-bottom:0; }
+        /* Znak rozpoznawczy: pasek koloru statusu na lewej krawędzi wiersza, jak etykieta na paczce. */
+        .orders-table tr:not(.orders-head) td:first-child { box-shadow:inset 3px 0 0 var(--st); }
+        .orders-table td[data-col="actions"] .row-act { opacity:0; transition:opacity .15s cubic-bezier(.22,1,.36,1); }
+        .orders-table tr:hover td[data-col="actions"] .row-act, .orders-table td[data-col="actions"] .row-act:focus-visible { opacity:1; }
+        .orders-perpage { padding:0 0 16px; }
+        .orders-list-card .pager, .orders-list-card nav { padding:0 16px; }
+    }
+    .status-pill { height:auto; padding:0; background:transparent; font-size:13px; gap:8px; }
+    .order-indicator.ok, .order-indicator.warn, .order-indicator.bad, .order-indicator.info, .order-indicator.transit, .order-indicator.partial { background:transparent; box-shadow:inset 0 0 0 1px var(--line); }
+    .order-indicator:hover { background:var(--surface-2); }
+    .col-amt { font-family:var(--font-ui); font-size:15px; }
+    .col-cur { font-size:11px; color:var(--ink-3); font-weight:500; }
+    .col-date { font-size:13px; color:var(--ink); }
+    .orders-table td[data-col="actions"] .btn.secondary { background:transparent; box-shadow:inset 0 0 0 1px var(--line); }
+    .orders-table td[data-col="actions"] .btn.secondary:hover { background:var(--surface-2); }
+    /* Telefon: karta z paskiem statusu po lewej i spokojnym paskiem dnia nad listą. */
+    @media (max-width:820px) {
+        .page-title-row h1 { font-size:26px; }
+        /* Na telefonie zamówienia mają być zaraz pod wyszukiwarką - zostaje sam cienki pasek udziału statusów. */
+        .orders-band { display:block; padding:0; margin:-4px 4px 8px; background:transparent; border:0; box-shadow:none; }
+        .band-head, .band-legend, .band-stats { display:none; }
+        .band-bar { height:6px; gap:2px; }
+        .orders-table tr:not(.orders-head) { box-shadow:inset 3px 0 0 var(--st), var(--shadow); border-radius:14px; padding:16px 16px 16px 20px; }
+        .orders-table td[data-col="status"] > span:first-child { height:auto; padding:0; font-size:13px; }
+        .orders-table td[data-col="amount"] { font-size:20px; }
+        .orders-table td[data-col="date"] { font-size:12px; color:var(--ink-2); }
+        .orders-table td[data-col="source"] { display:flex; align-items:center; gap:8px; min-width:0; }
+        .orders-table td[data-col="source"] .source-sub { margin:0; max-width:none; min-width:0; }
+    }
 </style>
 CSS;
 require __DIR__ . '/header.php';
@@ -662,6 +739,31 @@ unset($searchHidden['q'], $searchHidden['p']);
 
 <!-- ===== Treść (filtry + lista) ===== -->
 <div class="orders-main">
+
+<?php if ($view === 'active' && !$noTable && $ordersTotal > 0): ?>
+<?php // Pasek dnia: udział statusów (kolory ze Statusów, klik = filtr) i liczby zamówień z wykresem 30 dni (dziś w kolorze systemu). ?>
+<section class="orders-band" aria-label="Podsumowanie zamówień">
+    <div class="band-share">
+        <div class="band-head"><span class="band-total"><?= (int) $ordersTotal ?></span><span class="band-label">aktywnych zamówień</span></div>
+        <div class="band-bar">
+            <?php foreach ($statusList as $s): $n = (int) ($statusCounts[$s['status_key']] ?? 0); if ($n === 0) { continue; } ?>
+                <a href="<?= htmlspecialchars($statusLink($s['status_key'])) ?>" style="flex:<?= $n ?>;--st:<?= htmlspecialchars($s['color'] ?? '#888') ?>" title="<?= htmlspecialchars($s['label'] . ': ' . $n) ?>" aria-label="<?= htmlspecialchars($s['label'] . ': ' . $n) ?>"<?= $fStatus === $s['status_key'] ? ' class="on"' : '' ?>></a>
+            <?php endforeach; ?>
+        </div>
+        <div class="band-legend">
+            <?php foreach ($statusList as $s): $n = (int) ($statusCounts[$s['status_key']] ?? 0); if ($n === 0) { continue; } ?>
+                <a href="<?= htmlspecialchars($statusLink($s['status_key'])) ?>" class="band-key<?= $fStatus === $s['status_key'] ? ' on' : '' ?>" style="--st:<?= htmlspecialchars($s['color'] ?? '#888') ?>"><span class="status-dot"></span><?= htmlspecialchars($s['label']) ?><b><?= $n ?></b></a>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <a class="band-stats" href="statistics.php" title="<?= htmlspecialchars(t('stats.widget_link')) ?>">
+        <span class="band-fig"><span><?= htmlspecialchars(t('orders.stats.today')) ?></span><b><?= (int) $statsToday ?></b></span>
+        <span class="band-fig"><span><?= htmlspecialchars(t('orders.stats.last30')) ?></span><b><?= (int) $statsLast30 ?></b></span>
+        <span class="band-fig"><span><?= htmlspecialchars(t('orders.stats.month')) ?></span><b><?= (int) $statsMonth ?></b></span>
+        <span class="band-chart"><?= ordersSparkChart($dailyCounts, t('orders.stats.chart')) ?></span>
+    </a>
+</section>
+<?php endif; ?>
 
 <!-- ===== Filtry ===== -->
 <div class="card" id="ordersFilterBar"<?= $hasActiveFilters ? '' : ' hidden' ?>>

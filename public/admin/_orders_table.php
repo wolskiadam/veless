@@ -23,6 +23,19 @@ if (!function_exists('statusBadge')) {
     }
 }
 
+if (!function_exists('ordersListDay')) {
+    /** Dzień zamówienia na liście: „Dziś”, „Wczoraj”, „13.11” albo „13.11.2025” (pełna data w dymku). */
+    function ordersListDay(string $dateTime): string
+    {
+        $ts = strtotime($dateTime);
+        if ($dateTime === '' || $ts === false) { return $dateTime; }
+        $day = date('Y-m-d', $ts);
+        if ($day === date('Y-m-d')) { return 'Dziś'; }
+        if ($day === date('Y-m-d', strtotime('-1 day'))) { return 'Wczoraj'; }
+        return date('Y', $ts) === date('Y') ? date('d.m', $ts) : date('d.m.Y', $ts);
+    }
+}
+
 if (!function_exists('sourceBadge')) {
     /**
      * Renderuje źródło zamówienia: logo kanału (z wtyczki integracji - Services\OrderChannelIcons)
@@ -215,7 +228,8 @@ if (!function_exists('sourceBadge')) {
         <?php foreach ($rows as $r): $unread = $unreadByOrder[(int)$r['woo_order_id']] ?? 0; $mi = $mergeInfo[(int)$r['woo_order_id']] ?? []; ?>
             <?php $rowClass = trim(($unread > 0 ? 'row-unread ' : '') . (isset($mi['into']) ? 'row-merged' : ''));
                 $rowClass = trim(\Pase\Plugin\Hooks::applyFilters('orders.row_class', $rowClass, $r)); ?>
-            <tr<?= $rowClass !== '' ? ' class="' . htmlspecialchars($rowClass) . '"' : '' ?>>
+            <?php // Kolor statusu jako pasek na lewej krawędzi wiersza (ten sam co kropka statusu w panelu bocznym). ?>
+            <tr<?= $rowClass !== '' ? ' class="' . htmlspecialchars($rowClass) . '"' : '' ?> style="--st:<?= htmlspecialchars((string) ($statusMap[$r['pase_status'] ?? '']['color'] ?? '#a1a3a8')) ?>">
                 <?php if (canEdit()): ?><td><input type="checkbox" class="rowcheck" name="ids[]" value="<?= (int)$r['woo_order_id'] ?>"></td><?php endif; ?>
                 <?php $cells = []; ob_start(); // komórki rdzenia zbieramy, żeby rozszerzenia mogły zmienić układ kolumn ?>
                 <?php
@@ -325,7 +339,7 @@ if (!function_exists('sourceBadge')) {
                 <?php $cells['client'] = ob_get_clean(); ob_start(); ?>
                 <td class="col-email"><?= htmlspecialchars($r['customer_email'] ?? '—') ?></td>
                 <?php $cells['email'] = ob_get_clean(); ob_start(); ?>
-                <td class="col-amt"<?= !empty($mi['absorbed']) ? ' title="Łączna cena scalonych zamówień"' : '' ?>><?= htmlspecialchars(number_format((float) (!empty($mi['absorbed']) ? ($mi['group_total'] ?? 0) : ($r['total'] ?? 0)), 2, ',', "\u{00a0}")) ?>&nbsp;<?= htmlspecialchars($r['currency'] ?? '') ?></td>
+                <td class="col-amt"<?= !empty($mi['absorbed']) ? ' title="Łączna cena scalonych zamówień"' : '' ?>><?= htmlspecialchars(number_format((float) (!empty($mi['absorbed']) ? ($mi['group_total'] ?? 0) : ($r['total'] ?? 0)), 2, ',', "\u{00a0}")) ?>&nbsp;<span class="col-cur"><?= htmlspecialchars($r['currency'] ?? '') ?></span></td>
                 <?php $cells['amount'] = ob_get_clean(); ob_start(); ?>
                 <td class="col-delivery"><?php
                     // Przewoźnik: z nadanej przesyłki, a bez niej z metody dostawy wybranej przez klienta.
@@ -345,7 +359,7 @@ if (!function_exists('sourceBadge')) {
                     }
                 ?></td>
                 <?php $cells['delivery'] = ob_get_clean(); ob_start(); ?>
-                <td class="col-date" title="<?= htmlspecialchars($r['date_created'] ?? '') ?>"><?= htmlspecialchars(substr((string) ($r['date_created'] ?? ''), 0, 10)) ?><span class="col-time"><?= htmlspecialchars(substr((string) ($r['date_created'] ?? ''), 11, 5)) ?></span></td>
+                <td class="col-date" title="<?= htmlspecialchars($r['date_created'] ?? '') ?>"><?= htmlspecialchars(ordersListDay((string) ($r['date_created'] ?? ''))) ?><span class="col-time"><?= htmlspecialchars(substr((string) ($r['date_created'] ?? ''), 11, 5)) ?></span></td>
                 <?php $cells['date'] = ob_get_clean(); ob_start(); ?>
                 <td style="text-align:right;white-space:nowrap">
                     <a class="btn secondary" href="order_view.php?id=<?= (int)$r['woo_order_id'] ?>"><?= htmlspecialchars(t('common.preview')) ?></a>

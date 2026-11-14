@@ -17,8 +17,9 @@ if (!function_exists('statusBadge')) {
         $s = $statusMap[$key] ?? null;
         $label = $s['label'] ?? ($key ?: '—');
         $color = $s['color'] ?? '#888888';
-        return '<span style="display:inline-block;white-space:nowrap;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;color:#fff;background:'
-            . htmlspecialchars($color) . '">' . htmlspecialchars($label) . '</span>';
+        // Kolor statusu (ustawiony w Statusach) jest kropką i delikatnym tłem - tekst zostaje ciemny i czytelny.
+        return '<span class="status-pill" style="--st:' . htmlspecialchars($color) . '"><span class="status-dot" aria-hidden="true"></span>'
+            . htmlspecialchars($label) . '</span>';
     }
 }
 
@@ -86,8 +87,8 @@ if (!function_exists('sourceBadge')) {
             </div>
         </div>
         <?php if (canOpenPage('packing.php')): ?>
-            <button type="button" class="btn" title="Asystent pakowania dla zaznaczonych zamówień"
-                onclick="var ids=[].map.call(document.querySelectorAll('.rowcheck:checked'),function(c){return c.value});if(!ids.length){alert('Zaznacz zamówienia do spakowania.');return;}location.href='packing.php?ids='+ids.join(',');">📦 Pakuj</button>
+            <button type="button" class="btn secondary btn-pack" title="Asystent pakowania dla zaznaczonych zamówień"
+                onclick="var ids=[].map.call(document.querySelectorAll('.rowcheck:checked'),function(c){return c.value});if(!ids.length){alert('Zaznacz zamówienia do spakowania.');return;}location.href='packing.php?ids='+ids.join(',');"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5V8z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>Pakuj</button>
         <?php endif; ?>
         <button type="button" class="btn secondary" title="Scal zaznaczone zamówienia jednego klienta w jedną paczkę"
             onclick="var ids=[].map.call(document.querySelectorAll('.rowcheck:checked'),function(c){return c.value});if(ids.length<2){alert('Zaznacz co najmniej dwa zamówienia do scalenia.');return;}location.href='order_merge.php?ids='+ids.join(',');">Scal</button>
@@ -229,7 +230,7 @@ if (!function_exists('sourceBadge')) {
                         $buyerLogin = is_array($payloadArr) ? ($payloadArr['buyer']['login'] ?? null) : null;
                     }
                 ?>
-                <td style="font-size:12px;color:var(--ink-2)">
+                <td class="col-number">
                     <a class="order-number-link" href="order_view.php?id=<?= (int)$r['woo_order_id'] ?>">
                         <strong><span class="order-source-number" title="<?= htmlspecialchars($fullNumber) ?>"><?= htmlspecialchars($displayNumber) ?></span></strong>
                         <?php if ($isAllegroRow && $buyerLogin): ?>
@@ -244,7 +245,7 @@ if (!function_exists('sourceBadge')) {
                         <span class="merge-pill main" title="Scalone - w tej paczce także zamówienia: <?= htmlspecialchars(implode(', ', $mi['numbers'] ?? [])) ?>">+ <?= htmlspecialchars(implode(', ', $mi['numbers'] ?? [])) ?></span>
                     <?php endif; ?>
                     <?php if ($unread > 0): ?>
-                        <a href="order_view.php?id=<?= (int)$r['woo_order_id'] ?>" class="msg-badge" title="Nowe wiadomości od klienta">✉ <?= (int)$unread ?></a>
+                        <a href="order_view.php?id=<?= (int)$r['woo_order_id'] ?>" class="msg-badge" title="Nowe wiadomości od klienta"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg><?= (int)$unread ?></a>
                     <?php endif; ?>
                 </td>
                 <?php $cells['number'] = ob_get_clean(); ob_start(); ?>
@@ -322,9 +323,9 @@ if (!function_exists('sourceBadge')) {
                         $retTitle = t('orders.returning.title', ['n' => $retN, 'total' => $retN + 1]) . ($ret['last'] ? ' ' . t('orders.returning.last', ['date' => substr($ret['last'], 0, 10)]) : '');
                     ?> <span class="returning-badge" tabindex="0" data-tip="<?= htmlspecialchars($retTitle) ?>" aria-label="<?= htmlspecialchars($retTitle) ?>"><?= $retN + 1 ?>&times;</span><?php endif; ?></td>
                 <?php $cells['client'] = ob_get_clean(); ob_start(); ?>
-                <td style="font-size:12px"><?= htmlspecialchars($r['customer_email'] ?? '—') ?></td>
+                <td class="col-email"><?= htmlspecialchars($r['customer_email'] ?? '—') ?></td>
                 <?php $cells['email'] = ob_get_clean(); ob_start(); ?>
-                <td class="col-amt"<?= !empty($mi['absorbed']) ? ' title="Łączna cena scalonych zamówień"' : '' ?>><?= htmlspecialchars(!empty($mi['absorbed']) ? number_format((float)($mi['group_total'] ?? 0), 2, '.', '') : (string)($r['total'] ?? '')) ?>&nbsp;<?= htmlspecialchars($r['currency'] ?? '') ?></td>
+                <td class="col-amt"<?= !empty($mi['absorbed']) ? ' title="Łączna cena scalonych zamówień"' : '' ?>><?= htmlspecialchars(number_format((float) (!empty($mi['absorbed']) ? ($mi['group_total'] ?? 0) : ($r['total'] ?? 0)), 2, ',', "\u{00a0}")) ?>&nbsp;<?= htmlspecialchars($r['currency'] ?? '') ?></td>
                 <?php $cells['amount'] = ob_get_clean(); ob_start(); ?>
                 <td class="col-delivery"><?php
                     // Przewoźnik: z nadanej przesyłki, a bez niej z metody dostawy wybranej przez klienta.
@@ -344,7 +345,7 @@ if (!function_exists('sourceBadge')) {
                     }
                 ?></td>
                 <?php $cells['delivery'] = ob_get_clean(); ob_start(); ?>
-                <td style="font-size:12px;font-family:var(--font-num);white-space:nowrap"><?= htmlspecialchars($r['date_created'] ?? '') ?></td>
+                <td class="col-date" title="<?= htmlspecialchars($r['date_created'] ?? '') ?>"><?= htmlspecialchars(substr((string) ($r['date_created'] ?? ''), 0, 10)) ?><span class="col-time"><?= htmlspecialchars(substr((string) ($r['date_created'] ?? ''), 11, 5)) ?></span></td>
                 <?php $cells['date'] = ob_get_clean(); ob_start(); ?>
                 <td style="text-align:right;white-space:nowrap">
                     <a class="btn secondary" href="order_view.php?id=<?= (int)$r['woo_order_id'] ?>"><?= htmlspecialchars(t('common.preview')) ?></a>

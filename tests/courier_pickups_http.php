@@ -154,6 +154,7 @@ try {
     $ship = $pdo->prepare("INSERT INTO shipments (woo_order_id, courier_code, waybill_no, status, tracking_status, tracking_carrier, tracking_events, created_at) VALUES (?,?,?,'created','in_transit',?,?,?)");
     $id = 100;
     mt_srand(7);
+    $inpostDropped = 0; // ile paczek InPost nadano w automacie - zależy od tego, na jakie dni tygodnia trafia ostatnie 40 dni
     for ($day = 1; $day <= 40; $day++) {
         $date = (new DateTimeImmutable("-$day days", $tz))->setTime(0, 0);
         $dow = (int) $date->format('N');
@@ -172,6 +173,7 @@ try {
         }
         // InPost Paczkomat (Woo, polskie opisy)
         if ($dow <= 5 && $day % 2 === 0) {
+            ++$inpostDropped;
             $mins = mt_rand(15 * 60, 16 * 60 + 30);
             $order->execute([++$id, json_encode(['shipping_lines' => [['method_title' => $day % 4 === 0 ? 'Paczkomaty InPost' : 'InPost Kurier (Bezpłatnie)']]])]);
             $ship->execute([$id, 'InPost', 'I' . $id, 'INPOST', json_encode([
@@ -224,7 +226,7 @@ try {
     $page = request($boss, 'admin/courier_pickups.php');
     ok($page['status'] === 200 && str_contains($page['body'], 'nadane w automacie / punkcie') && str_contains($page['body'], 'Metody dostawy: ') && str_contains($page['body'], 'kurier odebrał od nadawcy'), 'Page shows services');
     ok(substr_count($page['body'], '<h2 class="cp-name">InPost</h2>') === 1 && str_contains($page['body'], 'Kurier od nadawcy <small>2</small>')
-        && str_contains($page['body'], 'Automat / punkt <small>14</small>'), 'One card per company with handover switch');
+        && str_contains($page['body'], 'Automat / punkt <small>' . $inpostDropped . '</small>'), 'One card per company with handover switch');
     ok(str_contains($page['body'], '<svg viewBox="0 0 48 24"'), 'Carrier logos shown');
     ok(str_contains($page['body'], 'Kurier odbiera zwykle') && str_contains($page['body'], 'Wrzuć do'), 'Page shows window and drop-by time');
     ok(str_contains($page['body'], 'Mało danych'), 'Few pickups flagged as approximate');

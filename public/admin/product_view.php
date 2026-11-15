@@ -654,6 +654,26 @@ try {
     </div>
 </div>
 
+<?php
+// Sekcje rozszerzeń (filtr product_view.sections): ['id' => 'zapach', 'title' => 'Zapach',
+// 'render' => fn(array $product, array $ctx): string], $ctx: canEdit, isAdmin, csrf. Formularz wysyłaj na własną stronę
+// rozszerzenia, która wraca do product_view.php?id=...
+$pvCtx = ['canEdit' => canEdit(), 'isAdmin' => isAdmin(), 'csrf' => csrfToken()];
+foreach (\Pase\Plugin\Hooks::applyFilters('product_view.sections', [], $p) as $sec) {
+    if (!is_array($sec) || !isset($sec['id'], $sec['render']) || !is_callable($sec['render'])) {
+        continue;
+    }
+    $secId = 'x_' . preg_replace('/[^a-z0-9_]/', '', strtolower((string) $sec['id']));
+    $html = \Pase\Plugin\Hooks::safe('product_view.sections:' . $secId, $sec['render'], $p, $pvCtx);
+    if (!is_string($html) || $html === '') {
+        continue;
+    }
+    echo '<div class="card" data-section="' . htmlspecialchars($secId) . '">'
+        . (isset($sec['title']) ? '<strong>' . htmlspecialchars((string) $sec['title']) . '</strong>' : '')
+        . '<div style="margin-top:10px">' . $html . '</div></div>';
+}
+?>
+
 <!-- Opisy (pełna szerokość) -->
 <?php $noDesc = trim(strip_tags((string) ($p['short_description'] ?? ''))) === '' && trim(strip_tags((string) ($p['description'] ?? ''))) === ''; ?>
 <?php if (canEdit() && !empty($p['woo_product_id'])): ?>

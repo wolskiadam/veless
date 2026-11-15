@@ -114,6 +114,9 @@ z zakupów firmy, miesiącami, zdjęcia w `storage/uploads/`). Opis: `extensions
 Większe rozszerzenie z własną grupą menu, hakiem pakowania i sekcją karty zamówienia: **`extensions/produkcja/`**
 (produkcja świec - materiały, receptury, partie z numerem partii, testy spalania). Opis: `extensions/produkcja/README.md`.
 
+Słownik z przypisaniem do produktów w Magazynie (szukanie, sekcja karty produktu), numerem przy pakowaniu i na liście
+produkcji: **`extensions/zapachy/`** (olejki zapachowe z numerem miejsca i nutami, import z wtyczki WordPress). Opis: `extensions/zapachy/README.md`.
+
 Rozszerzenie z kontem Meta, pracą w tle i hakami formularza Nowe zamówienie: **`extensions/meta/`** (rozmowy z Messengera
 i Instagrama, odpowiadanie, zamówienie z rozmowy). Opis: `extensions/meta/README.md`.
 
@@ -212,6 +215,29 @@ $actions['x_moja_akcja'] = [
 Klucze akcji i zdarzeń: `[a-z0-9_.]`, nie mogą nadpisać rdzenia (zalecany prefiks `x_`).
 Własne zdarzenie wyzwalasz przez silnik reguł:
 `(new \Pase\Automation\RuleEngine($pdo, new \Pase\Repository\AutomationRuleRepository($pdo)))->dispatch('x_zdarzenie', $orderId, $payload);`
+
+### Lista produkcji (wydruk z zaznaczonych zamówień)
+
+| Hak | Rodzaj | Argumenty | Co robi |
+|---|---|---|---|
+| `production_list.details` | filtr | `array $details, string $sku, int $qty, array $row` | dopisz parametry pozycji (np. recepturę, numer zapachu) |
+
+Parametr: `['label' => 'Knot', 'value' => 'ECO 8', 'per' => 1, 'unit' => 'szt']` (`per` i `unit` opcjonalne: ilość na sztukę,
+lista sama mnoży i sumuje w „Materiały razem”). `$row`: `name`, `sku`, `attrs` (wariant `[[klucz, wartość], ...]`), `qty`.
+Parametr o tej samej etykiecie co wariant zamówienia, ale innej wartości, jest pomijany (wariant wygrywa).
+
+### Magazyn (lista produktów i karta produktu)
+
+| Hak | Rodzaj | Argumenty | Co robi |
+|---|---|---|---|
+| `products.search` | filtr | `array $ids, string $q` | dołóż ID produktów, które pasują do szukanego tekstu po Twoich danych (lista OR SKU/nazwa) |
+| `products.rows` | akcja | `array $rows` | cała strona wierszy przed rysowaniem (pobierz swoje dane jedną kwerendą) |
+| `products.name` | akcja (HTML) | `array $row` | HTML pod nazwą produktu na liście (np. plakietka) |
+| `product_view.sections` | filtr | `array $sections, array $product` | sekcje (karty) na karcie produktu, zakładka Szczegóły |
+
+Sekcja: `['id' => 'zapach', 'title' => 'Tytuł', 'render' => fn(array $product, array $ctx): string]`, `$ctx`: `canEdit`,
+`isAdmin`, `csrf`. Formularz wysyłaj na własną stronę (`'menu' => false`) z polem `csrf`, a ta przekierowuje do
+`product_view.php?id=...`. Przykład: `extensions/zapachy/`.
 
 ### Asystent pakowania (panel i telefon)
 

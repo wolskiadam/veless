@@ -278,8 +278,10 @@ final class ProductRepository
     }
 
     public function paged(int $limit, int $offset, string $q = '', ?string $category = null, ?int $integrationId = null,
-                          ?string $stockOp = null, ?int $stockValue = null, ?int $locationId = null, bool $useActual = false): array
+                          ?string $stockOp = null, ?int $stockValue = null, ?int $locationId = null, bool $useActual = false,
+                          array $orIds = []): array
     {
+        $orIds = self::cleanIds($orIds);
         $conditions = [];
         $params = [];
         if ($locationId !== null) {
@@ -296,7 +298,8 @@ final class ProductRepository
             // Dwa różne placeholdery na tę samą wartość - PDO z wyłączoną emulacją
             // (PDO::ATTR_EMULATE_PREPARES=false, patrz config/database.php) nie obsługuje
             // użycia tego samego nazwanego placeholdera dwa razy w jednym zapytaniu.
-            $conditions[] = '(sku LIKE :q1 OR name LIKE :q2)';
+            // $orIds: produkty, które pasują do szukanego tekstu według rozszerzeń (filtr products.search).
+            $conditions[] = '(sku LIKE :q1 OR name LIKE :q2' . ($orIds !== [] ? ' OR id IN (' . implode(',', $orIds) . ')' : '') . ')';
             $params[':q1'] = "%{$q}%";
             $params[':q2'] = "%{$q}%";
         }
@@ -325,6 +328,15 @@ final class ProductRepository
         $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /** Dodatnie liczby całkowite bez powtórzeń (ID z rozszerzeń wstawiane wprost do IN (...)). @return int[] */
+    public static function cleanIds(mixed $ids): array
+    {
+        if (!is_array($ids)) {
+            return [];
+        }
+        return array_slice(array_values(array_unique(array_filter(array_map('intval', array_filter($ids, 'is_numeric')), static fn(int $i) => $i > 0))), 0, 5000);
     }
 
     /** Ręczna zmiana stanu/ceny PASE (panel) - PASE jako źródło prawdy. */

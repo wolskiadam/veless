@@ -34,6 +34,7 @@ final class Importer
         'max concentration' => 'max_concentration', 'maks stezenie' => 'max_concentration', 'max stezenie' => 'max_concentration',
         'ufi 6' => 'ufi_6', 'ufi 8' => 'ufi_8', 'ufi 10' => 'ufi_10', 'ufi' => 'ufi',
         // słownik nut
+        'produkty sku' => 'skus', 'sku produktow' => 'skus', 'sku' => 'skus',
         'note name' => 'note_name', 'nuta' => 'note_name', 'category' => 'category', 'kategoria' => 'category',
     ];
 
@@ -302,15 +303,17 @@ final class Importer
                 }
                 if (!$changed) {
                     $res['skipped']++;
+                    $this->linkSkus($old, (string) ($r['skus'] ?? ''), $res);
                     continue;
                 }
                 unset($merged['material_id']);
-                $this->s->saveFragrance((string) $old['id'], $merged);
+                $saved = $this->s->saveFragrance((string) $old['id'], $merged);
                 $res['updated']++;
             } else {
-                $this->s->saveFragrance(null, $in + ['source_id' => $sourceId]);
+                $saved = $this->s->saveFragrance(null, $in + ['source_id' => $sourceId]);
                 $res['added']++;
             }
+            $this->linkSkus($saved, (string) ($r['skus'] ?? ''), $res);
         }
         // Nuty z zapachów, których nie ma w słowniku, trafiają do niego (bez kategorii).
         $known = $this->s->noteCategories();
@@ -332,6 +335,22 @@ final class Importer
         $text = implode("\n", array_map(static fn(array $r) => str_replace([',', ';', "\n"], ' ', (string) ($r['note_name'] ?? '')) . ',' . str_replace("\n", ' ', (string) ($r['category'] ?? '')), $rows));
         $r = $this->s->bulkNotes($text);
         return ['added' => 0, 'updated' => 0, 'notes' => $r['added'], 'skipped' => $r['skipped'], 'warnings' => $r['errors']];
+    }
+
+    /** Kolumna „produkty sku” z eksportu: dokłada przypisania do produktów o tych SKU (istniejących nie rusza). */
+    private function linkSkus(array $f, string $skus, array &$res): void
+    {
+        $list = array_values(array_filter(array_map('trim', preg_split('/[,;\s]+/u', $skus) ?: []), static fn(string $x) => $x !== ''));
+        if ($list === [] || ($f['id'] ?? '') === '') {
+            return;
+        }
+        $ids = $this->s->productIdsBySku($list);
+        $res['links'] = ($res['links'] ?? 0) + $this->s->link((string) $f['id'], array_values($ids), 'import');
+        foreach ($list as $sku) {
+            if (!isset($ids[mb_strtolower($sku)])) {
+                $res['warnings'][] = '„' . $f['name'] . '”: nie ma produktu o SKU ' . $sku . '.';
+            }
+        }
     }
 
     private function find(string $sourceId, array $names): ?array

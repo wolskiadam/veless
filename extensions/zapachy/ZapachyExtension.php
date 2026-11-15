@@ -30,8 +30,8 @@ final class ZapachyExtension extends AbstractExtension
             description: 'Olejki zapachowe z numerem miejsca w magazynie i nutami (głowa, serce, baza). Zapach przypisany do produktu, szukanie produktów po zapachu i nucie, numer zapachu przy pakowaniu i na liście produkcji. Import z wtyczki Aroma Helper.',
             icon: '🌸',
             fields: [
-                ['key' => 'import', 'label' => 'Import z Aroma Helper', 'type' => 'link', 'url' => Hooks::pageUrl('zapachy.import'),
-                 'help' => 'Kopia bazy ze sklepu (phpMyAdmin), plik CSV z Excela albo strona katalogu zapachów.'],
+                ['key' => 'import', 'label' => 'Import i eksport danych', 'type' => 'link', 'url' => Hooks::pageUrl('zapachy.import'),
+                 'help' => 'Import z Aroma Helper (kopia bazy z phpMyAdmin, strona katalogu), CSV z Excela, eksport zapachów i nut do CSV.'],
                 ['key' => 'guess', 'label' => 'Zapach bez przypisania', 'type' => 'select', 'default' => 'yes',
                  'options' => ['yes' => 'rozpoznawaj z wariantu i nazwy produktu', 'no' => 'pokazuj tylko przypisane do produktu'],
                  'help' => 'Przy pakowaniu, na karcie zamówienia i liście produkcji. Wariant „Zapach: Sweet Caramel” albo nazwa „Świeca Sweet Caramel”.'],
@@ -215,6 +215,7 @@ final class ZapachyExtension extends AbstractExtension
                     }
                     $linked = $s->linkProductionByName();
                     $msg = 'Import: nowe zapachy ' . $r['added'] . ', zaktualizowane ' . $r['updated'] . ', bez zmian ' . $r['skipped'] . ', nuty dodane do słownika ' . $r['notes'] . '.'
+                        . (($r['links'] ?? 0) > 0 ? ' Przypisano do produktów: ' . $r['links'] . '.' : '')
                         . ($linked > 0 ? ' Połączono z olejkami z Produkcji: ' . $linked . '.' : '');
                     if ($r['warnings'] !== []) {
                         $msg .= ' Uwagi: ' . implode(' ', array_slice($r['warnings'], 0, 8)) . (count($r['warnings']) > 8 ? ' (i ' . (count($r['warnings']) - 8) . ' więcej)' : '');
@@ -226,6 +227,16 @@ final class ZapachyExtension extends AbstractExtension
                     $go('import');
                 }
             }]);
+        foreach (['eksport' => 'zapachy', 'eksport_nuty' => 'nuty'] as $page => $what) {
+            Hooks::addPage($page, ['title' => 'Eksport CSV', 'menu' => false, 'role' => 'viewer', 'raw' => true,
+                'render' => static function (PDO $pdo) use ($store, $what): void {
+                    $e = new Exporter($store());
+                    header('Content-Type: text/csv; charset=utf-8');
+                    header('Content-Disposition: attachment; filename="' . $what . '-' . date('Y-m-d') . '.csv"');
+                    header('Cache-Control: no-store');
+                    echo $what === 'zapachy' ? $e->fragrances() : $e->notes();
+                }]);
+        }
         Hooks::addPage('polacz_produkcja', ['title' => 'Import zapachów', 'menu' => false, 'role' => 'editor',
             'render' => static function (PDO $pdo, array $ctx) use ($store, $go): void {
                 if ($ctx['post']) {

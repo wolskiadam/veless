@@ -41,7 +41,7 @@ z Aroma Helper nie jest importowany, żeby nie było dwóch stanów tego samego 
 
 ## Import z Aroma Helper
 
-**Konfiguracja → Wtyczki → Zapachy → ⚙ → Import z Aroma Helper** (albo przycisk „Import” na liście):
+**Konfiguracja → Wtyczki → Zapachy → ⚙ → Import i eksport danych** (albo przycisk „Import” na liście):
 
 - **Kopia bazy (SQL)** z phpMyAdmin: tabele `wp_aroma_fragrances` i `wp_aroma_notes` (dowolny prefiks). Przenosi numer
   miejsca, nazwy handlowe (pierwsza = nazwa, reszta = inne nazwy), producenta i kod, nuty, opis handlowy, uwagi, cenę za gram,
@@ -54,6 +54,13 @@ z Aroma Helper nie jest importowany, żeby nie było dwóch stanów tego samego 
 
 Ponowny import niczego nie dubluje: zapach z bazy WordPress rozpoznajemy po jego id, inne po nazwie. Puste pole w pliku nie
 kasuje danych w CRM. Numer zajęty przez inny zapach - zapach wchodzi bez numeru, z uwagą w komunikacie.
+
+## Eksport
+
+**Zapachy → ⬇ Eksport CSV** (także na stronie importu): plik dla Excela (średnik, UTF-8) z numerem, nazwą, innymi nazwami,
+producentem, nutami, opisem, uwagami, ceną, stężeniem, UFI, SKU produktów z tym zapachem i znacznikiem archiwum. Ten sam plik
+wgrany w imporcie wraca bez dubli, a kolumna `produkty sku` przypisuje zapachy do produktów. Osobno eksport słownika nut
+(`nuta;kategoria`). Eksport może pobrać każdy z dostępem do podglądu.
 
 ## Dane
 

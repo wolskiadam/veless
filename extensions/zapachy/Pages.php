@@ -37,7 +37,8 @@ final class Pages
 
         $html .= '<div class="zp-top"><p>Olejki z numerem miejsca w magazynie i nutami. Szukaj po nazwie, numerze albo nucie.</p><div class="zp-actions">'
             . ($ctx['canEdit'] ? '<a class="btn" href="' . U::h(U::url('edytuj', ['nowy' => 1])) . '">+ Dodaj zapach</a>' : '')
-            . '<a class="btn secondary" href="' . U::h(U::url('import')) . '">Import</a></div></div>';
+            . ($ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('import')) . '">Import</a>' : '')
+            . '<a class="btn secondary" href="' . U::h(U::url('eksport')) . '">⬇ Eksport CSV</a></div></div>';
         $html .= '<div class="zp-cards">'
             . '<div class="stat"><div class="label">Zapachy</div><div class="num">' . count($all) . '</div></div>'
             . '<a class="stat" style="color:inherit;text-decoration:none" href="' . U::h(U::url('przypisz')) . '"><div class="label">Z produktami</div><div class="num">' . $linked . '</div></a>'
@@ -365,12 +366,15 @@ final class Pages
 
     public static function import(Store $s, array $ctx): string
     {
-        $html = U::style() . U::tabs('lista') . U::back(U::url('lista'), 'Zapachy');
-        $html .= '<div class="zp-top"><p>Przeniesienie zapachów i nut z wtyczki Aroma Helper ze sklepu. Ponowny import niczego nie dubluje, a puste pole w pliku nie kasuje danych w CRM.</p></div>';
+        $html = U::style() . U::tabs('lista') . U::back(U::url('lista'), 'Zapachy') . '<h3 style="margin:0 0 10px">Import i eksport danych</h3>';
+        $html .= '<div class="zp-top"><p>Przeniesienie zapachów i nut z wtyczki Aroma Helper ze sklepu albo z Excela. Ponowny import niczego nie dubluje, a puste pole w pliku nie kasuje danych w CRM.</p>'
+            . '<div class="zp-actions"><a class="btn secondary" href="' . U::h(U::url('eksport')) . '">⬇ Eksport zapachów (CSV)</a>'
+            . '<a class="btn secondary" href="' . U::h(U::url('eksport_nuty')) . '">⬇ Eksport nut (CSV)</a></div></div>';
         $html .= '<div class="zp-two"><div class="card"><strong>Kopia bazy albo plik CSV</strong>'
             . '<p class="zp-small">Najpełniejszy import (numery, nuty, producent, ceny, opisy i słownik nut): w panelu hostingu otwórz <b>phpMyAdmin</b>, '
             . 'zaznacz tabele <code>wp_aroma_fragrances</code> i <code>wp_aroma_notes</code> → Eksport → SQL (albo CSV) i wgraj plik tutaj. '
-            . 'Działa też własny plik z Excela z nagłówkami, np. <code>numer;nazwa;nuty głowy;nuty serca;nuty bazy;opis</code>.</p>'
+            . 'Działa też własny plik z Excela z nagłówkami, np. <code>numer;nazwa;nuty głowy;nuty serca;nuty bazy;opis</code>, '
+            . 'i plik z eksportu tej wtyczki (kolumna <code>produkty sku</code> przypisuje zapach do produktów).</p>'
             . '<form method="post" enctype="multipart/form-data" action="' . U::h(U::url('import_zapisz')) . '" class="zp-form">' . U::csrf($ctx)
             . '<input type="hidden" name="mode" value="file"><input type="file" name="file" accept=".sql,.csv,.txt,.html,.htm" required>'
             . '<div><button class="btn" type="submit">Importuj plik</button></div></form></div>';

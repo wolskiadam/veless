@@ -314,6 +314,18 @@ try {
     $pl = request($vi, 'admin/production_list.php?ids=503');
     ok(str_contains($pl['body'], 'Zapach: <b>Olejek Sweet Caramel</b>') && str_contains($pl['body'], 'Nr zapachu: <b>18 · Sweet Caramel</b>'), 'Recipe oil shows its fragrance number on the production list');
 
+    // ---- Eksport CSV i powrót tym samym plikiem (przypisania po SKU)
+    $exp = request($vi, $url('eksport'));
+    ok($exp['status'] === 200 && str_contains($exp['headers'], 'text/csv') && str_starts_with($exp['body'], "\xEF\xBB\xBFnumer;nazwa;")
+        && str_contains($exp['body'], '18;"Sweet Caramel";"Karmel słony"') && str_contains($exp['body'], ';0,35;10;') && str_contains($exp['body'], 'SC-180'), 'Export CSV: header, number, aliases, price, product SKU');
+    $nexp = request($vi, $url('eksport_nuty'));
+    ok(str_contains($nexp['body'], 'nuta;kategoria') && str_contains($nexp['body'], 'wanilia;słodka'), 'Notes export');
+    ok(!str_contains(request($vi, $url('lista'))['body'], 'zapachy.import') && str_contains(request($vi, $url('lista'))['body'], 'zapachy.eksport'), 'Viewer gets export, not import');
+    $pdo->exec('DELETE FROM ext_zap_links WHERE product_id = 2');
+    $r = $upload($ola, 'zapachy-eksport.csv', substr($exp['body'], 3));
+    ok(str_contains($r['body'], 'nowe zapachy 0') && str_contains($r['body'], 'Przypisano do produktów: 1') && $count() === 7
+        && (int) $pdo->query('SELECT COUNT(*) FROM ext_zap_links WHERE product_id = 2')->fetchColumn() === 1, 'Re-import of the export restores links by SKU, no duplicates');
+
     // ---- Archiwum i usuwanie
     follow($ola, $post($ola, 'archiwizuj', ['id' => $frag('Kokos')['id'], 'archive' => '1']));
     ok(!str_contains(request($vi, $url('lista'))['body'], 'Kokos</a>') && str_contains(request($vi, $url('lista', ['archiwum' => 1]))['body'], 'Kokos</a>'), 'Archived fragrance moves to Archive');

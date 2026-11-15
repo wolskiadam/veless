@@ -18,6 +18,31 @@ final class Production
 {
     public function __construct(private readonly Store $s, private readonly array $settings = []) {}
 
+    /** Kategorie receptury pokazywane na liście produkcji, w tej kolejności (opakowania i etykiety pomijamy). */
+    public const LIST_CATEGORIES = ['knot', 'zapach', 'pojemnik', 'wosk', 'barwnik', 'dodatek'];
+
+    /**
+     * Receptura wyrobu o danym SKU na listę produkcji (rdzeń: Pase\Services\ProductionList, filtr production_list.details):
+     * „Knot: ECO 8”, „Zapach: Wanilia” z ilością na sztukę - lista sama mnoży przez liczbę sztuk.
+     * @return list<array{label:string,value:string,per:float,unit:string}>
+     */
+    public static function listDetails(Store $s, string $sku): array
+    {
+        $sku = trim($sku);
+        if ($sku === '') {
+            return [];
+        }
+        $product = $s->one('SELECT * FROM ext_prod_products WHERE LOWER(sku) = LOWER(?) AND archived = 0', [$sku]);
+        if ($product === null) {
+            return [];
+        }
+        $order = array_flip(self::LIST_CATEGORIES);
+        $lines = array_values(array_filter($s->recipe((string) $product['id']), static fn(array $l) => isset($order[$l['category']])));
+        usort($lines, static fn(array $a, array $b) => $order[$a['category']] <=> $order[$b['category']]);
+        return array_map(static fn(array $l) => ['label' => Store::CATEGORIES[$l['category']] ?? (string) $l['category'],
+            'value' => (string) $l['name'], 'per' => (float) $l['qty'], 'unit' => (string) $l['unit']], $lines);
+    }
+
     public function pattern(): string
     {
         $p = trim((string) ($this->settings['pattern'] ?? ''));

@@ -103,7 +103,9 @@ if (!function_exists('sourceBadge')) {
             <button type="button" class="btn secondary btn-pack" title="Asystent pakowania dla zaznaczonych zamówień"
                 onclick="var ids=[].map.call(document.querySelectorAll('.rowcheck:checked'),function(c){return c.value});if(!ids.length){alert('Zaznacz zamówienia do spakowania.');return;}location.href='packing.php?ids='+ids.join(',');"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5V8z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>Pakuj</button>
         <?php endif; ?>
-        <button type="button" class="btn secondary" title="Scal zaznaczone zamówienia jednego klienta w jedną paczkę"
+        <button type="button" class="btn secondary btn-prodlist" title="Wydruk: produkty z zaznaczonych zamówień do zrobienia, z kratkami do odhaczenia"
+            onclick="var ids=[].map.call(document.querySelectorAll('.rowcheck:checked'),function(c){return c.value});if(!ids.length){alert('Zaznacz zamówienia, z których zrobić listę.');return;}location.href='production_list.php?ids='+ids.join(',');"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="m8 8 1.5 1.5L12 7M8 14l1.5 1.5L12 13M14 8.5h2.5M14 14.5h2.5"/></svg>Lista produkcji</button>
+        <button type="button" class="btn secondary btn-merge" title="Scal zaznaczone zamówienia jednego klienta w jedną paczkę"
             onclick="var ids=[].map.call(document.querySelectorAll('.rowcheck:checked'),function(c){return c.value});if(ids.length<2){alert('Zaznacz co najmniej dwa zamówienia do scalenia.');return;}location.href='order_merge.php?ids='+ids.join(',');">Scal</button>
         <?php endif; ?>
 

@@ -401,6 +401,11 @@ final class ProdukcjaExtension extends AbstractExtension
             return OrderBatches::saveFromPacking($store(), $id, (int) ($in['idx'] ?? -1), (string) ($in['code'] ?? ''), (string) $ctx['user_name']);
         }]);
         Hooks::addAsset('packing', $this->path('assets/packing.js'));
+
+        // ---- Lista produkcji (lista zamówień → „Lista produkcji”): receptura wyrobu o tym samym SKU - knot, zapach, pojemnik...
+        Hooks::addFilter('production_list.details', static function (array $details, string $sku) use ($store): array {
+            return array_merge($details, Production::listDetails($store(), $sku));
+        });
     }
 
     // ---------------------------------------------------------------- pulpit

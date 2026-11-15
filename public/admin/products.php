@@ -186,8 +186,10 @@ try {
     // użycia tego samego nazwanego placeholdera dwa razy w jednym zapytaniu.
     $conditions = [];
     $params = [];
+    // Rozszerzenia mogą dołożyć produkty pasujące po swoich danych (np. Zapachy: numer zapachu, nuta) - filtr products.search.
+    $extIds = $q !== '' ? ProductRepository::cleanIds(\Pase\Plugin\Hooks::applyFilters('products.search', [], $q)) : [];
     if ($q !== '') {
-        $conditions[] = '(sku LIKE :q1 OR name LIKE :q2)';
+        $conditions[] = '(sku LIKE :q1 OR name LIKE :q2' . ($extIds !== [] ? ' OR id IN (' . implode(',', $extIds) . ')' : '') . ')';
         $params[':q1'] = "%{$q}%";
         $params[':q2'] = "%{$q}%";
     }
@@ -218,7 +220,9 @@ try {
     $pages = max(1, (int) ceil($total / PER_PAGE));
     $page  = min($page, $pages);
     $rows  = $repo->paged(PER_PAGE, ($page - 1) * PER_PAGE, $q, $fCategory !== '' ? $fCategory : null, $fShop,
-                          $fStockOp ?: null, $fStockVal, $fLoc, $useActual);
+                          $fStockOp ?: null, $fStockVal, $fLoc, $useActual, $extIds);
+    // Cała strona wierszy dla rozszerzeń (np. pobranie swoich danych jedną kwerendą) - akcja products.rows.
+    \Pase\Plugin\Hooks::doAction('products.rows', $rows);
 } catch (\PDOException $e) {
     $noTable = true;
     $rows = []; $total = 0; $pages = 1;
@@ -348,7 +352,7 @@ if ($locations !== []) { echo locPickerData($locations); }
 
 <div class="card">
     <form method="get" style="margin-bottom:14px">
-        <input name="q" placeholder="Szukaj: SKU / nazwa" value="<?= htmlspecialchars($q) ?>" style="width:300px">
+        <input name="q" placeholder="<?= \Pase\Plugin\Hooks::hasFilter('products.search') ? 'Szukaj: SKU / nazwa / zapach' : 'Szukaj: SKU / nazwa' ?>" value="<?= htmlspecialchars($q) ?>" style="width:300px">
         <select name="cat" onchange="this.form.submit()">
             <option value="">— wszystkie kategorie —</option>
             <?php foreach ($categories as $catName => $catCount): ?>
@@ -554,6 +558,7 @@ if ($locations !== []) { echo locPickerData($locations); }
                         <?= htmlspecialchars($r['name'] ?? '—') ?>
                     <?php endif; ?>
                     <?php if (!empty($r['is_virtual'])): ?><span class="pill muted" style="font-size:11px;font-weight:400" title="Produkt wirtualny - bez wysyłki">wirtualny</span><?php endif; ?>
+                    <?= \Pase\Plugin\Hooks::render('products.name', $r) ?>
                 </td>
                 <td style="white-space:nowrap"><?= $channelBadges($r) ?></td>
                 <?php if ($locations !== []): $curLoc = isset($r['location_id']) ? (int) $r['location_id'] : 0; ?>

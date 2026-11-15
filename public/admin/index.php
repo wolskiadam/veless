@@ -374,6 +374,8 @@ $PAGE_HEAD = <<<'CSS'
         .actionbar .flag-btn { width:100%; justify-content:center; min-height:40px; }
         .actionbar .flag-dropdown { top:auto; bottom:100%; left:0; right:0; margin:0 0 6px; max-height:55vh; overflow-y:auto; }
         .actionbar > .btn { flex:1 1 calc(50% - 4px); min-height:40px; justify-content:center; text-align:center; }
+        /* Pakuj | Lista produkcji w jednym rzędzie, Scal | Archiwizuj | Do kosza w drugim - pasek nie zasłania listy. */
+        .actionbar > .btn-merge, .actionbar > .act-sel { flex-basis:calc(33.333% - 6px); padding:0 6px; }
     }
     .row-act { padding:0 !important; width:32px; height:32px; justify-content:center; font-size:13px; margin-left:4px; display:inline-flex; align-items:center; vertical-align:middle; }
     .orders-table td[data-col="actions"] .btn.secondary { display:inline-flex; align-items:center; height:32px; padding:0 10px; font-size:13px; font-weight:500; vertical-align:middle; }

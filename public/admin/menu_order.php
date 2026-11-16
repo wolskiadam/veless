@@ -56,11 +56,13 @@ $leafRow = static function (array $item) use ($e, $adminOnly): string {
     $tags = '';
     if (in_array($key, $adminOnly, true)) { $tags .= '<small>tylko admin</small>'; }
     if (in_array($key, ['order_history.php', 'email_log.php'], true)) { $tags .= '<small>admin i edytor</small>'; }
+    $section = html_entity_decode(strip_tags((string) ($item['section'] ?? '')), ENT_QUOTES, 'UTF-8');
+    if ($section !== '') { $tags .= '<small class="mo-section" title="Nagłówek grupy w panelu menu">· ' . $e($section) . '</small>'; }
     $hide = in_array($key, AdminMenu::NOT_HIDEABLE, true) ? ''
         : '<label class="mo-hide" title="Ukryj w menu (strona nadal działa)"><input type="checkbox" class="mo-hidden"' . (!empty($item['hidden']) ? ' checked' : '') . '> ukryj</label>';
     return '<li class="mo-item' . (!empty($item['hidden']) ? ' is-hidden' : '') . '" data-type="item" data-key="' . $e($key) . '">'
         . '<div class="mo-row"><span class="mo-grip" title="Przeciągnij">⋮⋮</span>'
-        . '<span class="mo-label">' . $e(html_entity_decode(strip_tags((string) $item['label']), ENT_QUOTES, 'UTF-8')) . $tags . '</span>'
+        . '<span class="mo-label">' . $e(AdminMenu::plain(html_entity_decode(strip_tags((string) $item['label']), ENT_QUOTES, 'UTF-8'))) . $tags . '</span>'
         . $hide
         . '<select class="mo-move" aria-label="Przenieś do"><option value="">Przenieś do…</option></select>'
         . '<span class="mo-arrows"><button type="button" data-move="-1" aria-label="W górę">▲</button><button type="button" data-move="1" aria-label="W dół">▼</button></span>'
@@ -104,7 +106,8 @@ require __DIR__ . '/header.php';
         Nazwę zakładki lub podkategorii zmienisz w polu obok - puste pole oznacza nazwę domyślną.
         „Ukryj” chowa pozycję z menu, ale strona nadal działa pod swoim adresem.
         Układ dotyczy wszystkich użytkowników i nie zmienia uprawnień (pozycje „tylko admin” nadal widzi tylko administrator).
-        Nowe funkcje dodane w przyszłości pojawią się na swoim domyślnym miejscu.</p>
+        Nowe funkcje dodane w przyszłości pojawią się na swoim domyślnym miejscu.
+        W rozwiniętej zakładce pozycje są pogrupowane pod małymi szarymi nagłówkami (nazwa grupy obok pozycji), a każda podkategoria to osobna grupa ze swoim nagłówkiem.</p>
 
     <div class="mo-top">
         <button type="button" class="btn secondary" id="moAddGroup">+ Nowa zakładka</button>

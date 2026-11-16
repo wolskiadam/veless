@@ -97,7 +97,7 @@ final class KsefExtension extends AbstractExtension
         $cfg = $this->settings();
 
         // ---- Zawsze: połączenie z KSeF i lista wystawionych e-faktur
-        Hooks::addPage('faktury', ['title' => '🏛️ Faktury KSeF', 'group' => 'orders', 'role' => 'viewer', 'menu' => ($cfg['do_sales'] ?? '1') !== '0',
+        Hooks::addPage('faktury', ['title' => 'Faktury KSeF', 'desc' => 'E-faktury wysłane do KSeF', 'section' => 'Dokumenty i rozmowy', 'group' => 'orders', 'role' => 'viewer', 'menu' => ($cfg['do_sales'] ?? '1') !== '0',
             'render' => fn(PDO $pdo, array $ctx): string => $this->listPage($service(), $ctx)]);
 
         Hooks::addPage('polaczenie', ['title' => 'Połączenie z KSeF', 'menu' => false, 'role' => 'admin',
@@ -126,7 +126,7 @@ final class KsefExtension extends AbstractExtension
             Hooks::addAction('cron.tick', fn() => $service()->autoSync(new SettingsRepository($this->pdo())));
         }
         if ($kinds !== []) {
-            Hooks::addPage('rejestr', ['title' => '🧾 Rejestr faktur KSeF', 'group' => 'orders', 'role' => 'viewer',
+            Hooks::addPage('rejestr', ['title' => 'Rejestr faktur KSeF', 'desc' => 'Faktury sprzedaży i zakupu z KSeF', 'section' => 'Dokumenty i rozmowy', 'group' => 'orders', 'role' => 'viewer',
                 'render' => static function () use ($kinds): void {
                     header('Location: ' . Hooks::pageUrl('ksef.' . self::KINDS[$kinds[0]]['list']));
                     exit;

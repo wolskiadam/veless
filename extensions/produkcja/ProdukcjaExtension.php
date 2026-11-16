@@ -19,6 +19,9 @@ use PDO;
 final class ProdukcjaExtension extends AbstractExtension
 {
     private const MENU = ['pulpit' => 'Pulpit produkcji', 'materialy' => 'Materiały i magazyn', 'wyroby' => 'Wyroby', 'partie' => 'Partie', 'testy' => 'Testy spalania'];
+    /** Menu: jednolinijkowy opis pozycji. */
+    private const MENU_DESC = ['pulpit' => 'Co trzeba zrobić i stan materiałów', 'materialy' => 'Wosk, knoty, olejki i daty ważności',
+        'wyroby' => 'Receptury i koszt sztuki', 'partie' => 'Wyprodukowane partie z numerem', 'testy' => 'Wyniki testów spalania'];
 
     public function manifest(): ExtensionManifest
     {
@@ -78,7 +81,7 @@ final class ProdukcjaExtension extends AbstractExtension
 
         // ---- Zakładka Produkcja w menu (strony rejestrujemy w grupie „catalog” i przenosimy).
         foreach (self::MENU as $id => $title) {
-            Hooks::addPage($id, ['title' => $title, 'group' => 'catalog', 'role' => 'viewer', 'render' => fn(PDO $pdo, array $ctx): string => match ($id) {
+            Hooks::addPage($id, ['title' => $title, 'desc' => self::MENU_DESC[$id] ?? '', 'group' => 'catalog', 'role' => 'viewer', 'render' => fn(PDO $pdo, array $ctx): string => match ($id) {
                 'pulpit' => $this->dashboard($store(), $ctx),
                 'materialy' => MaterialPages::list($store(), $ctx),
                 'wyroby' => ProductPages::list($s = $store(), $prod($s), $ctx, $this->cfg()),

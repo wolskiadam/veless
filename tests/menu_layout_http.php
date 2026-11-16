@@ -104,6 +104,19 @@ ok(array_keys($nav3) === ['custom_moja1', 'orders'] && array_column($nav3['custo
 $old = AdminMenu::applyLayout($menu, json_encode(['groups' => ['config', 'orders'], 'items' => ['orders' => ['queue.php']]]));
 ok(array_key_first($old) === 'config' && $old['orders']['items'][0]['href'] === 'queue.php', 'Old order-only setting still applied');
 
+// Panel menu: grupy (nagłówki) i kolumny; emotikony znikają z nazw.
+ok(AdminMenu::plain('🧾 Paragony') === 'Paragony' && AdminMenu::plain('↩ Zwroty') === 'Zwroty' && AdminMenu::plain('Pulpit / stan') === 'Pulpit / stan', 'Emoji stripped from menu labels');
+$secs = AdminMenu::sections([
+    ['href' => 'a.php', 'label' => 'A', 'section' => 'X'], ['href' => 'b.php', 'label' => 'B', 'section' => 'Y'],
+    ['href' => 'c.php', 'label' => 'C', 'section' => 'X'], ['key' => 's', 'label' => '🛒 Allegro', 'children' => [['href' => 'd.php', 'label' => 'D']]],
+]);
+ok(array_column($secs, 'title') === ['X', 'Y', 'Allegro'] && array_column($secs[0]['items'], 'href') === ['a.php', 'c.php'], 'Items grouped by heading, subcategory is its own group');
+$many = static fn(int $n, string $t): array => ['title' => $t, 'items' => array_fill(0, $n, ['href' => 'x.php', 'label' => 'x'])];
+ok(count(AdminMenu::columns([$many(4, 'A')])) === 1, 'Short panel has one column');
+$cols = AdminMenu::columns([$many(14, 'Allegro')]);
+ok(count($cols) === 2 && $cols[0][0]['title'] === 'Allegro' && $cols[1][0]['title'] === '' && count($cols[0][0]['items']) === 7, 'Long group split into two columns, heading only once');
+ok(count(AdminMenu::columns([$many(4, 'A'), $many(5, 'B'), $many(4, 'C')])) === 3, 'Three groups that do not fit two columns get three');
+
 // --- Edytor i pasek menu przez HTTP ---
 $temp = sys_get_temp_dir() . '/crm-menu-layout-http-' . bin2hex(random_bytes(6));
 foreach (['public/admin/assets', 'public/pack/assets', 'config', 'storage/security', 'lang'] as $d) { mkdir("$temp/$d", 0700, true); }
@@ -165,7 +178,10 @@ try {
     $page = request($boss, 'admin/menu_order.php');
     $bar = substr($page['body'], strpos($page['body'], '<nav class="nav-bar">'), strpos($page['body'], '</nav>') - strpos($page['body'], '<nav class="nav-bar">'));
     ok(strpos($bar, 'Magazynier') < strpos($bar, 'Zamówienia'), 'Custom tab shown first in the menu bar');
-    ok(preg_match('~Paczki</span>.*?class="nav-flyout">\s*<a href="packing.php"~s', $bar) === 1, 'Custom subcategory rendered as a flyout with its items');
+    ok(preg_match('~class="nav-section-title">Paczki</div>\s*<a href="packing.php"~s', $bar) === 1, 'Custom subcategory rendered as a group with a heading and its items');
+    ok(str_contains($bar, 'class="nav-item-desc">Kompletowanie i etykiety wysyłkowe</span>'), 'Menu items have a one-line description');
+    ok(str_contains($bar, 'class="nav-section-title">Obsługa zamówień</div>'), 'Built-in items grouped under small headings');
+    ok(preg_match('/[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]/u', str_replace('☰', '', $bar)) === 0, 'Menu bar has no emoji (besides the menu toggle)');
     ok(!str_contains($bar, 'href="queue.php"'), 'Hidden item missing from the menu bar');
     ok(str_contains($bar, 'href="customers.php"'), 'Items left out of the layout stay in their default tab');
     ok(str_contains($page['body'], 'value="Magazynier"') && str_contains($page['body'], 'class="mo-hidden" checked'), 'Editor shows saved names and hidden items');

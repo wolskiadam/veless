@@ -24,6 +24,14 @@ final class KsiegowoscExtension extends AbstractExtension
     /** Pozycje menu: id strony => tytuł. */
     private const MENU = ['pulpit' => 'Pulpit księgowości', 'dokumenty' => 'Dokumenty', 'dziennik' => 'Dziennik', 'konta' => 'Plan kont', 'obroty' => 'Obroty i salda',
         'kontrahenci' => 'Kontrahenci', 'vat' => 'Rejestry VAT', 'rozrachunki' => 'Rozrachunki', 'bank' => 'Wyciągi bankowe'];
+    /** Menu: [grupa w panelu, jednolinijkowy opis]. */
+    private const MENU_META = [
+        'pulpit' => ['Księgi', 'Podsumowanie i zadania do zrobienia'], 'dokumenty' => ['Księgi', 'Dowody księgowe po miesiącach'],
+        'dziennik' => ['Księgi', 'Zapisy Wn/Ma w kolejności księgowania'], 'konta' => ['Księgi', 'Konta syntetyczne i analityczne'],
+        'obroty' => ['Księgi', 'Zestawienie obrotów i sald kont'], 'kontrahenci' => ['Rozliczenia', 'Klienci i dostawcy'],
+        'vat' => ['Rozliczenia', 'Sprzedaż i zakupy do JPK'], 'rozrachunki' => ['Rozliczenia', 'Należności i zobowiązania'],
+        'bank' => ['Rozliczenia', 'Wyciągi MT940 i PDF'],
+    ];
 
     public function manifest(): ExtensionManifest
     {
@@ -61,6 +69,7 @@ final class KsiegowoscExtension extends AbstractExtension
         // Strona księgowości: rola CRM „viewer” wpuszcza do ext.php, a właściwy poziom sprawdza Access.
         $page = function (string $id, string $title, string $need, callable $render, bool $menu = false, bool $raw = false): void {
             Hooks::addPage($id, ['title' => $title, 'group' => 'orders', 'role' => 'viewer', 'menu' => $menu, 'raw' => $raw,
+                'section' => self::MENU_META[$id][0] ?? '', 'desc' => self::MENU_META[$id][1] ?? '',
                 'render' => function (PDO $pdo, array $ctx) use ($need, $render, $raw): mixed {
                     $db = $this->db();
                     $level = (new Access($db))->level($ctx['userId'] !== null ? (int) $ctx['userId'] : null, (bool) $ctx['isAdmin']);

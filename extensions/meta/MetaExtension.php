@@ -72,7 +72,7 @@ final class MetaExtension extends AbstractExtension
     {
         $inbox = fn(): Inbox => new Inbox($this->pdo());
 
-        Hooks::addPage('rozmowy', ['title' => '💬 Rozmowy FB i IG', 'group' => 'orders', 'role' => 'viewer',
+        Hooks::addPage('rozmowy', ['title' => 'Rozmowy FB i IG', 'desc' => 'Wiadomości z Messengera i Instagrama', 'section' => 'Dokumenty i rozmowy', 'group' => 'orders', 'role' => 'viewer',
             'render' => fn(PDO $pdo, array $ctx): string => $this->inboxPage($inbox(), $ctx)]);
 
         Hooks::addPage('instrukcja', ['title' => '💬 Jak podłączyć Messenger i Instagram', 'menu' => false, 'role' => 'viewer',

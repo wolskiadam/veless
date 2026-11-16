@@ -145,6 +145,8 @@ Hooks::addPage('raport', [
     'group'  => 'orders',      // orders, catalog, marketplace, config, system (domyślnie)
     'role'   => 'editor',      // viewer, editor (domyślnie), admin
     'menu'   => true,          // false = bez pozycji w menu (np. zapis formularza)
+    'desc'   => 'Sprzedaż w tym miesiącu', // jedna linijka pod nazwą w panelu menu (opcjonalnie)
+    'section'=> 'Raporty',     // nagłówek grupy w panelu menu (opcjonalnie; bez niego pozycja idzie na górę)
     'raw'    => false,         // true = bez nagłówka panelu (np. odpowiedź JSON)
     'render' => function (PDO $pdo, array $ctx): string { return '<div class="card">...</div>'; },
 ]);
@@ -152,7 +154,7 @@ Hooks::addPage('raport', [
 
 Adres: `ext.php?page=<rozszerzenie>.<id>` (pomocniczo `Hooks::pageUrl('mojafunkcja.raport')`). Rdzeń pilnuje logowania,
 roli i tokenu CSRF przy POST (pole `csrf` = `$ctx['csrf']`). `$ctx`: `page`, `url`, `csrf`, `post`, `canEdit`, `isAdmin`,
-`userId`, `user`. Strona może przekierować (`header('Location: ...'); exit;`) i ustawić komunikat `flash('...')`.
+`userId`, `user`. Menu jest bez emotikon - znaki obrazkowe z `title` są w menu pomijane. Strona może przekierować (`header('Location: ...'); exit;`) i ustawić komunikat `flash('...')`.
 
 ### Lista zamówień
 

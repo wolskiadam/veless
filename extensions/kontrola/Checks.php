@@ -6,14 +6,13 @@ namespace PaseExt\Kontrola;
 use PDO;
 use Pase\Plugin\Hooks;
 use Pase\Plugin\PluginRegistry;
-use Pase\Repository\IntegrationAccountRepository;
-use Pase\Repository\IntegrationRepository;
 use Pase\Repository\SettingsRepository;
 use Pase\Services\LowStock;
 use Pase\Services\OrderItemProducts;
 use Pase\Services\OrderMerge;
 use Pase\Services\ProcessControl;
 use Pase\Services\TaskTimings;
+use Pase\Support\HealthBridge;
 
 /**
  * Sprawdzenia stanu systemu. Każde sprawdzenie to osobna definicja (id => grupa, tytuł, run), żeby przebieg w tle
@@ -60,7 +59,7 @@ final class Checks
 
     /**
      * @param array<string,mixed> $cfg ustawienia rozszerzenia (stale_days, doc_days, days)
-     * @param (\Closure(): ?object)|null $allegro klient Allegro (checkConnection, listOffers, bearerToken); null = z konfiguracji
+     * @param (\Closure(): ?object)|null $allegro Allegro do odczytu (connected, checkConnection, listOffers); null = HealthBridge
      * @param (\Closure(array): object)|null $woo klient sklepu dla konta (fetchProductsByIds, fetchVariations)
      * @param (\Closure(array): array)|null $tester test połączenia konta integracji -> ['ok' => bool, 'message' => string]
      */
@@ -159,14 +158,10 @@ final class Checks
 
     private function allegroConnection(): array
     {
-        $row = null;
-        try {
-            $row = (new IntegrationRepository($this->pdo))->find('allegro');
-        } catch (\Throwable) {
-        }
+        $row = HealthBridge::allegroToken($this->pdo);
         $hasAccount = array_filter($this->accounts(), static fn(array $a): bool => $a['type'] === 'allegro') !== [];
         $link = ['label' => 'Połączenie z Allegro', 'href' => 'allegro_connect.php'];
-        if ($row === null || trim((string) ($row['access_token'] ?? '')) === '') {
+        if ($row === null || !$row['connected']) {
             return $hasAccount
                 ? self::result('bad', 'Konto Allegro nie jest połączone. Zamówienia z Allegro nie przychodzą.', ['link' => $link])
                 : self::result('skip', 'Allegro nie jest używane.');
@@ -190,10 +185,10 @@ final class Checks
     {
         $link = ['label' => 'Ustawienia integracji', 'href' => 'integration_edit.php?id=' . (int) $acc['id']];
         $exp = self::ts($acc['expires_at'] ?? null);
-        if ($exp > 0 && $exp < $this->now() && trim((string) ($acc['refresh_token'] ?? '')) === '') {
+        if ($exp > 0 && $exp < $this->now() && empty($acc['refreshable'])) {
             return self::result('bad', 'Token wygasł ' . self::ago($this->now() - $exp) . '. Połącz konto ponownie.', ['link' => $link]);
         }
-        $r = $this->tester !== null ? ($this->tester)($acc) : $this->testAccount($acc);
+        $r = $this->tester !== null ? ($this->tester)($acc) : HealthBridge::testAccount($this->pdo, (int) $acc['id']);
         if ($r === null) {
             return self::result('skip', 'Ta integracja nie ma testu połączenia.', ['link' => $link]);
         }
@@ -202,26 +197,6 @@ final class Checks
             return self::result('bad', $msg !== '' ? $msg : 'Test połączenia nie przeszedł.', ['link' => $link]);
         }
         return self::result('ok', $msg !== '' ? $msg : 'Połączenie działa.', ['link' => $link]);
-    }
-
-    /** Ten sam test co przycisk „Testuj połączenie” w Konfiguracja → Integracje. @return array{ok:bool,message:string}|null */
-    private function testAccount(array $acc): ?array
-    {
-        $type = (string) $acc['type'];
-        if ($type === 'vonhalsky' && \Pase\Services\Vonhalsky::available()) {
-            \Pase\Services\Vonhalsky::migrate($this->pdo);
-            return (new \Pase\Services\Vonhalsky($this->pdo))->test($acc);
-        }
-        if ($type === 'tiktokshop' && \Pase\Services\TiktokShop::available()) {
-            \Pase\Services\TiktokShop::migrate($this->pdo);
-            return (new \Pase\Services\TiktokShop($this->pdo))->test($acc);
-        }
-        $plugin = PluginRegistry::forAccount($type, is_array($acc['config'] ?? null) ? $acc['config'] : []);
-        if ($plugin === null) {
-            return ['ok' => false, 'message' => 'Brak zainstalowanej wtyczki „' . $type . '”.'];
-        }
-        $r = $plugin->testConnection();
-        return ['ok' => (bool) ($r['ok'] ?? false), 'message' => (string) ($r['message'] ?? '')];
     }
 
     private function accountTitle(array $acc): string
@@ -372,7 +347,7 @@ final class Checks
     private function stockAllegro(): array
     {
         $client = $this->allegroClient();
-        if ($client === null || $client->bearerToken() === null) {
+        if ($client === null || !$client->connected()) {
             (new Store($this->pdo))->clearStock('allegro');
             return self::result('skip', 'Allegro nie jest połączone.');
         }
@@ -439,7 +414,7 @@ final class Checks
             $store->clearStock($channel);
             return self::result('skip', 'Żaden produkt w CRM nie jest powiązany z tym sklepem.');
         }
-        $client = $this->woo !== null ? ($this->woo)($acc) : $this->wooClient($acc);
+        $client = $this->woo !== null ? ($this->woo)($acc) : HealthBridge::woo($this->pdo, $accId);
         // Proste produkty jednym zapytaniem po 100, warianty po rodzicu (najwyżej 15 rodziców na przebieg).
         $simple = [];
         $parents = [];
@@ -740,7 +715,7 @@ final class Checks
     {
         if ($this->accountsCache === null) {
             try {
-                $this->accountsCache = array_values(array_filter((new IntegrationAccountRepository($this->pdo))->all(), static fn(array $a): bool => (int) ($a['is_active'] ?? 0) === 1));
+                $this->accountsCache = HealthBridge::accounts($this->pdo);
             } catch (\Throwable) {
                 $this->accountsCache = [];
             }
@@ -770,23 +745,7 @@ final class Checks
 
     private function allegroClient(): ?object
     {
-        if ($this->allegro !== null) {
-            return ($this->allegro)();
-        }
-        $cfg = \Pase\Support\Runtime::config('allegro');
-        if (trim((string) ($cfg['client_id'] ?? '')) === '' || !class_exists(\PasePlugin\Allegro\AllegroPlugin::class)) {
-            return null;
-        }
-        return \PasePlugin\Allegro\AllegroPlugin::makeClient($this->pdo, $cfg);
-    }
-
-    private function wooClient(array $acc): object
-    {
-        $plugin = PluginRegistry::forAccount('woocommerce', is_array($acc['config'] ?? null) ? $acc['config'] : []);
-        if ($plugin === null || !method_exists($plugin, 'client')) {
-            throw new \RuntimeException('Brak wtyczki WooCommerce.');
-        }
-        return $plugin->client();
+        return $this->allegro !== null ? ($this->allegro)() : HealthBridge::allegro($this->pdo);
     }
 
     // ================= Tekst =================

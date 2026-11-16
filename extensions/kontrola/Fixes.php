@@ -60,7 +60,7 @@ final class Fixes
             if ($ids === []) {
                 return 'Nie ma paczek do sprawdzenia.';
             }
-            $tracker = $this->tracking !== null ? ($this->tracking)() : $this->tracker();
+            $tracker = $this->tracking !== null ? ($this->tracking)() : \Pase\Support\HealthBridge::tracker($this->pdo);
             $found = 0;
             foreach ($ids as $sid) {
                 try {
@@ -75,12 +75,5 @@ final class Fixes
                 . ($found < count($ids) ? ' Reszty przewoźnik nadal nie zna - sprawdź numer na stronie przewoźnika.' : '');
         }
         throw new \RuntimeException('Nieznana naprawa.');
-    }
-
-    private function tracker(): object
-    {
-        $cfg = \Pase\Support\Runtime::config('allegro');
-        $client = \PasePlugin\Allegro\AllegroPlugin::makeClient($this->pdo, $cfg);
-        return new \Pase\Services\ShipmentTracking($this->pdo, $client, $cfg);
     }
 }

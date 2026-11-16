@@ -91,7 +91,7 @@ try {
             ['id' => '9003', 'external' => ['id' => 'SW-M'], 'stock' => ['available' => 9]],             // stan czeka w kolejce - pomijane
             ['id' => '9004', 'external' => ['id' => 'OBCY'], 'stock' => ['available' => 4]],
         ];
-        public function bearerToken(): ?string { return 'tok'; }
+        public function connected(): bool { return true; }
         public function checkConnection(): array { return $this->ok ? [true, 'Połączono z Allegro (konto: swiece_pl).'] : [false, 'Token wygasł lub jest nieprawidłowy — połącz konto ponownie.']; }
         public function listOffers(array $f): array { return ['ok' => true, 'offers' => $f['offset'] === 0 ? $this->offers : [], 'total' => count($this->offers), 'message' => '']; }
     };

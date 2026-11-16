@@ -66,10 +66,7 @@ final class KontrolaExtension extends AbstractExtension
     private function runner(PDO $pdo): Runner
     {
         $cfg = $this->cfg();
-        $mail = static function (string $to, string $subject, string $html) use ($pdo): bool {
-            $mailer = new \Pase\Services\Mailer((new \Pase\Services\MailAccounts($pdo))->mailerConfig(null));
-            return (bool) ($mailer->send($to, $subject, $html, ['type' => 'ops_alert'])[0] ?? false);
-        };
+        $mail = static fn(string $to, string $subject, string $html): bool => \Pase\Support\HealthBridge::sendMail($pdo, $to, $subject, $html);
         return new Runner(new Checks($pdo, $cfg), new Store($pdo), new SettingsRepository($pdo), $cfg, $mail);
     }
 

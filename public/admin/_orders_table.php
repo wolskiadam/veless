@@ -313,6 +313,8 @@ if (!function_exists('sourceBadge')) {
                             // Odbiór osobisty też pomijamy - nie ma czego śledzić.
                             if ($indicator['state'] === 'muted' || $indicator['label'] === 'orders.indicator.shipping_pickup') { continue; }
                             $indicatorLabel = !empty($indicator['literal']) ? $indicator['label'] : t($indicator['label']);
+                            // Brakujący dokument (paragon / faktura do wystawienia) to rzecz do zrobienia - czerwony jak nieopłacone.
+                            $indicatorClass = \Pase\Services\OrderIconDetails::displayState((string) $kind, (string) $indicator['state']);
                             $legendLabel = $indicatorLabel;   // opis do okienka ikon (bez dopisku o wFirma)
                             $indicatorHref = (string) ($indicator['href'] ?? 'order_view.php?id=' . (int)$r['woo_order_id']);
                             $indicatorTarget = '';
@@ -323,7 +325,7 @@ if (!function_exists('sourceBadge')) {
                                 $indicatorLabel .= ' — otwórz w wFirma';
                             }
                         ?>
-                        <a class="order-indicator <?= htmlspecialchars($indicator['state']) ?><?= isset($iconText[$kind]) ? ' has-text' : '' ?>" href="<?= htmlspecialchars($indicatorHref) ?>"<?= $indicatorTarget ?>
+                        <a class="order-indicator <?= htmlspecialchars($indicatorClass) ?><?= isset($iconText[$kind]) ? ' has-text' : '' ?>" href="<?= htmlspecialchars($indicatorHref) ?>"<?= $indicatorTarget ?>
                            data-kind="<?= htmlspecialchars($kind) ?>" data-legend="<?= htmlspecialchars($legendLabel) ?>"
                            aria-label="<?= htmlspecialchars($indicatorLabel) ?>" title="<?= htmlspecialchars($indicatorLabel) ?>">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><?= $iconPaths[$kind] ?? ($indicator['icon'] ?? '<circle cx="12" cy="12" r="8"/>') ?></svg><?php if (isset($iconText[$kind])): ?><span class="ind-txt"><?= $iconText[$kind] ?></span><?php endif; ?>

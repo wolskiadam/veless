@@ -36,10 +36,10 @@ final class OrderIconDetails
         ['kind' => 'payment', 'state' => 'ok', 'label' => 'orders.indicator.payment_paid_manual'],
         ['kind' => 'payment', 'state' => 'ok', 'label' => 'orders.indicator.payment_paid_payu'],
         ['kind' => 'invoice', 'state' => 'ok', 'label' => 'Faktura wystawiona', 'literal' => true],
-        ['kind' => 'invoice', 'state' => 'warn', 'label' => 'orders.indicator.invoice_required'],
-        ['kind' => 'invoice', 'state' => 'warn', 'label' => 'orders.indicator.invoice_nip'],
+        ['kind' => 'invoice', 'state' => 'bad', 'label' => 'orders.indicator.invoice_required'],
+        ['kind' => 'invoice', 'state' => 'bad', 'label' => 'orders.indicator.invoice_nip'],
         ['kind' => 'receipt', 'state' => 'ok', 'label' => 'orders.indicator.receipt_issued'],
-        ['kind' => 'receipt', 'state' => 'warn', 'label' => 'orders.indicator.receipt_missing'],
+        ['kind' => 'receipt', 'state' => 'bad', 'label' => 'orders.indicator.receipt_missing'],
         ['kind' => 'shipping', 'state' => 'warn', 'label' => 'orders.indicator.shipping_needed'],
         ['kind' => 'shipping', 'state' => 'info', 'label' => 'orders.indicator.shipping_created'],
         ['kind' => 'shipping', 'state' => 'info', 'label' => 'Wysyłka razem z zamówieniem głównym (scalone)', 'literal' => true],
@@ -62,6 +62,16 @@ final class OrderIconDetails
         'pending' => 15, 'in_transit' => 50, 'out_for_delivery' => 75,
         'ready_for_pickup' => 85, 'notice_left' => 85, 'delivered' => 100, 'returned' => 100, 'issue' => 60,
     ];
+
+    /**
+     * Kolor ikony na liście. Brakujący dokument (paragon albo faktura do wystawienia) ma w danych
+     * stan „warn” (od niego zależy m.in. przycisk faktury na karcie zamówienia), ale na liście
+     * to zaległość jak nieopłacone zamówienie - rysujemy go na czerwono, żeby od razu rzucał się w oczy.
+     */
+    public static function displayState(string $kind, string $state): string
+    {
+        return $state === 'warn' && in_array($kind, ['receipt', 'invoice'], true) ? 'bad' : $state;
+    }
 
     /** Link do dokumentu w wFirma (ten sam, co na karcie zamówienia). */
     public static function wfirmaUrl(string $remoteId): string

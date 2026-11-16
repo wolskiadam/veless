@@ -219,8 +219,11 @@ $PAGE_HEAD = <<<'CSS'
     .order-indicator { position:relative; display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:6px; text-decoration:none; }
     .order-indicator svg { width:16px; height:16px; }
     .order-indicator.ok { background:#e6f4ea; color:#137333; }
-    .order-indicator.warn { background:#fff1d6; color:#975500; }
-    .order-indicator.bad { background:#fce8e6; color:#c5221f; }
+    /* Stany: do zrobienia (bad) - pełne czerwone tło, ma krzyczeć; uwaga (warn) - bursztynowe tło z obwódką;
+       wszystko w porządku (ok, w drodze, info) - spokojna obwódka i kolorowa ikona (niżej). */
+    .order-indicator.warn { background:#fff3d9; color:#8a4600; box-shadow:inset 0 0 0 1px #e3a73f; }
+    .order-indicator.bad { background:#d93025; color:#fff; box-shadow:none; }
+    .order-indicator.bad svg { stroke-width:2.1; }
     .order-indicator.info { background:var(--accent-soft); color:var(--accent-ink); }
     .order-indicator.muted { background:#eef0f6; color:#6b7280; }
     .order-indicator.note { background:#fdf0b5; color:#7a5a00; box-shadow:inset 0 0 0 1px #e9c94a; }
@@ -560,8 +563,10 @@ $PAGE_HEAD = <<<'CSS'
         .orders-list-card .pager, .orders-list-card nav { padding:0 16px; }
     }
     .status-pill { height:auto; padding:0; background:transparent; font-size:13px; gap:8px; }
-    .order-indicator.ok, .order-indicator.warn, .order-indicator.bad, .order-indicator.info, .order-indicator.transit, .order-indicator.partial { background:transparent; box-shadow:inset 0 0 0 1px var(--line); }
-    .order-indicator:hover { background:var(--surface-2); }
+    .order-indicator.ok, .order-indicator.info, .order-indicator.transit, .order-indicator.partial { background:transparent; box-shadow:inset 0 0 0 1px var(--line); }
+    .order-indicator.ok:hover, .order-indicator.info:hover, .order-indicator.transit:hover, .order-indicator.partial:hover { background:var(--surface-2); }
+    .order-indicator.warn:hover { background:#ffe9b8; }
+    .order-indicator.bad:hover { background:#b3261e; }
     .col-amt { font-family:var(--font-ui); font-size:15px; }
     .col-cur { font-size:11px; color:var(--ink-3); font-weight:500; }
     .col-date { font-size:13px; color:var(--ink); }

@@ -273,6 +273,9 @@ final class AdminMenu
         'vonhalsky_returns.php' => [null, 'nav.d.vonhalsky.returns'],
     ];
 
+    /** Opis kanału (podkategorii wbudowanej) w panelu menu: klucz pod-menu => klucz opisu. */
+    private const SUB_DESC = ['allegro' => 'nav.d.sub.allegro', 'erli' => 'nav.d.sub.erli', 'vonhalsky' => 'nav.d.sub.vonhalsky'];
+
     /** Menu bez emotikon i symboli obrazkowych (także w nazwach od wtyczek i własnych nazwach z edytora). */
     public static function plain(string $text): string
     {
@@ -301,10 +304,25 @@ final class AdminMenu
             foreach ($group['items'] ?? [] as $i => $item) {
                 $item = $fill($item, false);
                 foreach ($item['children'] ?? [] as $ci => $c) { $item['children'][$ci] = $fill($c, true); }
+                if (isset($item['children']) && (string) ($item['desc'] ?? '') === '' && isset(self::SUB_DESC[(string) ($item['key'] ?? '')])) {
+                    $item['desc'] = htmlspecialchars(t(self::SUB_DESC[(string) $item['key']]), ENT_QUOTES, 'UTF-8');
+                }
                 $groups[$gk]['items'][$i] = $item;
             }
         }
         return $groups;
+    }
+
+    /**
+     * Opis kanału w panelu menu: własny opis albo pierwsze pozycje kanału („Pakowanie, Zwroty”).
+     * Opis jest już escapowany (jak etykiety).
+     */
+    public static function subDesc(array $sub): string
+    {
+        $desc = self::plain((string) ($sub['desc'] ?? ''));
+        if ($desc !== '') { return $desc; }
+        $labels = array_map(static fn(array $c): string => self::plain((string) ($c['label'] ?? '')), array_slice($sub['children'] ?? [], 0, 3));
+        return implode(', ', array_filter($labels)) . (count($sub['children'] ?? []) > 3 ? '…' : '');
     }
 
     /**

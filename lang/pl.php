@@ -275,6 +275,9 @@ return [
     'nav.d.vonhalsky.offers' => 'Ceny i stany ofert',
     'nav.d.vonhalsky.categories' => 'Kategorie i wymagane parametry',
     'nav.d.vonhalsky.returns' => 'Zwroty i reklamacje z InPost',
+    'nav.d.sub.allegro' => 'Oferty, zamówienia i ustawienia konta',
+    'nav.d.sub.erli' => 'Oferty, produkty i przesyłki',
+    'nav.d.sub.vonhalsky' => 'Oferty, stany i zwroty z marketplace InPost',
 
     // Lista zamówień
     'orders.title'     => 'Zamówienia',

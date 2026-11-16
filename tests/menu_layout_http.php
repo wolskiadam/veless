@@ -178,7 +178,8 @@ try {
     $page = request($boss, 'admin/menu_order.php');
     $bar = substr($page['body'], strpos($page['body'], '<nav class="nav-bar">'), strpos($page['body'], '</nav>') - strpos($page['body'], '<nav class="nav-bar">'));
     ok(strpos($bar, 'Magazynier') < strpos($bar, 'Zamówienia'), 'Custom tab shown first in the menu bar');
-    ok(preg_match('~class="nav-section-title">Paczki</div>\s*<a href="packing.php"~s', $bar) === 1, 'Custom subcategory rendered as a group with a heading and its items');
+    ok(preg_match('~class="nav-item-label">Paczki</span>.*?class="nav-flyout">.*?<a href="packing.php"~s', $bar) === 1, 'Custom subcategory rendered as an expandable channel with its items');
+    ok(str_contains($bar, 'class="nav-item-desc">Pakowanie, Zwroty</span>'), 'Channel without its own description lists its first items');
     ok(str_contains($bar, 'class="nav-item-desc">Kompletowanie i etykiety wysyłkowe</span>'), 'Menu items have a one-line description');
     ok(str_contains($bar, 'class="nav-section-title">Obsługa zamówień</div>'), 'Built-in items grouped under small headings');
     ok(preg_match('/[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]/u', str_replace('☰', '', $bar)) === 0, 'Menu bar has no emoji (besides the menu toggle)');

@@ -122,13 +122,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '
         $intId = (int) ($cur['source_integration_id'] ?? 0);
         $acc = (int) ($cur['woo_product_id'] ?? 0) > 0 && $intId > 0 ? (new \Pase\Repository\IntegrationAccountRepository($pdo))->find($intId) : null;
         // Jedno zadanie wysyła stan do sklepu (gdy CRM jest źródłem stanów) i do ofert Allegro tego produktu.
-        (new \Pase\Queue\Queue($pdo))->enqueue('woo.stock.push', ['product_id' => $id, 'what' => 'stock'], "woo.stock.push:{$id}:" . substr((string) microtime(true), -8));
+        try {
+            (new \Pase\Queue\Queue($pdo))->enqueue('woo.stock.push', ['product_id' => $id, 'what' => 'stock'], "woo.stock.push:{$id}:" . substr((string) microtime(true), -8));
+            $sent = ' zakolejkowana.';
+        } catch (\PDOException $e) {
+            \Pase\Support\Logger::error('Stan produktu: nie udało się zakolejkować wysyłki', ['product' => $id, 'error' => $e->getMessage()]);
+            $sent = ' nie została zakolejkowana (błąd kolejki) - zapisz stan jeszcze raz za chwilę.';
+        }
         if ($acc === null) {
-            $flashOk .= ' Produkt nie jest powiązany ze sklepem. Wysyłka do powiązanych ofert Allegro zakolejkowana.';
+            $flashOk .= ' Produkt nie jest powiązany ze sklepem. Wysyłka do powiązanych ofert Allegro' . $sent;
         } elseif (($acc['config']['stock_master'] ?? 'pase') !== 'pase') {
-            $flashOk .= " Sklep „{$acc['name']}” jest źródłem stanów (Konfiguracja → Integracje), więc sklep go nie dostanie. Wysyłka do powiązanych ofert Allegro zakolejkowana.";
+            $flashOk .= " Sklep „{$acc['name']}” jest źródłem stanów (Konfiguracja → Integracje), więc sklep go nie dostanie. Wysyłka do powiązanych ofert Allegro" . $sent;
         } else {
-            $flashOk .= " Wysyłka do sklepu „{$acc['name']}” i do powiązanych ofert Allegro zakolejkowana.";
+            $flashOk .= " Wysyłka do sklepu „{$acc['name']}” i do powiązanych ofert Allegro" . $sent;
         }
     }
 }

@@ -175,7 +175,7 @@ try {
     ok(!str_contains($page['body'], 'Zobacz na Allegro') && str_contains($page['body'], 'Przygotuj ofertę'), 'Marketplace tab without offer: no preview link');
     ok(str_contains($page['body'], 'data-src="offer_allegro.php?product=1&amp;ajax=live_offers"'), 'Marketplace tab asks Allegro for offers by SKU');
 
-    // Stan (CRM): edytowalny; bez sklepu i przy sklepie jako źródle stanów zostaje tylko w CRM.
+    // Stan (CRM): edytowalny; bez sklepu i przy sklepie jako źródle stanów sklep nic nie dostaje (Allegro idzie przez kolejkę - tu SQLite bez job_queue).
     $stockOf = static fn(int $id): int => (int) $pdo->query("SELECT pase_stock FROM products WHERE id = $id")->fetchColumn();
     $saveStock = static function (CurlHandle $h, int $id, string $stock): string {
         $page = request($h, "admin/product_view.php?id=$id");
@@ -185,7 +185,7 @@ try {
     ok(str_contains($page['body'], 'name="action" value="save_stock"') && str_contains($page['body'], 'name="pase_stock" type="number" min="0" step="1" required value="5"'), 'Stock is an editable field');
     $before = $shopLog();
     $body = $saveStock($boss, 1, '12');
-    ok(str_contains($body, 'Zapisano stan: 12. Produkt nie jest powiązany ze sklepem') && $stockOf(1) === 12 && $shopLog() === $before, 'Product without shop: stock saved in CRM only');
+    ok(str_contains($body, 'Zapisano stan: 12. Produkt nie jest powiązany ze sklepem') && $stockOf(1) === 12 && $shopLog() === $before, 'Product without shop: stock saved, shop not called');
     $body = $saveStock($boss, 6, '3');
     ok(str_contains($body, 'Sklep „Drugi Sklep” jest źródłem stanów') && $stockOf(6) === 3 && $shopLog() === $before, 'Shop as stock source: saved in CRM, nothing sent');
     $body = $saveStock($boss, 1, '-4');

@@ -617,6 +617,11 @@ CSS;
 require __DIR__ . '/header.php';
 ?>
 
+<?php if (!empty($fIds)): ?>
+<div class="flash" style="background:var(--info-bg,#e8f0fe);color:var(--info-ink,#1a56db)">
+    Pokazuję tylko wybrane zamówienia (<?= count($fIds) ?>), np. z System → Kontrola stanu. <a href="index.php">Pokaż wszystkie</a>
+</div>
+<?php endif; ?>
 <?php if ($noTable): ?>
 <div class="flash err">
     Tabela <code>woo_orders</code> jeszcze nie istnieje. Powstanie automatycznie przy

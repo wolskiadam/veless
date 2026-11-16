@@ -139,6 +139,12 @@ $coreSafeReads = [
         => 'Lista kont panelu przez rdzeń (AdminDirectory: id, login, nazwa, rola - bez haseł i kluczy 2FA).',
     normalizeSql("SELECT config FROM integration_accounts WHERE type = 'wfirma' AND is_active = 1 ORDER BY id LIMIT 1")
         => 'Odczyt dokumentów z wFirma przez rdzeń (WfirmaBridge: klucze zostają w rdzeniu, tylko zapytania do odczytu).',
+    normalizeSql("SELECT id, type, name, expires_at, CASE WHEN refresh_token IS NULL OR refresh_token = '' THEN 0 ELSE 1 END AS refreshable FROM integration_accounts WHERE is_active = 1 ORDER BY type, id")
+        => 'Lista kont integracji przez rdzeń (HealthBridge dla Kontroli stanu: id, typ, nazwa, ważność tokenu - bez kluczy).',
+    normalizeSql("SELECT expires_at, CASE WHEN access_token IS NULL OR access_token = '' THEN 0 ELSE 1 END AS connected FROM integrations WHERE platform_name = 'allegro' LIMIT 1")
+        => 'Stan tokenu Allegro przez rdzeń (HealthBridge: czy jest i do kiedy ważny - bez tokenu).',
+    normalizeSql('SELECT * FROM integration_accounts WHERE id = ?')
+        => 'Test połączenia konta przez rdzeń (HealthBridge::testAccount / woo: klucze zostają w rdzeniu, wynik bez kluczy).',
 ];
 $extPrefix = 'ext_' . $slug;
 foreach ($newQueries as $q) {
@@ -158,7 +164,8 @@ foreach ($newQueries as $q) {
     }
     // Zapytania rdzenia udostępnione rozszerzeniom celowo; sekrety nie trafiają do rozszerzenia. Rozszerzenie nie może
     // ich wysłać samo - skaner kodu blokuje nazwy tabel z sekretami w jego plikach. Wyjątki zatwierdzone przez właściciela:
-    // lista kont z Pase\Support\AdminDirectory 2026-11-10 (PR #124), konto wFirma dla Pase\Support\WfirmaBridge 2026-11-10.
+    // lista kont z Pase\Support\AdminDirectory 2026-11-10 (PR #124), konto wFirma dla Pase\Support\WfirmaBridge 2026-11-10,
+    // konta i token Allegro dla Pase\Support\HealthBridge (Kontrola stanu) 2026-11-16 (PR #148).
     if (isset($coreSafeReads[$q])) {
         finding('info', 'Baza', $coreSafeReads[$q], $q);
         continue;

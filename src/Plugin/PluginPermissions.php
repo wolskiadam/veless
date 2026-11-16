@@ -49,6 +49,7 @@ final class PluginPermissions
             'products.'       => ['Magazyn', 'Dopisuje dane przy produktach na liście Magazynu i dokłada wyniki szukania.'],
             'product_view.'   => ['Karta produktu', 'Dodaje sekcje na karcie produktu w Magazynie.'],
             'allegro_offer'   => ['Oferty Allegro', 'Dodaje narzędzia do formularza i listy ofert Allegro.'],
+            'health.'         => ['Kontrola stanu', 'Dokłada własne sprawdzenia do System → Kontrola stanu.'],
             'cron.'           => ['Praca w tle', 'Uruchamia własne zadania w tle (cron co minutę), np. pobieranie danych z zewnętrznej usługi.'],
             'page'            => ['Własne strony', 'Dodaje własne strony do panelu (także pozycje w menu).'],
             'admin.menu'      => ['Menu panelu', 'Może dodawać, usuwać i przestawiać pozycje menu.'],

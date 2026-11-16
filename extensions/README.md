@@ -120,6 +120,10 @@ produkcji: **`extensions/zapachy/`** (olejki zapachowe z numerem miejsca i nutam
 Rozszerzenie z kontem Meta, pracą w tle i hakami formularza Nowe zamówienie: **`extensions/meta/`** (rozmowy z Messengera
 i Instagrama, odpowiadanie, zamówienie z rozmowy). Opis: `extensions/meta/README.md`.
 
+Wewnętrzny audyt z pracą w tle porcjami, mailem przy problemie i przyciskami naprawy: **`extensions/kontrola/`**
+(System → Kontrola stanu - połączenia, cron i kolejka, zgodność stanów z Allegro i sklepem, zamówienia i paczki, którym
+czegoś brakuje). Opis: `extensions/kontrola/README.md`.
+
 Pełny moduł z własną bazą danych i własnymi uprawnieniami: **`extensions/ksiegowosc/`** (księgi rachunkowe - plan kont,
 dokumenty Wn/Ma, dziennik, storno, obroty i salda). Dane tylko w tabelach `ext_ksg_*` (albo osobnej bazie), z CRM łączy się
 wyłącznie hakiem zdarzeń i własnym `Api`. Opis: `extensions/ksiegowosc/README.md`.
@@ -328,6 +332,12 @@ tabeli albo w `settings`) i zapisuje go **przed** pracą, żeby błąd usługi n
 porcje pracy: worker ma jeden przebieg na minutę i wspólny lock. Całą pracę w tle rozszerzeń wstrzymasz w
 System → Obciążenie serwera („Wtyczki rozszerzające”). Przykład: automatyczne pobieranie faktur w `extensions/ksef/`
 (`KsefService::autoSync()`).
+
+### Kontrola stanu
+
+| Hak | Rodzaj | Argumenty | Co robi |
+|---|---|---|---|
+| `health.checks` | filtr | `array $checks` | własne sprawdzenia w System → Kontrola stanu (rozszerzenie `kontrola`; opis: `extensions/kontrola/README.md`) |
 
 ## Własne tabele
 

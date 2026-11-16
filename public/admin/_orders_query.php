@@ -93,6 +93,12 @@ if ($fUnread) {
     }
 }
 
+// Wybrane zamówienia (?ids=1,2,3) - np. link „Pokaż na liście zamówień” z System → Kontrola stanu.
+$fIds = array_slice(array_values(array_unique(array_filter(array_map('intval', explode(',', is_string($_GET['ids'] ?? null) ? $_GET['ids'] : ''))))), 0, 500);
+if ($fIds !== []) {
+    $where[] = 'wo.woo_order_id IN (' . implode(',', $fIds) . ')';
+}
+
 // Kolumny prefiksowane aliasem wo. - oba zapytania (count i lista) używają tego
 // samego aliasu, dzięki czemu JOIN z integration_accounts nie powoduje
 // niejednoznaczności kolumn.

@@ -16,6 +16,7 @@ final class Pages
         $note = trim((string) ($_GET['nuta'] ?? ''));
         $cat = trim((string) ($_GET['kategoria'] ?? ''));
         $archived = isset($_GET['archiwum']);
+        $per = self::perPage();
         $all = $s->allFragrances();
         $html = U::style() . U::tabs('lista');
 
@@ -46,8 +47,8 @@ final class Pages
             . '<a class="stat" style="color:inherit;text-decoration:none" href="' . U::h(U::url('nuty')) . '"><div class="label">Nuty w słowniku</div><div class="num">' . count($cats) . '</div></a>'
             . '</div>';
 
-        $html .= '<form class="zp-filter" method="get" action="ext.php"><input type="hidden" name="page" value="zapachy.lista">'
-            . '<input type="search" name="q" value="' . U::h($q) . '" placeholder="Nazwa, numer (np. 18), nuta, producent…" autofocus>';
+        $html .= '<form class="zp-filter" id="zp-filter" method="get" action="ext.php"><input type="hidden" name="page" value="zapachy.lista">'
+            . '<input type="search" name="q" value="' . U::h($q) . '" placeholder="Nazwa, numer (np. 18), nuta, producent…" autocomplete="off" autofocus>';
         $categories = $s->categories();
         if ($categories !== []) {
             $html .= '<select name="kategoria" onchange="this.form.submit()"><option value="">Kategoria nut: wszystkie</option>';
@@ -62,7 +63,10 @@ final class Pages
         if ($archived) {
             $html .= '<input type="hidden" name="archiwum" value="1">';
         }
-        $html .= '<button class="btn secondary" type="submit">Szukaj</button>'
+        if ($per !== self::PER_PAGE) {
+            $html .= '<input type="hidden" name="na_stronie" value="' . $per . '">';
+        }
+        $html .= '<button class="btn secondary zp-go" type="submit">Szukaj</button>'
             . (($q !== '' || $note !== '' || $cat !== '') ? '<a class="btn secondary" href="' . U::h(U::url('lista')) . '">Wyczyść</a>' : '')
             . '<a class="btn secondary" href="' . U::h($archived ? U::url('lista') : U::url('lista', ['archiwum' => 1])) . '">' . ($archived ? '← Aktywne' : 'Archiwum') . '</a>'
             . '</form>';
@@ -78,14 +82,22 @@ final class Pages
             }
             $html .= '</div>';
         }
+        $html .= '<div id="zp-results">';
         if ($note !== '') {
             $html .= '<p class="zp-small" style="margin:-6px 0 12px">Zapachy z nutą <b>' . U::h($note) . '</b>: ' . count($rows) . '.</p>';
         }
 
         if ($rows === []) {
-            return $html . '<div class="card"><p class="zp-small" style="margin:0">Nic nie znaleziono.</p></div>';
+            return $html . '<div class="card"><p class="zp-small" style="margin:0">Nic nie znaleziono.</p></div></div>' . self::liveSearch();
         }
-        $html .= '<div class="card zp-table"><table class="zp-main"><thead><tr><th>Nr</th><th>Zapach</th><th>Nuty</th>'
+        $total = count($rows);
+        $pages = max(1, (int) ceil($total / $per));
+        $page = min($pages, max(1, (int) ($_GET['strona'] ?? 1)));
+        $rows = array_slice($rows, ($page - 1) * $per, $per);
+        $keep = array_filter(['q' => $q, 'nuta' => $note, 'kategoria' => $cat, 'archiwum' => $archived ? '1' : '',
+            'na_stronie' => $per !== self::PER_PAGE ? (string) $per : ''], static fn(string $v) => $v !== '');
+        $pager = self::pager($keep, $page, $pages, $total, $per);
+        $html .= $pager . '<div class="card zp-table"><table class="zp-main"><thead><tr><th>Nr</th><th>Zapach</th><th>Nuty</th>'
             . ($mats !== [] ? '<th class="pr-num">Olejek</th>' : '') . '<th>Produkty</th></tr></thead><tbody>';
         foreach ($rows as $f) {
             $pyr = '';
@@ -104,7 +116,85 @@ final class Pages
                 . ($mats !== [] ? '<td class="c-hide">' . self::stock($f, $mats) . '</td>' : '')
                 . '<td class="c-hide">' . ($n > 0 ? '<a href="' . U::h(U::url('zapach', ['id' => $f['id']])) . '#produkty">' . $n . ' ' . self::plural($n, 'produkt', 'produkty', 'produktów') . '</a>' : '<span class="zp-small">—</span>') . '</td></tr>';
         }
-        return $html . '</tbody></table></div>';
+        return $html . '</tbody></table></div>' . ($pages > 1 ? $pager : '') . '</div>' . self::liveSearch();
+    }
+
+    public const PER_PAGE = 50;
+
+    /** Liczba zapachów na stronie z adresu (25, 50, 100 albo 0 = wszystkie). */
+    private static function perPage(): int
+    {
+        $v = (int) ($_GET['na_stronie'] ?? self::PER_PAGE);
+        return in_array($v, [25, 50, 100], true) ? $v : ($v === 0 && isset($_GET['na_stronie']) ? PHP_INT_MAX : self::PER_PAGE);
+    }
+
+    /** Pasek stron: „1–50 z 229”, numery stron i wybór liczby na stronie. */
+    private static function pager(array $keep, int $page, int $pages, int $total, int $per): string
+    {
+        $from = ($page - 1) * $per + 1;
+        $to = min($total, $page * $per);
+        $link = static fn(int $p, string $label, string $cls = '') => '<a class="zp-pg' . $cls . '" href="'
+            . U::h(U::url('lista', $keep + ($p > 1 ? ['strona' => $p] : []))) . '">' . $label . '</a>';
+        $html = '<div class="zp-pager"><span class="zp-small">' . ($pages > 1 ? $from . '–' . $to . ' z ' . $total : $total . ' ' . self::plural($total, 'zapach', 'zapachy', 'zapachów')) . '</span>';
+        if ($pages > 1) {
+            $html .= '<nav class="zp-pages" aria-label="Strony">' . ($page > 1 ? $link($page - 1, '‹', ' arrow') : '<span class="zp-pg arrow off">‹</span>');
+            $last = 0;
+            for ($p = 1; $p <= $pages; $p++) {
+                if ($p !== 1 && $p !== $pages && abs($p - $page) > 1) {
+                    continue;
+                }
+                if ($last && $p - $last > 1) {
+                    $html .= '<span class="zp-pg off">…</span>';
+                }
+                $html .= $p === $page ? '<span class="zp-pg on" aria-current="page">' . $p . '</span>' : $link($p, (string) $p);
+                $last = $p;
+            }
+            $html .= ($page < $pages ? $link($page + 1, '›', ' arrow') : '<span class="zp-pg arrow off">›</span>') . '</nav>';
+        }
+        $base = $keep;
+        unset($base['na_stronie']);
+        $html .= '<span class="zp-per zp-small">Na stronie:';
+        foreach ([25 => '25', 50 => '50', 100 => '100', 0 => 'wszystkie'] as $n => $l) {
+            $on = $n === 0 ? $per === PHP_INT_MAX : $per === $n;
+            $q = $base + ($n === self::PER_PAGE ? [] : ['na_stronie' => (string) $n]);
+            $html .= $on ? ' <b>' . $l . '</b>' : ' <a href="' . U::h(U::url('lista', $q)) . '">' . $l . '</a>';
+        }
+        return $html . '</span></div>';
+    }
+
+    /** Szukanie na żywo: wyniki odświeżają się podczas pisania, bez klikania „Szukaj”. */
+    private static function liveSearch(): string
+    {
+        return <<<'JS'
+<script>
+(() => {
+    const form = document.getElementById('zp-filter');
+    if (!form || form.dataset.live) return;
+    form.dataset.live = '1';
+    const q = form.querySelector('input[name=q]');
+    const go = form.querySelector('.zp-go');
+    if (go) go.style.display = 'none';
+    let timer = 0, seq = 0;
+    const load = () => {
+        const params = new URLSearchParams(new FormData(form));
+        [...params.keys()].forEach((k) => { if (params.get(k) === '') params.delete(k); });
+        const url = form.getAttribute('action') + '?' + params.toString();
+        const my = ++seq;
+        fetch(url, { credentials: 'same-origin' }).then((r) => r.text()).then((t) => {
+            if (my !== seq) return;
+            const doc = new DOMParser().parseFromString(t, 'text/html');
+            const fresh = doc.getElementById('zp-results'), cur = document.getElementById('zp-results');
+            if (!fresh || !cur) { window.location.href = url; return; }
+            cur.replaceWith(fresh);
+            history.replaceState(null, '', url);
+        }).catch(() => { window.location.href = url; });
+    };
+    q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 250); });
+    form.addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(timer); load(); });
+    if (q.value) { const n = q.value.length; q.setSelectionRange(n, n); }
+})();
+</script>
+JS;
     }
 
     /** Stan olejku z wtyczki Produkcja. */

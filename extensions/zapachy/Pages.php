@@ -423,18 +423,70 @@ final class Pages
             return $html;
         }
         $ids = array_column($mine, 'id');
-        $opts = '';
-        foreach ($s->allFragrances() as $f) {
-            $opts .= '<option value="' . U::h($f['id']) . '"' . (in_array($f['id'], $ids, true) ? ' selected' : '') . '>' . U::h(Store::label($f)) . '</option>';
-        }
-        if ($opts === '') {
+        $all = $s->allFragrances();
+        if ($all === []) {
             return $html . '<p class="zp-small"><a href="' . U::h(U::url('edytuj', ['nowy' => 1])) . '">Dodaj zapachy</a>, żeby je przypisywać.</p>';
         }
-        $html .= '<form method="post" action="' . U::h(U::url('produkt_zapisz')) . '" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;margin:0">'
+        // Przypisane na górze, reszta po numerze. Szukanie po numerze, nazwie, innych nazwach i nutach (bez polskich znaków).
+        usort($all, static fn(array $a, array $b) => (int) !in_array($a['id'], $ids, true) <=> (int) !in_array($b['id'], $ids, true));
+        $rows = '';
+        foreach ($all as $f) {
+            $on = in_array($f['id'], $ids, true);
+            $hay = Store::norm(implode(' ', [$f['storage_no'], $f['name'], $f['aliases'], $f['head_notes'], $f['heart_notes'], $f['base_notes']]));
+            $sub = trim((string) $f['aliases']);
+            $rows .= '<label class="zp-pick-row" data-s="' . U::h($hay) . '" data-no="' . U::h(mb_strtolower(trim((string) $f['storage_no']))) . '">'
+                . '<input type="checkbox" name="fragrances[]" value="' . U::h($f['id']) . '"' . ($on ? ' checked' : '') . '>'
+                . '<b>' . U::h(trim((string) $f['storage_no']) !== '' ? '#' . $f['storage_no'] : '#–') . '</b> <span>' . U::h($f['name']) . '</span>'
+                . ($sub !== '' ? ' <span class="zp-small">' . U::h($sub) . '</span>' : '') . '</label>';
+        }
+        $html .= '<style>.zp-pick{max-width:560px}.zp-pick input[type=search]{width:100%;box-sizing:border-box;font-size:16px}'
+            . '.zp-pick-list{max-height:260px;overflow-y:auto;border:1px solid var(--line,#e6e3da);border-radius:8px;margin-top:6px;background:var(--surface,#fff)}'
+            . '.zp-pick-row{display:flex;gap:8px;align-items:baseline;padding:7px 10px;border-top:1px solid var(--line,#eee);cursor:pointer;font-size:14px}'
+            . '.zp-pick-row:first-child{border-top:0}.zp-pick-row:hover{background:var(--surface-2,#f7f6f2)}.zp-pick-row b{font-family:var(--font-num);min-width:44px}'
+            . '.zp-pick-row[hidden]{display:none}.zp-pick-row input{align-self:center}.zp-pick-row:has(input:checked){background:#f3ecfb}.zp-pick-empty{padding:10px;color:var(--ink-3,#888);font-size:13px}</style>'
+            . '<form method="post" action="' . U::h(U::url('produkt_zapisz')) . '" class="zp-pick" style="margin:0">'
             . U::csrf($ctx) . '<input type="hidden" name="product_id" value="' . $pid . '">'
-            . '<select name="fragrances[]" multiple size="' . min(6, max(3, substr_count($opts, '<option'))) . '" style="min-width:240px;max-width:460px;flex:1" aria-label="Zapachy produktu">' . $opts . '</select>'
-            . '<button class="btn secondary" type="submit">Zapisz zapach</button></form>'
-            . '<p class="zp-small" style="margin:6px 0 0">Ctrl/Cmd + klik zaznacza kilka (np. zestaw). Odznacz wszystkie, żeby usunąć zapach.</p>';
+            . '<input type="search" class="zp-pick-q" placeholder="Szukaj zapachu: nazwa, numer (np. 18) albo nuta" autocomplete="off" aria-label="Szukaj zapachu">'
+            . '<div class="zp-pick-list">' . $rows . '<div class="zp-pick-empty" hidden>Nie ma takiego zapachu.</div></div>'
+            . '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn" type="submit">Zapisz zapach</button>'
+            . '<span class="zp-small zp-pick-count"></span></div></form>'
+            . '<p class="zp-small" style="margin:6px 0 0">Zaznacz jeden albo kilka (zestaw). Odznacz wszystkie, żeby usunąć zapach.</p>'
+            . <<<'JS'
+<script>
+(() => {
+    const form = document.currentScript.previousElementSibling.previousElementSibling;
+    if (!form || !form.classList.contains('zp-pick')) return;
+    const q = form.querySelector('.zp-pick-q'), rows = [...form.querySelectorAll('.zp-pick-row')], empty = form.querySelector('.zp-pick-empty'), count = form.querySelector('.zp-pick-count');
+    const norm = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/[^a-z0-9]+/g, ' ').trim();
+    const filter = () => {
+        const raw = q.value.trim().replace(/^#/, '').toLowerCase();
+        const words = norm(raw).split(' ').filter(Boolean);
+        const numOnly = /^\d+[a-z]?$/.test(raw);
+        let shown = 0;
+        rows.forEach((r) => {
+            const on = r.querySelector('input').checked;
+            const hit = !words.length || (numOnly ? r.dataset.no === raw || r.dataset.no.startsWith(raw) : words.every((w) => r.dataset.s.includes(w)));
+            r.hidden = !(hit || on);
+            if (!r.hidden) shown++;
+        });
+        empty.hidden = shown > 0;
+    };
+    const updCount = () => {
+        const n = rows.filter((r) => r.querySelector('input').checked).length;
+        count.textContent = n ? 'Zaznaczone: ' + n : '';
+    };
+    q.addEventListener('input', filter);
+    q.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const vis = rows.filter((r) => !r.hidden && !r.querySelector('input').checked);
+        if (vis.length === 1) { vis[0].querySelector('input').checked = true; q.value = ''; filter(); updCount(); }
+    });
+    form.addEventListener('change', updCount);
+    updCount();
+})();
+</script>
+JS;
         if ($suggest !== []) {
             $f = $suggest[0];
             $html .= '<form method="post" action="' . U::h(U::url('produkt_zapisz')) . '" style="margin:10px 0 0">' . U::csrf($ctx)

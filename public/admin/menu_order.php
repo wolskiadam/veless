@@ -107,7 +107,7 @@ require __DIR__ . '/header.php';
         „Ukryj” chowa pozycję z menu, ale strona nadal działa pod swoim adresem.
         Układ dotyczy wszystkich użytkowników i nie zmienia uprawnień (pozycje „tylko admin” nadal widzi tylko administrator).
         Nowe funkcje dodane w przyszłości pojawią się na swoim domyślnym miejscu.
-        W rozwiniętej zakładce pozycje są pogrupowane pod małymi szarymi nagłówkami (nazwa grupy obok pozycji), a każda podkategoria to osobna grupa ze swoim nagłówkiem.</p>
+        W rozwiniętej zakładce pozycje są pogrupowane pod małymi szarymi nagłówkami (nazwa grupy obok pozycji), a podkategorie (np. Allegro, Erli) są listą nazw, które rozwijają swoje pozycje po najechaniu lub kliknięciu.</p>
 
     <div class="mo-top">
         <button type="button" class="btn secondary" id="moAddGroup">+ Nowa zakładka</button>

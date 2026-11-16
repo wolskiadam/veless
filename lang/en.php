@@ -275,6 +275,9 @@ return [
     'nav.d.vonhalsky.offers' => 'Offer prices and stock',
     'nav.d.vonhalsky.categories' => 'Categories and required parameters',
     'nav.d.vonhalsky.returns' => 'Returns and claims from InPost',
+    'nav.d.sub.allegro' => 'Offers, orders and account settings',
+    'nav.d.sub.erli' => 'Offers, products and shipments',
+    'nav.d.sub.vonhalsky' => 'Offers, stock and returns from the InPost marketplace',
 
     // Orders list
     'orders.title'     => 'Orders',

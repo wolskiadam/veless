@@ -67,25 +67,55 @@ if (isset($pdo) && $pdo instanceof PDO) {
                 </button>
                 <?php
                 // Panel jak w katalogu: kolumny z sekcjami pod małym szarym nagłówkiem, pozycja = nazwa + opis, bez ikon.
-                // Na telefonie kolumny układają się jedna pod drugą.
-                $navColumns = \Pase\Support\AdminMenu::columns(\Pase\Support\AdminMenu::sections($group['items']));
+                // Podkategorie (kanały: Allegro, Erli…) to lista nazw - ich pozycje rozwijają się obok po najechaniu/kliknięciu.
+                // Na telefonie kolumny układają się jedna pod drugą, a kanał rozwija się pod swoją nazwą.
+                $navLoose = array_values(array_filter($group['items'], static fn(array $i): bool => !isset($i['children'])));
+                $navSubs = array_values(array_filter($group['items'], static fn(array $i): bool => isset($i['children'])));
+                $navColumns = $navLoose ? \Pase\Support\AdminMenu::columns(\Pase\Support\AdminMenu::sections($navLoose)) : [];
+                $navLink = static function (array $item) use ($currentFile): string {
+                    return '<a href="' . $item['href'] . '" class="nav-dropdown-item' . ($currentFile === $item['href'] ? ' active' : '') . '">'
+                        . '<span class="nav-item-label">' . \Pase\Support\AdminMenu::plain((string) $item['label']) . '</span>'
+                        . (!empty($item['desc']) ? '<span class="nav-item-desc">' . $item['desc'] . '</span>' : '') . '</a>';
+                };
                 ?>
-                <div class="nav-dropdown nav-cols-<?= count($navColumns) ?>">
+                <div class="nav-dropdown<?= $navSubs ? ' nav-has-subs' : '' ?>">
                     <?php foreach ($navColumns as $navCol): ?>
                         <div class="nav-col">
                             <?php foreach ($navCol as $navSec): ?>
                                 <div class="nav-section">
                                     <?php if ($navSec['title'] !== ''): ?><div class="nav-section-title"><?= $navSec['title'] ?></div><?php endif; ?>
-                                    <?php foreach ($navSec['items'] as $item): ?>
-                                        <a href="<?= $item['href'] ?>" class="nav-dropdown-item <?= ($currentFile === $item['href']) ? 'active' : '' ?>">
-                                            <span class="nav-item-label"><?= \Pase\Support\AdminMenu::plain((string) $item['label']) ?></span>
-                                            <?php if (!empty($item['desc'])): ?><span class="nav-item-desc"><?= $item['desc'] ?></span><?php endif; ?>
-                                        </a>
-                                    <?php endforeach; ?>
+                                    <?php foreach ($navSec['items'] as $item): ?><?= $navLink($item) ?><?php endforeach; ?>
                                 </div>
                             <?php endforeach; ?>
                         </div>
                     <?php endforeach; ?>
+                    <?php if ($navSubs): ?>
+                        <div class="nav-col nav-col-subs">
+                            <div class="nav-section">
+                                <?php foreach ($navSubs as $item):
+                                    $navActive = in_array($currentFile, array_column($item['children'], 'href'), true); ?>
+                                    <div class="nav-sub<?= $navActive ? ' active' : '' ?>">
+                                        <button type="button" class="nav-dropdown-item nav-sub-btn" aria-expanded="false">
+                                            <span class="nav-sub-text">
+                                                <span class="nav-item-label"><?= \Pase\Support\AdminMenu::plain((string) $item['label']) ?></span>
+                                                <?php if (($navDesc = \Pase\Support\AdminMenu::subDesc($item)) !== ''): ?><span class="nav-item-desc"><?= $navDesc ?></span><?php endif; ?>
+                                            </span>
+                                            <svg class="nav-sub-arrow" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
+                                        </button>
+                                        <div class="nav-flyout">
+                                            <?php foreach (\Pase\Support\AdminMenu::columns([['title' => '', 'items' => $item['children']]]) as $navCol): ?>
+                                                <div class="nav-col">
+                                                    <?php foreach ($navCol as $navSec): ?>
+                                                        <div class="nav-section"><?php foreach ($navSec['items'] as $c): ?><?= $navLink($c) ?><?php endforeach; ?></div>
+                                                    <?php endforeach; ?>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         <?php endforeach; ?>
@@ -261,6 +291,20 @@ if (isset($pdo) && $pdo instanceof PDO) {
     .nav-item-label { font-size:.86em; font-weight:500; color:var(--ink); line-height:1.3; }
     .nav-item-desc { font-size:.74em; color:var(--ink-2); line-height:1.35; }
     .nav-dropdown-item.active .nav-item-label { color:var(--accent-ink); font-weight:600; }
+    /* Kanały (podkategorie): nazwa + opis, pozycje kanału w panelu obok. */
+    .nav-dropdown.nav-has-subs { overflow:visible; max-height:none; }
+    .nav-sub-btn { width:100%; flex-direction:row; align-items:center; justify-content:space-between; gap:12px; background:none; border:0;
+        cursor:pointer; font:inherit; text-align:left; }
+    .nav-sub-text { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .nav-sub-arrow { color:var(--ink-3); flex-shrink:0; transition:transform .15s; }
+    .nav-sub.open > .nav-sub-btn { background:var(--surface-2); }
+    .nav-sub.open > .nav-sub-btn .nav-sub-arrow { color:var(--ink-2); transform:translateX(2px); }
+    .nav-sub.active > .nav-sub-btn .nav-item-label { color:var(--accent-ink); font-weight:600; }
+    .nav-flyout { display:none; position:absolute; top:-1px; left:calc(100% - 1px); min-height:calc(100% + 2px); box-sizing:border-box;
+        background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:0 14px 34px -14px rgba(20,18,12,.25);
+        padding:14px 0 10px; z-index:1002; }
+    .nav-flyout.nav-flip { left:auto; right:calc(100% - 1px); }
+    .nav-sub.open > .nav-flyout { display:flex; }
     .nav-user-area { display:flex; align-items:center; gap:10px; flex-shrink:0; }
     .nav-scale { position:relative; display:flex; align-items:center; }
     .nav-scale-btn { display:inline-flex; align-items:baseline; gap:4px; background:transparent; border:0; cursor:pointer; color:var(--ink-2); padding:7px 8px; border-radius:8px; font-family:inherit; }
@@ -313,6 +357,10 @@ if (isset($pdo) && $pdo instanceof PDO) {
         .nav-section-title { padding:6px 12px 2px; }
         .nav-dropdown-item { padding:8px 12px; }
         .nav-dropdown-item:hover { background:var(--accent-soft); }
+        .nav-flyout, .nav-flyout.nav-flip { position:static; min-height:0; border:0; box-shadow:none; background:var(--surface);
+            border-radius:6px; margin:2px 0 6px 12px; padding:4px 0; }
+        .nav-sub.open > .nav-flyout { display:block; }
+        .nav-sub.open > .nav-sub-btn .nav-sub-arrow { transform:rotate(90deg); }
     }
     /* Telefon: w pasku zostają ☰, start, dzwonek, skala i ikona wylogowania; reszta konta w rozwijanym menu. */
     @media (max-width:600px) {
@@ -337,6 +385,7 @@ function toggleNavGroup(btn) {
     const group = btn.closest('.nav-group');
     const wasOpen = group.classList.contains('open');
     document.querySelectorAll('.nav-group.open').forEach(g => g.classList.remove('open'));
+    document.querySelectorAll('.nav-sub.open').forEach(s => s.classList.remove('open'));
     if (!wasOpen) {
         group.classList.add('open');
         // Panel przy prawej krawędzi ekranu przesuwa się w lewo, żeby się zmieścił.
@@ -356,9 +405,44 @@ document.querySelector('.nav-toggle').addEventListener('click', function () {
 document.querySelectorAll('.nav-group-btn').forEach(function (button) {
     button.addEventListener('click', function () { toggleNavGroup(button); });
 });
+// Kanał (podkategoria): klik rozwija; na komputerze także najechanie (z krótką zwłoką, żeby przejście
+// myszą do panelu obok przez inny kanał go nie przełączało). Otwarty kanał zostaje otwarty do wyboru innego.
+(function () {
+    const desktop = () => window.matchMedia('(min-width: 901px) and (hover: hover)').matches;
+    function openSub(sub, on) {
+        sub.parentElement.querySelectorAll(':scope > .nav-sub.open').forEach(function (o) {
+            if (o !== sub) { o.classList.remove('open'); o.querySelector('.nav-sub-btn').setAttribute('aria-expanded', 'false'); }
+        });
+        sub.classList.toggle('open', on);
+        sub.querySelector('.nav-sub-btn').setAttribute('aria-expanded', on ? 'true' : 'false');
+        const fly = sub.querySelector('.nav-flyout');
+        if (on && fly && desktop()) {
+            fly.classList.remove('nav-flip');
+            if (fly.getBoundingClientRect().right > document.documentElement.clientWidth - 16) { fly.classList.add('nav-flip'); }
+        }
+    }
+    let timer = null;
+    document.querySelectorAll('.nav-sub').forEach(function (sub) {
+        const btn = sub.querySelector('.nav-sub-btn');
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            clearTimeout(timer);
+            openSub(sub, desktop() ? true : !sub.classList.contains('open'));
+        });
+        btn.addEventListener('mouseenter', function () {
+            if (!desktop() || sub.classList.contains('open')) { return; }
+            clearTimeout(timer);
+            const anyOpen = sub.parentElement.querySelector(':scope > .nav-sub.open');
+            timer = setTimeout(function () { openSub(sub, true); }, anyOpen ? 180 : 60);
+        });
+        btn.addEventListener('mouseleave', function () { clearTimeout(timer); });
+        sub.querySelector('.nav-flyout').addEventListener('mouseenter', function () { clearTimeout(timer); });
+    });
+})();
 document.addEventListener('click', function(e) {
     if (!e.target.closest('.nav-group')) {
         document.querySelectorAll('.nav-group.open').forEach(g => g.classList.remove('open'));
+        document.querySelectorAll('.nav-sub.open').forEach(s => s.classList.remove('open'));
     }
 });
 </script>

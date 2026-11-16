@@ -154,7 +154,7 @@ final class ProductionList
     }
 
     /** Wariant pozycji (Woo meta_data bez pól technicznych). @return list<array{0:string,1:string}> */
-    private static function lineAttributes(array $it): array
+    public static function lineAttributes(array $it): array
     {
         $out = [];
         foreach ((array) ($it['meta_data'] ?? []) as $m) {

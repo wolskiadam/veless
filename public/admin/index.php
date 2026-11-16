@@ -612,6 +612,57 @@ $PAGE_HEAD = <<<'CSS'
         .orders-table td[data-col="source"] { display:flex; align-items:center; gap:8px; min-width:0; }
         .orders-table td[data-col="source"] .source-sub { margin:0; max-width:none; min-width:0; }
     }
+    /* Szybki podgląd zamówienia (oko w wierszu): okienko przy wierszu na komputerze, arkusz od dołu na telefonie. */
+    .orders-table td[data-col="actions"] .btn.order-peek { width:32px; padding:0 !important; justify-content:center; margin-right:4px; color:var(--ink-2); }
+    .orders-table td[data-col="actions"] .order-peek[aria-expanded="true"] { background:var(--surface-2); color:var(--ink); box-shadow:inset 0 0 0 1px var(--ink-3); }
+    .peek-pop { position:fixed; z-index:1000; width:400px; max-width:calc(100vw - 16px); max-height:min(560px, calc(100vh - 16px)); display:flex; flex-direction:column;
+        background:var(--surface); color:var(--ink); border-radius:12px; box-shadow:0 0 0 1px var(--line), 0 18px 48px -12px rgba(20,18,12,.32);
+        opacity:0; transform:translateY(4px); transition:opacity .14s cubic-bezier(.22,1,.36,1), transform .14s cubic-bezier(.22,1,.36,1); font-size:13px; }
+    .peek-pop.is-open { opacity:1; transform:none; }
+    .peek-pop[hidden] { display:none; }
+    .peek-head { display:flex; align-items:center; gap:8px; padding:14px 16px 10px; border-bottom:1px solid var(--line); }
+    .peek-head strong { font-size:15px; font-weight:600; white-space:nowrap; }
+    .peek-head .peek-cust { color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1; }
+    .peek-close { border:0; background:transparent; color:var(--ink-2); width:28px; height:28px; margin:-6px -8px -6px 0; border-radius:8px; cursor:pointer; font-size:18px; line-height:28px; flex:none; align-self:center; }
+    .peek-close:hover { background:var(--surface-2); color:var(--ink); }
+    .peek-body { overflow-y:auto; padding:4px 16px; overscroll-behavior:contain; }
+    .peek-item { display:grid; grid-template-columns:44px minmax(0,1fr) auto; gap:12px; align-items:center; padding:10px 0; }
+    .peek-item + .peek-item { border-top:1px solid var(--line); }
+    .peek-thumb { width:44px; height:44px; border-radius:8px; object-fit:cover; background:var(--surface-2); box-shadow:inset 0 0 0 1px var(--line); display:block; }
+    .peek-thumb.is-empty { display:flex; align-items:center; justify-content:center; color:var(--ink-3); }
+    .peek-name { font-weight:500; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .peek-sub { margin-top:3px; color:var(--ink-2); font-size:12px; line-height:1.35; }
+    .peek-sub b { font-weight:500; color:var(--ink); }
+    .peek-from { margin-top:3px; font-size:11px; color:var(--ink-3); }
+    .peek-qty { font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; text-align:right; }
+    .peek-qty.many { color:var(--accent); }
+    .peek-qty small { display:block; font-size:11px; font-weight:400; color:var(--ink-3); }
+    .peek-more { padding:8px 0 10px; color:var(--ink-2); font-size:12px; border-top:1px solid var(--line); }
+    .peek-info { display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 12px; padding:10px 16px; border-top:1px solid var(--line); background:var(--surface-2); }
+    .peek-info dt { color:var(--ink-3); font-size:12px; padding-top:1px; }
+    .peek-info dd { margin:0; line-height:1.4; overflow-wrap:anywhere; }
+    .peek-info dd small { display:block; color:var(--ink-2); font-size:12px; }
+    .peek-note { margin:0; padding:8px 10px; border-radius:8px; background:#fff4d6; color:#5c4100; white-space:pre-line; max-height:7.2em; overflow:auto; }
+    .peek-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px 12px; border-top:1px solid var(--line); border-radius:0 0 12px 12px; }
+    .peek-foot .peek-sum { color:var(--ink-2); }
+    .peek-foot .peek-sum b { color:var(--ink); font-weight:600; }
+    .peek-foot a { font-weight:500; white-space:nowrap; }
+    .peek-state { padding:22px 0; color:var(--ink-2); text-align:center; }
+    .peek-backdrop { position:fixed; inset:0; z-index:999; background:rgba(20,18,12,.36); }
+    .peek-backdrop[hidden] { display:none; }
+    @media (max-width:820px) {
+        .orders-table td[data-col="actions"] .btn.order-peek { width:40px; height:40px; margin-right:0; }
+        .peek-pop { left:0 !important; right:0 !important; top:auto !important; bottom:0 !important; width:auto; max-width:none; max-height:78vh;
+            border-radius:16px 16px 0 0; transform:translateY(24px); padding-bottom:env(safe-area-inset-bottom); }
+        .peek-pop.is-open { transform:none; }
+        .peek-pop::before { content:""; display:block; width:40px; height:4px; border-radius:2px; background:var(--line); margin:8px auto 0; }
+        .peek-head { padding-top:8px; }
+        .peek-close { width:40px; height:40px; line-height:40px; font-size:22px; }
+        .peek-item { grid-template-columns:52px minmax(0,1fr) auto; }
+        .peek-thumb { width:52px; height:52px; }
+        .peek-name { font-size:14px; }
+        .peek-foot a { padding:10px 14px; border-radius:10px; background:var(--accent); color:#fff; text-decoration:none; }
+    }
 </style>
 CSS;
 require __DIR__ . '/header.php';
@@ -1183,6 +1234,222 @@ $pipeGroups = [
         allToggle.setAttribute('aria-expanded', allBox.hidden ? 'false' : 'true');
         allToggle.textContent = allBox.hidden ? 'Pokaż wszystkie występujące ikony' : 'Ukryj pozostałe ikony';
     });
+})();
+</script>
+
+<div class="peek-backdrop" id="peekBackdrop" hidden></div>
+<div class="peek-pop" id="peekPop" role="dialog" aria-modal="false" aria-labelledby="peekTitle" hidden></div>
+<script>
+// Szybki podgląd zamówienia: klik w oko w wierszu (albo dłuższe najechanie na oko lub „Podgląd”) pokazuje okienko
+// z tym, co klient zamówił (dane: order_preview.php). Na telefonie dotknięcie oka otwiera arkusz od dołu.
+// „Podgląd” dalej prowadzi do karty zamówienia. Delegowane na document - działa po podmianie tabeli przez wyszukiwanie.
+(function () {
+    var pop = document.getElementById('peekPop');
+    var backdrop = document.getElementById('peekBackdrop');
+    if (!pop) { return; }
+    var phone = window.matchMedia('(max-width:820px)');
+    var canHover = window.matchMedia('(hover:hover) and (pointer:fine)');
+    var cache = {};          // id -> {at, data}
+    var current = null;      // id otwartego podglądu
+    var anchor = null;       // element, przy którym stoi okienko
+    var pinned = false;      // otwarte kliknięciem - nie znika po zjechaniu kursorem
+    var openTimer = 0, closeTimer = 0, requestNo = 0;
+    var HOVER_DELAY = 450, CLOSE_DELAY = 220, CACHE_MS = 60000;
+
+    function el(tag, cls, text) {
+        var e = document.createElement(tag);
+        if (cls) { e.className = cls; }
+        if (text !== undefined && text !== null && text !== '') { e.textContent = text; }
+        return e;
+    }
+    function num(n) { return String(n).replace('.', ','); }
+    function szt(n) { return num(n) + ' szt.'; }
+
+    function head(data, id) {
+        var h = el('div', 'peek-head');
+        var t = el('strong', null, 'Zamówienie ' + (data ? data.label : '#' + id));
+        t.id = 'peekTitle';
+        h.appendChild(t);
+        h.appendChild(el('span', 'peek-cust', data ? data.customer : ''));
+        var x = el('button', 'peek-close', '×');
+        x.type = 'button'; x.setAttribute('aria-label', 'Zamknij podgląd');
+        x.addEventListener('click', function () { close(true); });
+        h.appendChild(x);
+        return h;
+    }
+    function item(it) {
+        var row = el('div', 'peek-item');
+        if (it.thumb) {
+            var img = el('img', 'peek-thumb');
+            img.src = it.thumb; img.alt = ''; img.loading = 'lazy';
+            img.addEventListener('error', function () { var e = el('span', 'peek-thumb is-empty', '—'); img.replaceWith(e); });
+            row.appendChild(img);
+        } else {
+            row.appendChild(el('span', 'peek-thumb is-empty', '—'));
+        }
+        var main = el('div');
+        main.appendChild(el('div', 'peek-name', it.name));
+        var bits = [];
+        (it.attrs || []).forEach(function (a) { bits.push([a.label, a.value]); });
+        (it.details || []).forEach(function (d) {
+            if (!bits.some(function (b) { return b[1] === d.value; })) { bits.push([d.label, d.value]); }
+        });
+        if (bits.length) {
+            var sub = el('div', 'peek-sub');
+            bits.forEach(function (b, i) {
+                if (i) { sub.appendChild(document.createTextNode(' · ')); }
+                sub.appendChild(document.createTextNode(b[0] + ': '));
+                sub.appendChild(el('b', null, b[1]));
+            });
+            main.appendChild(sub);
+        } else if (it.sku) {
+            main.appendChild(el('div', 'peek-sub', 'SKU ' + it.sku));
+        }
+        if (it.merged_from) { main.appendChild(el('div', 'peek-from', 'z zamówienia ' + it.merged_from + ' (scalone)')); }
+        row.appendChild(main);
+        var q = el('div', 'peek-qty' + (it.qty > 1 ? ' many' : ''), num(it.qty) + ' ×');
+        q.appendChild(el('small', null, it.total));
+        row.appendChild(q);
+        return row;
+    }
+    function render(id, data, error) {
+        pop.innerHTML = '';
+        pop.appendChild(head(data, id));
+        var body = el('div', 'peek-body');
+        if (!data) {
+            body.appendChild(el('div', 'peek-state', error || 'Wczytywanie…'));
+            pop.appendChild(body);
+            return;
+        }
+        if (!data.items.length) { body.appendChild(el('div', 'peek-state', 'Brak pozycji w zamówieniu.')); }
+        data.items.forEach(function (it) { body.appendChild(item(it)); });
+        if (data.more > 0) { body.appendChild(el('div', 'peek-more', '+ ' + data.more + ' ' + (data.more === 1 ? 'pozycja' : 'pozycji') + ' więcej — pełna lista na karcie zamówienia')); }
+        pop.appendChild(body);
+
+        var d = data.delivery || {};
+        if (d.name || d.point || d.address || data.note) {
+            var info = el('dl', 'peek-info');
+            if (d.name || d.point || d.address) {
+                info.appendChild(el('dt', null, 'Dostawa'));
+                var dd = el('dd', null, d.method && d.method !== d.name ? d.name + ' — ' + d.method : (d.name || '—'));
+                if (d.point || d.address) { dd.appendChild(el('small', null, d.point || d.address)); }
+                info.appendChild(dd);
+            }
+            if (data.note) {
+                info.appendChild(el('dt', null, 'Uwaga'));
+                var nd = el('dd');
+                nd.appendChild(el('p', 'peek-note', data.note));
+                info.appendChild(nd);
+            }
+            pop.appendChild(info);
+        }
+        var foot = el('div', 'peek-foot');
+        var sum = el('span', 'peek-sum');
+        sum.appendChild(document.createTextNode(szt(data.qty) + ' · '));
+        sum.appendChild(el('b', null, data.total));
+        foot.appendChild(sum);
+        var a = el('a', null, 'Otwórz zamówienie →');
+        a.href = data.order_url;
+        foot.appendChild(a);
+        pop.appendChild(foot);
+    }
+
+    function place() {
+        if (!anchor || pop.hidden) { return; }
+        if (phone.matches) { pop.style.left = pop.style.top = ''; return; }
+        var r = anchor.getBoundingClientRect();
+        var cell = (anchor.closest('td') || anchor).getBoundingClientRect();   // obok całej komórki akcji - oko zostaje widoczne
+        var w = pop.offsetWidth, h = pop.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+        // Przycisk jest przy prawej krawędzi tabeli - okienko staje po jego lewej, na wysokości wiersza.
+        var left = cell.left - w - 6;
+        if (left < 8) { left = Math.min(vw - w - 8, Math.max(8, r.right + 10)); }
+        var top = Math.max(8, Math.min(r.top - 16, vh - h - 8));
+        pop.style.left = Math.round(left) + 'px';
+        pop.style.top = Math.round(top) + 'px';
+    }
+
+    function setExpanded(id, on) {
+        document.querySelectorAll('.order-peek[data-peek="' + id + '"]').forEach(function (b) { b.setAttribute('aria-expanded', on ? 'true' : 'false'); });
+    }
+    function open(id, from, pin) {
+        clearTimeout(closeTimer); clearTimeout(openTimer);
+        if (current && current !== id) { setExpanded(current, false); }
+        current = id; anchor = from; pinned = !!pin || phone.matches;
+        setExpanded(id, true);
+        var c = cache[id];
+        var fresh = c && Date.now() - c.at < CACHE_MS;
+        render(id, c ? c.data : null, null);
+        pop.hidden = false;
+        backdrop.hidden = !phone.matches;
+        pop.setAttribute('aria-modal', phone.matches ? 'true' : 'false');
+        place();
+        requestAnimationFrame(function () { pop.classList.add('is-open'); });
+        if (phone.matches) { document.body.style.overflow = 'hidden'; }
+        if (fresh) { return; }
+        var my = ++requestNo;
+        fetch('order_preview.php?id=' + encodeURIComponent(id), { headers: { 'X-Requested-With': 'fetch' }, credentials: 'same-origin' })
+            .then(function (r) { if (!r.ok) { throw new Error(); } return r.json(); })
+            .then(function (data) {
+                cache[id] = { at: Date.now(), data: data };
+                if (my === requestNo && current === id) { render(id, data, null); place(); }
+            })
+            .catch(function () {
+                if (my === requestNo && current === id && !c) { render(id, null, 'Nie udało się wczytać podglądu. Otwórz kartę zamówienia.'); place(); }
+            });
+    }
+    function close(returnFocus) {
+        clearTimeout(openTimer); clearTimeout(closeTimer);
+        if (!current) { return; }
+        var id = current, a = anchor;
+        setExpanded(id, false);
+        current = null; anchor = null; pinned = false;
+        pop.classList.remove('is-open');
+        pop.hidden = true;
+        backdrop.hidden = true;
+        document.body.style.overflow = '';
+        if (returnFocus && a && a.classList.contains('order-peek') && document.contains(a)) { a.focus(); }
+    }
+    function scheduleClose() {
+        if (pinned) { return; }
+        clearTimeout(closeTimer);
+        closeTimer = setTimeout(function () { close(false); }, CLOSE_DELAY);
+    }
+
+    document.addEventListener('click', function (e) {
+        var b = e.target.closest('.order-peek');
+        if (b) {
+            e.preventDefault();
+            var id = b.getAttribute('data-peek');
+            if (current === id && pinned) { close(true); } else { open(id, b, true); }
+            return;
+        }
+        if (current && !pop.contains(e.target)) { close(false); }
+    });
+    backdrop.addEventListener('click', function () { close(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && current) { close(true); } });
+
+    // Dłuższe najechanie kursorem (tylko mysz) na oko albo „Podgląd”.
+    document.addEventListener('mouseover', function (e) {
+        if (!canHover.matches || phone.matches) { return; }
+        if (pop.contains(e.target)) { clearTimeout(closeTimer); return; }
+        var t = e.target.closest('.order-peek, [data-peek-hover]');
+        if (!t) { return; }
+        clearTimeout(closeTimer);
+        var id = t.getAttribute('data-peek') || t.getAttribute('data-peek-hover');
+        if (current === id) { return; }
+        clearTimeout(openTimer);
+        openTimer = setTimeout(function () { if (document.contains(t) && t.matches(':hover')) { open(id, t, false); } }, HOVER_DELAY);
+    });
+    document.addEventListener('mouseout', function (e) {
+        if (!canHover.matches || phone.matches) { return; }
+        var t = e.target.closest('.order-peek, [data-peek-hover], #peekPop');
+        if (!t || (e.relatedTarget && t.contains(e.relatedTarget))) { return; }
+        clearTimeout(openTimer);
+        if (current) { scheduleClose(); }
+    });
+    // Przewinięcie listy: okienko przy wierszu traci sens - zamykamy (arkusz na telefonie zostaje).
+    window.addEventListener('scroll', function () { if (current && !phone.matches && !pop.matches(':hover')) { close(false); } }, { passive: true });
+    window.addEventListener('resize', place);
 })();
 </script>
 

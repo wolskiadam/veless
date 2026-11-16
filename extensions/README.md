@@ -227,6 +227,7 @@ Własne zdarzenie wyzwalasz przez silnik reguł:
 | Hak | Rodzaj | Argumenty | Co robi |
 |---|---|---|---|
 | `production_list.details` | filtr | `array $details, string $sku, int $qty, array $row` | dopisz parametry pozycji (np. recepturę, numer zapachu) |
+| `order_preview.item_details` | filtr | `array $details, array $item, array $attrs, array $row` | dopisz szczegóły pozycji w szybkim podglądzie zamówienia na liście (`['label' => …, 'value' => …]`, np. numer zapachu) |
 
 Parametr: `['label' => 'Knot', 'value' => 'ECO 8', 'per' => 1, 'unit' => 'szt']` (`per` i `unit` opcjonalne: ilość na sztukę,
 lista sama mnoży i sumuje w „Materiały razem”). `$row`: `name`, `sku`, `attrs` (wariant `[[klucz, wartość], ...]`), `qty`.

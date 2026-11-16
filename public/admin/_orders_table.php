@@ -366,7 +366,9 @@ if (!function_exists('sourceBadge')) {
                 <td class="col-date" title="<?= htmlspecialchars($r['date_created'] ?? '') ?>"><?= htmlspecialchars(ordersListDay((string) ($r['date_created'] ?? ''))) ?><span class="col-time"><?= htmlspecialchars(substr((string) ($r['date_created'] ?? ''), 11, 5)) ?></span></td>
                 <?php $cells['date'] = ob_get_clean(); ob_start(); ?>
                 <td style="text-align:right;white-space:nowrap">
-                    <a class="btn secondary" href="order_view.php?id=<?= (int)$r['woo_order_id'] ?>"><?= htmlspecialchars(t('common.preview')) ?></a>
+                    <?php // Oko: szybki podgląd produktów w okienku (index.php); „Podgląd” dalej prowadzi do karty zamówienia. ?>
+                    <button type="button" class="btn secondary order-peek" data-peek="<?= (int)$r['woo_order_id'] ?>" title="<?= htmlspecialchars(t('common.quick_preview')) ?>" aria-label="<?= htmlspecialchars(t('common.quick_preview')) ?>" aria-haspopup="dialog" aria-expanded="false"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                    <a class="btn secondary order-open" data-peek-hover="<?= (int)$r['woo_order_id'] ?>" href="order_view.php?id=<?= (int)$r['woo_order_id'] ?>"><?= htmlspecialchars(t('common.preview')) ?></a>
                     <?php if (canEdit()): ?>
                         <?php if ($view === 'trashed'): ?>
                             <button type="submit" class="btn secondary row-act" data-action="restore" data-id="<?= (int)$r['woo_order_id'] ?>" title="<?= htmlspecialchars(t('orders.bulk.restore')) ?>" aria-label="<?= htmlspecialchars(t('orders.bulk.restore')) ?>"><?= $icoRestore ?></button>

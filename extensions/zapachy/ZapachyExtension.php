@@ -298,6 +298,18 @@ final class ZapachyExtension extends AbstractExtension
             return $order;
         });
         Hooks::addAsset('packing', $this->path('assets/packing.js'));
+        // Szybki podgląd zamówienia na liście zamówień: numer miejsca olejku przy pozycji.
+        Hooks::addFilter('order_preview.item_details', static function (array $details, array $it = [], array $attrs = []) use ($store, $guess): array {
+            $s = $store();
+            $frags = $s->resolve((string) ($it['sku'] ?? ''), $attrs, (string) ($it['name'] ?? ''));
+            if (!$guess()) {
+                $frags = array_values(array_filter($frags, static fn(array $f) => $f['how'] === 'product'));
+            }
+            foreach ($frags as $f) {
+                $details[] = ['label' => 'Zapach', 'value' => (trim((string) $f['storage_no']) !== '' ? 'nr ' . $f['storage_no'] . ' · ' : '') . $f['name']];
+            }
+            return $details;
+        });
         Hooks::addFilter('production_list.details', static function (array $details, string $sku, int|float $qty = 0, array $row = []) use ($store, $guess): array {
             $s = $store();
             $frags = $s->resolve($sku, (array) ($row['attrs'] ?? []), (string) ($row['name'] ?? ''));

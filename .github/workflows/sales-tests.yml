@@ -142,6 +142,7 @@ jobs:
       - run: php tests/order_channel_icons.php
       - run: php tests/order_icon_details.php
       - run: php tests/order_icons_http.php
+      - run: php tests/order_preview_http.php
       - run: php tests/sales_mysql.php
         env:
           CRM_TEST_MYSQL: '1'

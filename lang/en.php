@@ -93,6 +93,7 @@ return [
     'common.delete'    => 'Delete',
     'common.edit'      => 'Edit',
     'common.preview'   => 'Preview',
+    'common.quick_preview' => 'Quick order preview',
     'common.back'      => 'Back',
     'common.search'    => 'Search',
     'common.filter'    => 'Filter',

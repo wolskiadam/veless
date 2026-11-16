@@ -232,6 +232,11 @@ final class Migrator
                 "ALTER TABLE job_queue ADD COLUMN reserved_token VARCHAR(64) NULL AFTER reserved_at"
             );
         }
+        // result: co zadanie zrobiło (np. „Sklep AWIEN WWW: stan 15 · Allegro: stan 15 -> oferta 123”),
+        // pokazywane w historii kolejki obok błędu.
+        if (!$this->columnExists('job_queue', 'result')) {
+            $this->pdo->exec("ALTER TABLE job_queue ADD COLUMN result TEXT NULL AFTER last_error");
+        }
 
         // internal_status: status wewnętrzny PASE dla zamówienia Woo, ustawiany
         // przez silnik automatyzacji. Niezależny od statusu Woo (processing itd.).

@@ -24,11 +24,12 @@ final class WooStockPushHandler
         private readonly IntegrationAccountRepository $integrations
     ) {}
 
-    public function handle(array $payload): void
+    /** @return string|null co zrobiono / dlaczego pominięto - do historii kolejki */
+    public function handle(array $payload): ?string
     {
         $productId = (int) ($payload['product_id'] ?? 0);
         if ($productId <= 0) {
-            return;
+            return null;
         }
 
         $what = in_array($payload['what'] ?? 'stock', ['stock', 'price', 'both'], true)
@@ -37,13 +38,13 @@ final class WooStockPushHandler
         $p = $this->products->find($productId);
         if ($p === null) {
             Logger::warn("StockPush: brak produktu #{$productId}");
-            return;
+            return "Brak produktu #{$productId}";
         }
 
         $wooId = (int) ($p['woo_product_id'] ?? 0);
         if ($wooId <= 0) {
             Logger::info("StockPush: produkt SKU {$p['sku']} bez woo_product_id - pomijam");
-            return;
+            return 'Sklep: pominięty (produkt niepowiązany ze sklepem)';
         }
         // Wariant Woo (patrz import_products.php): woo_product_id to WSPÓLNY id rodzica
         // (do grupowania w products.php), więc bez woo_variation_id trafialibyśmy stanem
@@ -55,23 +56,24 @@ final class WooStockPushHandler
         $integration = $integrationId ? $this->integrations->find($integrationId) : null;
         if ($integration === null) {
             Logger::warn("StockPush: brak integracji dla produktu {$p['sku']}");
-            return;
+            return 'Sklep: pominięty (brak integracji sklepu)';
         }
 
         // Ochrona: wypych tylko gdy PASE jest masterem stanów dla tej integracji.
         if (($integration['config']['stock_master'] ?? 'pase') !== 'pase') {
             Logger::info("StockPush: integracja '{$integration['name']}' nie ma CRM jako mastera - pomijam");
-            return;
+            return "Sklep {$integration['name']}: pominięty (źródłem stanów jest sklep)";
         }
 
         // Wypych przez wtyczkę z magazynem (Warehouse).
         $plugin = PluginRegistry::forAccount($integration['type'], $integration['config'] ?? []);
         if (!$plugin instanceof Warehouse) {
             Logger::warn("StockPush: integracja '{$integration['name']}' nie wspiera magazynu (Warehouse) - pomijam");
-            return;
+            return "Sklep {$integration['name']}: pominięty (integracja bez magazynu)";
         }
 
         $failed = [];
+        $done = [];
 
         // Stan.
         if ($what === 'stock' || $what === 'both') {
@@ -79,6 +81,7 @@ final class WooStockPushHandler
             if ($stock !== null) {
                 if ($plugin->pushStock((string) $wooId, (int) $stock, $wooVariationId !== null ? (string) $wooVariationId : null)) {
                     Logger::info("StockPush: SKU {$p['sku']} -> Woo #{$wooId} stan={$stock}");
+                    $done[] = "stan {$stock}";
                 } else {
                     $failed[] = 'stan';
                 }
@@ -91,6 +94,7 @@ final class WooStockPushHandler
             if ($price !== null) {
                 if ($plugin->pushPrice((string) $wooId, (float) $price, $wooVariationId !== null ? (string) $wooVariationId : null)) {
                     Logger::info("StockPush: SKU {$p['sku']} -> Woo #{$wooId} cena={$price}");
+                    $done[] = 'cena ' . number_format((float) $price, 2, ',', '');
                 } else {
                     $failed[] = 'cena';
                 }
@@ -100,8 +104,9 @@ final class WooStockPushHandler
         if ($failed !== []) {
             // Błąd API -> wyjątek, Worker ponowi z backoffem.
             throw new \RuntimeException(
-                'StockPush: nie udało się wypchnąć (' . implode(', ', $failed) . ") dla SKU {$p['sku']} (Woo #{$wooId})"
+                "Sklep {$integration['name']}: nie udało się wysłać (" . implode(', ', $failed) . ") (Woo #{$wooId})"
             );
         }
+        return "Sklep {$integration['name']}: " . ($done !== [] ? implode(', ', $done) : 'nic do wysłania (brak stanu/ceny w CRM)');
     }
 }

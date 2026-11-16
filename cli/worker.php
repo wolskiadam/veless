@@ -276,9 +276,9 @@ for ($i = 0; $i < $batchSize; $i++) {
             // Rate-limit Allegro: utrzymaj minimalny odstęp między żądaniami.
             $lastAllegroCallAt = throttleAllegro($lastAllegroCallAt, $allegroMinInterval);
         }
-        $jobs->handle($jobType, $payload);
+        $result = $jobs->handle($jobType, $payload);
 
-        $queue->complete($jobId);
+        $queue->complete($jobId, $result);
         $processed++;
     } catch (\Throwable $e) {
         // Retry + backoff: Queue::fail decyduje, czy ponowić czy oznaczyć failed.

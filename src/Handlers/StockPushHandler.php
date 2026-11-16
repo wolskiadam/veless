@@ -16,18 +16,27 @@ final class StockPushHandler
     /** @param object[] $handlers obiekty z metodą handle(array $payload) */
     public function __construct(private readonly array $handlers) {}
 
-    public function handle(array $payload): void
+    /**
+     * @return string|null wyniki kanałów połączone „ · ”, np. „SKU WMG60GC · Sklep AWIEN WWW: stan 15 · Allegro: stan 15 -> oferta 123”
+     */
+    public function handle(array $payload): ?string
     {
+        $done = [];
         $errors = [];
         foreach ($this->handlers as $h) {
             try {
-                $h->handle($payload);
+                $r = $h->handle($payload);
+                if (is_string($r) && $r !== '') {
+                    $done[] = $r;
+                }
             } catch (\Throwable $e) {
                 $errors[] = $e->getMessage();
             }
         }
         if ($errors !== []) {
-            throw new \RuntimeException(implode(' | ', $errors));
+            // Udane kanały też w treści błędu, żeby w historii było widać, co jednak poszło.
+            throw new \RuntimeException(implode(' · ', array_merge($errors, $done)));
         }
+        return $done !== [] ? implode(' · ', $done) : null;
     }
 }

@@ -5,7 +5,9 @@ namespace Pase\Queue;
 
 use PDO;
 use Pase\Automation\RuleEngine;
+use Pase\Handlers\AllegroStockPushHandler;
 use Pase\Handlers\NewAllegroOrderHandler;
+use Pase\Handlers\StockPushHandler;
 use Pase\Handlers\StockSyncHandler;
 use Pase\Handlers\WooOrderImportHandler;
 use Pase\Handlers\WooProductImportHandler;
@@ -65,7 +67,11 @@ final class JobRunner
                 new \Pase\Services\ActualStock($this->pdo), new \Pase\Services\PaymentFailure($this->pdo)),
             'woo.product.import' => new WooProductImportHandler(new ProductRepository($this->pdo),
                 \Pase\Services\WooCustomFields::withShopMedia($this->pdo)),
-            'woo.stock.push' => new WooStockPushHandler(new ProductRepository($this->pdo), new IntegrationAccountRepository($this->pdo)),
+            // Wypych stanu z CRM: sklep + oferty Allegro (wcześniej Allegro dostawało stan tylko przez webhook sklepu).
+            'woo.stock.push' => new StockPushHandler([
+                new WooStockPushHandler(new ProductRepository($this->pdo), new IntegrationAccountRepository($this->pdo)),
+                new AllegroStockPushHandler($this->pdo, fn(): object => AllegroPlugin::makeClient($this->pdo, $this->allegroConfig())),
+            ]),
             default => throw new \RuntimeException("Nieznany typ zadania: {$jobType}"),
         };
     }

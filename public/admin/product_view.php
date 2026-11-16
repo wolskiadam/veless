@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '
         : 'Produkt znów wymaga wysyłki.';
 }
 // Stan CRM. Jak na liście produktów: zapis w CRM + wypych do sklepu (gdy CRM jest źródłem stanów
-// sklepu), a sklep przekazuje go dalej na Allegro. Gdy źródłem jest sklep, zmiana zostaje tylko w CRM.
+// sklepu) i do powiązanych ofert Allegro (AllegroStockPushHandler).
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '') === 'save_stock') {
     csrfCheck();
     $raw = trim((string) ($_POST['pase_stock'] ?? ''));
@@ -121,13 +121,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '
         $flashOk = "Zapisano stan: {$stock}.";
         $intId = (int) ($cur['source_integration_id'] ?? 0);
         $acc = (int) ($cur['woo_product_id'] ?? 0) > 0 && $intId > 0 ? (new \Pase\Repository\IntegrationAccountRepository($pdo))->find($intId) : null;
-        if ($acc === null) {
-            $flashOk .= ' Produkt nie jest powiązany ze sklepem, więc stan zmienił się tylko w CRM.';
-        } elseif (($acc['config']['stock_master'] ?? 'pase') !== 'pase') {
-            $flashOk .= " Sklep „{$acc['name']}” jest źródłem stanów (Konfiguracja → Integracje), więc stan zmienił się tylko w CRM i sklep go nie dostanie.";
-        } else {
+        // Jedno zadanie wysyła stan do sklepu (gdy CRM jest źródłem stanów) i do ofert Allegro tego produktu.
+        try {
             (new \Pase\Queue\Queue($pdo))->enqueue('woo.stock.push', ['product_id' => $id, 'what' => 'stock'], "woo.stock.push:{$id}:" . substr((string) microtime(true), -8));
-            $flashOk .= " Wysyłka do sklepu „{$acc['name']}” zakolejkowana, sklep przekaże go dalej do powiązanych ofert Allegro.";
+            $sent = ' zakolejkowana.';
+        } catch (\PDOException $e) {
+            \Pase\Support\Logger::error('Stan produktu: nie udało się zakolejkować wysyłki', ['product' => $id, 'error' => $e->getMessage()]);
+            $sent = ' nie została zakolejkowana (błąd kolejki) - zapisz stan jeszcze raz za chwilę.';
+        }
+        if ($acc === null) {
+            $flashOk .= ' Produkt nie jest powiązany ze sklepem. Wysyłka do powiązanych ofert Allegro' . $sent;
+        } elseif (($acc['config']['stock_master'] ?? 'pase') !== 'pase') {
+            $flashOk .= " Sklep „{$acc['name']}” jest źródłem stanów (Konfiguracja → Integracje), więc sklep go nie dostanie. Wysyłka do powiązanych ofert Allegro" . $sent;
+        } else {
+            $flashOk .= " Wysyłka do sklepu „{$acc['name']}” i do powiązanych ofert Allegro" . $sent;
         }
     }
 }

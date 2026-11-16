@@ -38,7 +38,7 @@ final class PagePermissions
         return [
             // --- Zamówienia ---
             'orders' => ['label' => 'Zamówienia (lista i szczegóły)', 'group' => 'Zamówienia', 'legacy' => 'viewer', 'files' => [
-                'index.php', 'orders.php', 'orders_search.php', 'order_icons.php', 'order_view.php', 'shipment_create.php', 'shipment_cancel.php',
+                'index.php', 'orders.php', 'orders_search.php', 'order_icons.php', 'order_preview.php', 'order_view.php', 'shipment_create.php', 'shipment_cancel.php',
                 'shipment_track.php', 'courier_shipment.php', 'label_download.php', 'attachment.php', 'print_document.php', 'order_merge.php', 'order_new.php',
                 'orders_sync_now.php', 'production_list.php']],
             'orders_import' => ['label' => 'Import zamówień', 'group' => 'Zamówienia', 'legacy' => 'editor',

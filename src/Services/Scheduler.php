@@ -486,7 +486,10 @@ final class Scheduler
         foreach ($ids as $pid) {
             if ($this->queue->enqueue(
                 'woo.stock.push',
-                ['product_id' => $pid, 'what' => $what],
+                // Bez Allegro: cykliczny przebieg po wszystkich produktach to tysiące PATCH-y i ryzyko
+                // nadpisania stanu, zanim zamówienie z Allegro zdąży zejść do CRM. Allegro dostaje
+                // stan przy każdej realnej zmianie (edycja, zamówienie, zwrot).
+                ['product_id' => $pid, 'what' => $what, 'allegro' => false],
                 // Dedup per produkt+rodzaj: nie dubluj, jeśli poprzednie jeszcze czeka.
                 "woo.stock.push:{$what}:{$pid}"
             )) {

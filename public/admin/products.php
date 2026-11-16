@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit) {
         foreach (array_keys($items) as $pid) {
             $queue->enqueue('woo.stock.push', ['product_id' => (int) $pid], "woo.stock.push:{$pid}:{$batch}");
         }
-        $flashOk = "Zapisano stany i ceny ({$n} produktów). Wypych do sklepu zakolejkowany."
+        $flashOk = "Zapisano stany i ceny ({$n} produktów). Wypych do sklepu i ofert Allegro zakolejkowany."
             . ($locChanged ? " Zmieniono lokalizację: {$locChanged}." : '')
             . ($actualChanged ? " Zmieniono stan faktyczny: {$actualChanged} (tylko w CRM)." : '');
     } elseif ($action === 'delete') {
@@ -112,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $canEdit) {
                 $queue->enqueue('woo.stock.push', ['product_id' => $pid], "woo.stock.push:{$pid}:{$batch}");
             }
             $verb = $mode === 'delta' ? 'zmieniono o' : 'ustawiono na';
-            $flashOk = "Stan {$verb} {$value} dla {$n} zaznaczonych produktów. Wypych do sklepu zakolejkowany.";
+            $flashOk = "Stan {$verb} {$value} dla {$n} zaznaczonych produktów. Wypych do sklepu i ofert Allegro zakolejkowany.";
         }
     } elseif ($action === 'bulk_min') {
         // Minimalny stan zaznaczonych: liczba, puste = próg domyślny, „nie pilnuj” = bez alarmu.

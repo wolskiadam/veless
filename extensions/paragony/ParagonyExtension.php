@@ -47,7 +47,7 @@ final class ParagonyExtension extends AbstractExtension
     {
         $repo = fn(): Receipts => new Receipts($this->pdo());
 
-        Hooks::addPage('lista', ['title' => '🧾 Paragony', 'group' => 'orders', 'role' => 'viewer',
+        Hooks::addPage('lista', ['title' => 'Paragony', 'desc' => 'Zdjęcia paragonów zakupowych', 'section' => 'Dokumenty i rozmowy', 'group' => 'orders', 'role' => 'viewer',
             'render' => static fn(PDO $pdo, array $ctx): string => self::listPage($repo(), $ctx)]);
 
         Hooks::addPage('dodaj', ['title' => '🧾 Paragon', 'menu' => false, 'role' => 'editor',

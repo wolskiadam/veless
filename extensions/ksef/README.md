@@ -16,7 +16,7 @@ W **Konfiguracja → Wtyczki → KSeF → ⚙ Ustawienia** wybierasz, co wtyczka
 - **Zamówienia → Faktury KSeF**: lista wystawionych e-faktur i sprawdzenie oczekujących.
 - **Automatyzacje**: akcja „Wyślij e-fakturę do KSeF” (np. po opłaceniu zamówienia). Zamówienie z e-fakturą jest pomijane.
 
-**Rejestr faktur KSeF** (Zamówienia → 🧾 Rejestr faktur KSeF): jedna pozycja menu, faktury sprzedażowe i zakupowe
+**Rejestr faktur KSeF** (Zamówienia → Rejestr faktur KSeF): jedna pozycja menu, faktury sprzedażowe i zakupowe
 to zakładki na stronie listy.
 
 **Faktury sprzedażowe** (domyślnie włączone): zakładka **Faktury sprzedażowe KSeF** działa jak lista zakupowa

@@ -135,7 +135,6 @@ final class AdminMenu
                     ['href' => 'statistics.php', 'label' => t('nav.statistics'), 'desc' => ''],
                     ['href' => 'courier_pickups.php', 'label' => t('nav.courier_pickups'), 'desc' => ''],
                     ['href' => 'payu.php',       'label' => t('nav.payu'), 'desc' => ''],
-                    ['href' => 'help.php',       'label' => t('nav.help'), 'desc' => ''],
                 ],
             ],
         ];
@@ -179,6 +178,9 @@ final class AdminMenu
             $groups['system']['items'][] = ['href' => 'handover.php', 'label' => t('nav.handover'), 'desc' => ''];
         }
 
+        // Baza wiedzy na końcu Systemu (osobna grupa „Pomoc” pod administracją).
+        $groups['system']['items'][] = ['href' => 'help.php', 'label' => t('nav.help'), 'desc' => ''];
+
         // Strony rozszerzeń (Hooks::addPage) w wybranej grupie, wg roli z definicji strony.
         foreach (\Pase\Plugin\Hooks::pages() as $key => $page) {
             $role = (string) $page['role'];
@@ -187,10 +189,191 @@ final class AdminMenu
             }
             $group = isset($groups[$page['group']]) ? (string) $page['group'] : 'system';
             $groups[$group]['items'][] = ['href' => \Pase\Plugin\Hooks::pageUrl($key),
-                'label' => htmlspecialchars((string) $page['title']), 'desc' => ''];
+                'label' => htmlspecialchars((string) $page['title']),
+                'desc' => htmlspecialchars((string) ($page['desc'] ?? '')),
+                'section' => htmlspecialchars((string) ($page['section'] ?? ''))];
         }
         // Rozszerzenia mogą też przestawić, dodać albo usunąć pozycje menu.
-        return \Pase\Plugin\Hooks::applyFilters('admin.menu', $groups, $canEdit, $isAdmin);
+        return self::describe(\Pase\Plugin\Hooks::applyFilters('admin.menu', $groups, $canEdit, $isAdmin));
+    }
+
+    /**
+     * Grupa w panelu menu (mały szary nagłówek) i jednolinijkowy opis pozycji wbudowanych:
+     * href => [klucz grupy, klucz opisu] w słownikach lang/ (Konfiguracja → Teksty).
+     */
+    private const META = [
+        'index.php' => ['nav.sec.orders_work', 'nav.d.orders_list'],
+        'packing.php' => ['nav.sec.orders_work', 'nav.d.packing'],
+        'customers.php' => ['nav.sec.orders_work', 'nav.d.customers'],
+        'returns.php' => ['nav.sec.orders_work', 'nav.d.returns'],
+        'import_orders.php' => ['nav.sec.orders_control', 'nav.d.orders_import'],
+        'queue.php' => ['nav.sec.orders_control', 'nav.d.queue'],
+        'order_history.php' => ['nav.sec.orders_control', 'nav.d.order_history'],
+        'document_operations.php' => ['nav.sec.orders_control', 'nav.d.documents_check'],
+        'wfirma_receipts.php' => ['nav.sec.orders_docs', 'nav.d.wfirma_receipts'],
+        'products.php' => ['nav.sec.catalog_products', 'nav.d.products'],
+        'categories.php' => ['nav.sec.catalog_products', 'nav.d.categories'],
+        'product_fields.php' => ['nav.sec.catalog_products', 'nav.d.fields'],
+        'locations.php' => ['nav.sec.catalog_products', 'nav.d.locations'],
+        'product_costs.php' => ['nav.sec.catalog_products', 'nav.d.product_costs'],
+        'import_products.php' => ['nav.sec.catalog_data', 'nav.d.products_import'],
+        'mappings.php' => ['nav.sec.catalog_data', 'nav.d.mappings'],
+        'gs1.php' => ['nav.sec.catalog_data', 'nav.d.gs1'],
+        'company.php' => ['nav.sec.config_panel', 'nav.d.company'],
+        'appearance.php' => ['nav.sec.config_panel', 'nav.d.appearance'],
+        'menu_order.php' => ['nav.sec.config_panel', 'nav.d.menu_order'],
+        'texts.php' => ['nav.sec.config_panel', 'nav.d.texts'],
+        'url_migration.php' => ['nav.sec.config_panel', 'nav.d.url_migration'],
+        'statuses.php' => ['nav.sec.config_sales', 'nav.d.statuses'],
+        'automations.php' => ['nav.sec.config_sales', 'nav.d.automations'],
+        'sync_settings.php' => ['nav.sec.config_sales', 'nav.d.sync'],
+        'integrations.php' => ['nav.sec.config_sales', 'nav.d.integrations'],
+        'plugins.php' => ['nav.sec.config_sales', 'nav.d.plugins'],
+        'templates.php' => ['nav.sec.config_templates', 'nav.d.templates'],
+        'email_templates.php' => ['nav.sec.config_templates', 'nav.d.email_tpl'],
+        'print_templates.php' => ['nav.sec.config_templates', 'nav.d.print_tpl'],
+        'printing.php' => ['nav.sec.config_templates', 'nav.d.printing'],
+        'email_settings.php' => ['nav.sec.config_client', 'nav.d.email_smtp'],
+        'client_settings.php' => ['nav.sec.config_client', 'nav.d.client_page'],
+        'dashboard.php' => ['nav.sec.system_overview', 'nav.d.dashboard'],
+        'statistics.php' => ['nav.sec.system_overview', 'nav.d.statistics'],
+        'courier_pickups.php' => ['nav.sec.system_overview', 'nav.d.courier_pickups'],
+        'payu.php' => ['nav.sec.system_overview', 'nav.d.payu'],
+        'email_log.php' => ['nav.sec.system_overview', 'nav.d.email_log'],
+        'users.php' => ['nav.sec.system_admin', 'nav.d.users'],
+        'server_usage.php' => ['nav.sec.system_admin', 'nav.d.server_usage'],
+        'backup.php' => ['nav.sec.system_admin', 'nav.d.backup'],
+        'handover.php' => ['nav.sec.system_admin', 'nav.d.handover'],
+        'help.php' => ['nav.sec.system_help', 'nav.d.help'],
+        'allegro_dashboard.php' => [null, 'nav.d.allegro.dashboard'],
+        'allegro_sync.php' => [null, 'nav.d.allegro.sync'],
+        'offer_allegro.php' => [null, 'nav.d.allegro.listing'],
+        'allegro_offers.php' => [null, 'nav.d.allegro.offers'],
+        'allegro_settings.php' => [null, 'nav.d.allegro.settings'],
+        'allegro_shipping.php' => [null, 'nav.d.allegro.shipping'],
+        'allegro_handling_schedule.php' => [null, 'nav.d.allegro.handling_schedule'],
+        'allegro_categories.php' => [null, 'nav.d.allegro.categories'],
+        'allegro_persons.php' => [null, 'nav.d.allegro.persons'],
+        'allegro_producers.php' => [null, 'nav.d.allegro.producers'],
+        'allegro_templates.php' => [null, 'nav.d.allegro.templates'],
+        'allegro_links.php' => [null, 'nav.d.allegro.links'],
+        'allegro_ads.php' => [null, 'nav.d.allegro.ads'],
+        'allegro_messages.php' => [null, 'nav.d.allegro.messages'],
+        'erli.php' => [null, 'nav.d.erli.dashboard'],
+        'erli_listing.php' => [null, 'nav.d.erli.listing'],
+        'erli_products.php' => [null, 'nav.d.erli.products'],
+        'erli_orders.php' => [null, 'nav.d.erli.orders'],
+        'erli_templates.php' => [null, 'nav.d.erli.templates'],
+        'erli_categories.php' => [null, 'nav.d.erli.categories'],
+        'erli_shipping.php' => [null, 'nav.d.erli.shipping'],
+        'erli_settings.php' => [null, 'nav.d.erli.settings'],
+        'vonhalsky_listing.php' => [null, 'nav.d.vonhalsky.listing'],
+        'vonhalsky_offers.php' => [null, 'nav.d.vonhalsky.offers'],
+        'vonhalsky_categories.php' => [null, 'nav.d.vonhalsky.categories'],
+        'vonhalsky_returns.php' => [null, 'nav.d.vonhalsky.returns'],
+    ];
+
+    /** Menu bez emotikon i symboli obrazkowych (także w nazwach od wtyczek i własnych nazwach z edytora). */
+    public static function plain(string $text): string
+    {
+        $text = (string) preg_replace('/[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{2300}-\x{23FF}\x{2194}-\x{2199}\x{21A9}\x{21AA}'
+            . '\x{25A0}-\x{25FF}\x{2700}-\x{27BF}\x{FE00}-\x{FE0F}\x{200D}\x{20E3}\x{E0020}-\x{E007F}]/u', '', $text);
+        return trim((string) preg_replace('/\s{2,}/u', ' ', $text));
+    }
+
+    /** Uzupełnia grupę ('section') i opis ('desc') pozycji wbudowanych oraz czyści etykiety z emotikon. */
+    private static function describe(array $groups): array
+    {
+        $fill = static function (array $item, bool $child): array {
+            $item['label'] = self::plain((string) ($item['label'] ?? ''));
+            [$section, $desc] = self::META[(string) ($item['href'] ?? '')] ?? [null, null];
+            if ($desc !== null && (string) ($item['desc'] ?? '') === '') {
+                $item['desc'] = htmlspecialchars(t($desc), ENT_QUOTES, 'UTF-8');
+            }
+            if (!$child && $section !== null && (string) ($item['section'] ?? '') === '') {
+                $item['section'] = htmlspecialchars(t($section), ENT_QUOTES, 'UTF-8');
+            }
+            $item['desc'] = self::plain((string) ($item['desc'] ?? ''));
+            return $item;
+        };
+        foreach ($groups as $gk => $group) {
+            $groups[$gk]['label'] = self::plain((string) ($group['label'] ?? ''));
+            foreach ($group['items'] ?? [] as $i => $item) {
+                $item = $fill($item, false);
+                foreach ($item['children'] ?? [] as $ci => $c) { $item['children'][$ci] = $fill($c, true); }
+                $groups[$gk]['items'][$i] = $item;
+            }
+        }
+        return $groups;
+    }
+
+    /**
+     * Układa pozycje jednej zakładki w sekcje panelu: luźne pozycje według ich grupy
+     * ('section', kolejność pierwszego wystąpienia), podkategoria = osobna sekcja z jej nazwą.
+     * @return list<array{title:string,items:list<array<string,mixed>>}>
+     */
+    public static function sections(array $items): array
+    {
+        $out = [];
+        $byTitle = [];
+        foreach ($items as $item) {
+            if (isset($item['children'])) {
+                $out[] = ['title' => self::plain((string) ($item['label'] ?? '')), 'items' => $item['children']];
+                continue;
+            }
+            $title = self::plain((string) ($item['section'] ?? ''));
+            if (!isset($byTitle[$title])) {
+                $byTitle[$title] = count($out);
+                $out[] = ['title' => $title, 'items' => []];
+            }
+            $out[$byTitle[$title]]['items'][] = $item;
+        }
+        return $out;
+    }
+
+    /**
+     * Rozkłada sekcje panelu na 1-3 kolumny o możliwie równej wysokości (nagłówek liczy się jak
+     * pozycja). Kolejność zostaje; długą sekcję (np. Allegro) dzieli na części - nagłówek tylko
+     * nad pierwszą. Wybiera najmniej kolumn, przy których najwyższa ma najwyżej $maxRows wierszy.
+     * @param list<array{title:string,items:list<array<string,mixed>>}> $sections
+     * @return list<list<array{title:string,items:list<array<string,mixed>>}>>
+     */
+    public static function columns(array $sections, int $maxRows = 10): array
+    {
+        $chunks = [];
+        foreach ($sections as $sec) {
+            $n = count($sec['items']);
+            $parts = $n > 9 ? (int) ceil($n / 8) : 1;
+            $size = (int) ceil($n / $parts);
+            foreach (array_chunk($sec['items'], max(1, $size)) as $i => $items) {
+                $chunks[] = ['title' => $i === 0 ? $sec['title'] : '', 'items' => $items];
+            }
+        }
+        $h = array_map(static fn(array $c): int => count($c['items']) + ($c['title'] !== '' ? 1 : 0), $chunks);
+        $n = count($chunks);
+        $best = [$chunks];
+        for ($cols = 1; $cols <= min(3, max(1, $n)); ++$cols) {
+            // Najlepszy podział na $cols ciągłych kawałków (mało sekcji - wystarczy przejrzeć wszystkie).
+            $bestMax = PHP_INT_MAX; $bestCuts = [];
+            $cutsList = $cols === 1 ? [[]] : [];
+            if ($cols === 2) { for ($a = 1; $a < $n; ++$a) { $cutsList[] = [$a]; } }
+            if ($cols === 3) { for ($a = 1; $a < $n; ++$a) { for ($b = $a + 1; $b < $n; ++$b) { $cutsList[] = [$a, $b]; } } }
+            foreach ($cutsList as $cuts) {
+                $edges = array_merge([0], $cuts, [$n]);
+                $max = 0;
+                for ($k = 0; $k < count($edges) - 1; ++$k) {
+                    $max = max($max, array_sum(array_slice($h, $edges[$k], $edges[$k + 1] - $edges[$k])));
+                }
+                if ($max < $bestMax) { $bestMax = $max; $bestCuts = $edges; }
+            }
+            if ($bestCuts === []) { continue; }
+            $best = [];
+            for ($k = 0; $k < count($bestCuts) - 1; ++$k) {
+                $best[] = array_slice($chunks, $bestCuts[$k], $bestCuts[$k + 1] - $bestCuts[$k]);
+            }
+            if ($bestMax <= $maxRows) { break; }
+        }
+        return $best;
     }
 
     /**

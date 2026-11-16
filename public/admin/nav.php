@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 /**
- * Globalny pasek nawigacji PASE - wygląd 1:1 z sds-generator (ciemny gradient,
- * zgrupowane menu z dropdownami, obszar użytkownika z rolą i "Wyloguj").
+ * Globalny pasek nawigacji: zakładki z panelami (kolumny, nagłówki grup, nazwa + opis, bez ikon),
+ * obszar użytkownika z rolą i "Wyloguj".
  * Menu dopasowane do funkcji middleware.
  */
 
@@ -59,38 +59,32 @@ if (isset($pdo) && $pdo instanceof PDO) {
         <?php foreach ($menuGroups as $gkey => $group): ?>
             <div class="nav-group">
                 <button class="nav-group-btn">
-                    <?= $group['label'] ?>
+                    <?= \Pase\Support\AdminMenu::plain((string) $group['label']) ?>
                     <?php if ($unreadMsgs > 0 && $gkey === 'orders'): ?>
                         <span class="nav-badge" title="<?= htmlspecialchars(t('nav.msgs')) ?>"><?= (int) $unreadMsgs ?></span>
                     <?php endif; ?>
                     <svg class="nav-arrow" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-                <div class="nav-dropdown">
-                    <?php foreach ($group['items'] as $item): ?>
-                        <?php if (!empty($item['children'])):
-                            // Marketplace z pod-menu (flyout w bok). Aktywny, gdy bieżąca strona należy do dzieci.
-                            $childActive = false;
-                            foreach ($item['children'] as $c) { if ($currentFile === $c['href']) { $childActive = true; break; } }
-                        ?>
-                            <div class="nav-sub <?= $childActive ? 'active' : '' ?>">
-                                <button type="button" class="nav-dropdown-item nav-sub-btn">
-                                    <span class="nav-item-label"><?= $item['label'] ?></span>
-                                    <svg class="nav-sub-arrow" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 6 15 12 9 18"/></svg>
-                                </button>
-                                <div class="nav-flyout">
-                                    <?php foreach ($item['children'] as $c): ?>
-                                        <a href="<?= $c['href'] ?>" class="nav-dropdown-item <?= ($currentFile === $c['href']) ? 'active' : '' ?>">
-                                            <span class="nav-item-label"><?= $c['label'] ?></span>
+                <?php
+                // Panel jak w katalogu: kolumny z sekcjami pod małym szarym nagłówkiem, pozycja = nazwa + opis, bez ikon.
+                // Na telefonie kolumny układają się jedna pod drugą.
+                $navColumns = \Pase\Support\AdminMenu::columns(\Pase\Support\AdminMenu::sections($group['items']));
+                ?>
+                <div class="nav-dropdown nav-cols-<?= count($navColumns) ?>">
+                    <?php foreach ($navColumns as $navCol): ?>
+                        <div class="nav-col">
+                            <?php foreach ($navCol as $navSec): ?>
+                                <div class="nav-section">
+                                    <?php if ($navSec['title'] !== ''): ?><div class="nav-section-title"><?= $navSec['title'] ?></div><?php endif; ?>
+                                    <?php foreach ($navSec['items'] as $item): ?>
+                                        <a href="<?= $item['href'] ?>" class="nav-dropdown-item <?= ($currentFile === $item['href']) ? 'active' : '' ?>">
+                                            <span class="nav-item-label"><?= \Pase\Support\AdminMenu::plain((string) $item['label']) ?></span>
+                                            <?php if (!empty($item['desc'])): ?><span class="nav-item-desc"><?= $item['desc'] ?></span><?php endif; ?>
                                         </a>
                                     <?php endforeach; ?>
                                 </div>
-                            </div>
-                        <?php else: ?>
-                            <a href="<?= $item['href'] ?>" class="nav-dropdown-item <?= ($currentFile === $item['href']) ? 'active' : '' ?>">
-                                <span class="nav-item-label"><?= $item['label'] ?></span>
-                                <?php if (!empty($item['desc'])): ?><span class="nav-item-desc"><?= $item['desc'] ?></span><?php endif; ?>
-                            </a>
-                        <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
                     <?php endforeach; ?>
                 </div>
             </div>
@@ -250,26 +244,23 @@ if (isset($pdo) && $pdo instanceof PDO) {
     .nav-msgs:hover { background:#7a4f0c; }
     .nav-group.open .nav-arrow { transform:rotate(180deg); }
     .nav-group.open .nav-group-btn { color:var(--ink); background:var(--surface-2); }
-    .nav-dropdown { display:none; position:absolute; top:100%; left:0; min-width:240px; background:var(--surface);
-        border-radius:var(--radius); box-shadow:0 10px 34px -10px rgba(20,18,12,.28), 0 2px 8px rgba(20,18,12,.08);
-        padding:6px; z-index:1001; animation:navDropIn .15s ease-out; }
-    .nav-group.open .nav-dropdown { display:block; }
-    @keyframes navDropIn { from{opacity:0;transform:translateY(-6px);} to{opacity:1;transform:translateY(0);} }
-    .nav-dropdown-item { display:flex; flex-direction:column; padding:10px 14px; text-decoration:none; color:var(--ink); border-radius:7px; transition:all .15s; }
-    .nav-dropdown-item:hover { background:var(--accent-soft); color:var(--accent-ink); }
-    .nav-dropdown-item.active { background:var(--accent-soft); border-left:3px solid var(--accent); }
-    .nav-item-label { font-size:.88em; font-weight:600; color:var(--ink); }
-    .nav-item-desc { font-size:.72em; color:var(--ink-2); margin-top:1px; }
-    .nav-dropdown-item:hover .nav-item-label { color:var(--accent-ink); }
-    /* Pod-menu marketplace (flyout w bok) */
-    .nav-sub { position:relative; }
-    .nav-sub-btn { width:100%; flex-direction:row; align-items:center; justify-content:space-between; background:none; border:0; cursor:pointer; font-family:inherit; }
-    .nav-sub-arrow { color:var(--ink-3); transition:transform .2s; flex-shrink:0; }
-    .nav-sub.active > .nav-sub-btn { background:var(--accent-soft); border-radius:7px; }
-    .nav-flyout { display:none; position:absolute; top:-6px; left:100%; min-width:220px; background:var(--surface);
-        border-radius:var(--radius); box-shadow:0 10px 34px -10px rgba(20,18,12,.28), 0 2px 8px rgba(20,18,12,.08); padding:6px; z-index:1002; }
-    .nav-sub:hover > .nav-flyout, .nav-sub.open > .nav-flyout { display:block; }
-    .nav-sub:hover > .nav-sub-btn .nav-sub-arrow { transform:translateX(2px); }
+    /* Panel menu: kolumny z małymi szarymi nagłówkami grup, pozycja = nazwa + jednolinijkowy opis. */
+    .nav-dropdown { position:absolute; top:100%; left:0; display:none; background:var(--surface); border:1px solid var(--line);
+        border-radius:var(--radius); box-shadow:0 14px 34px -14px rgba(20,18,12,.25); padding:14px 0 10px;
+        z-index:1001; animation:navDropIn .15s ease-out; max-width:calc(100vw - 32px); max-height:calc(100vh - 120px); overflow-y:auto; }
+    .nav-group.open .nav-dropdown { display:flex; }
+    @keyframes navDropIn { from{opacity:0;transform:translateY(-4px);} to{opacity:1;transform:translateY(0);} }
+    .nav-col { width:310px; padding:0 14px; box-sizing:border-box; }
+    .nav-col + .nav-col { border-left:1px solid var(--line); }
+    .nav-section { padding-bottom:10px; }
+    .nav-section-title { font-size:.74em; font-weight:500; color:var(--ink-3); padding:6px 10px 4px; }
+    .nav-dropdown-item { display:flex; flex-direction:column; gap:2px; padding:7px 10px; text-decoration:none; color:var(--ink);
+        border-radius:6px; transition:background .12s; break-inside:avoid; }
+    .nav-dropdown-item:hover { background:var(--surface-2); }
+    .nav-dropdown-item.active { background:var(--accent-soft); }
+    .nav-item-label { font-size:.86em; font-weight:500; color:var(--ink); line-height:1.3; }
+    .nav-item-desc { font-size:.74em; color:var(--ink-2); line-height:1.35; }
+    .nav-dropdown-item.active .nav-item-label { color:var(--accent-ink); font-weight:600; }
     .nav-user-area { display:flex; align-items:center; gap:10px; flex-shrink:0; }
     .nav-scale { position:relative; display:flex; align-items:center; }
     .nav-scale-btn { display:inline-flex; align-items:baseline; gap:4px; background:transparent; border:0; cursor:pointer; color:var(--ink-2); padding:7px 8px; border-radius:8px; font-family:inherit; }
@@ -312,18 +303,16 @@ if (isset($pdo) && $pdo instanceof PDO) {
         .nav-links { order:2; width:100%; flex-direction:column; gap:2px; display:none; padding-top:8px; border-top:1px solid var(--line); }
         .nav-links.open { display:flex; }
         .nav-group-btn { width:100%; justify-content:space-between; padding:10px 12px; border-radius:6px; }
-        .nav-dropdown { position:static; box-shadow:none; background:var(--surface-2); border-radius:6px; margin:2px 0 4px; padding:4px; }
-        .nav-dropdown-item { color:var(--ink-2); padding:8px 12px; }
+        .nav-group.open .nav-dropdown { display:block; }
+        .nav-col { width:auto; padding:0; }
+        .nav-col + .nav-col { border-left:0; }
+        .nav-dropdown { position:static; width:auto; max-width:none;
+            max-height:none; overflow:visible; box-shadow:none; border:0; background:var(--surface-2); border-radius:6px;
+            margin:2px 0 4px; padding:6px 4px 2px; animation:none; }
+        .nav-section { padding:0 4px 6px; }
+        .nav-section-title { padding:6px 12px 2px; }
+        .nav-dropdown-item { padding:8px 12px; }
         .nav-dropdown-item:hover { background:var(--accent-soft); }
-        .nav-item-label { color:var(--ink); }
-        .nav-item-desc { color:var(--ink-2); }
-        .nav-dropdown-item.active { background:var(--accent-soft); border-left-color:var(--accent); }
-        /* Na mobile flyout staje się statyczną, wciętą listą rozwijaną klikiem. */
-        .nav-flyout { position:static; box-shadow:none; background:var(--surface); margin:2px 0 4px 12px; padding:4px; min-width:0; }
-        .nav-sub:hover > .nav-flyout { display:none; }
-        .nav-sub.open > .nav-flyout { display:block; }
-        .nav-sub.active > .nav-sub-btn { background:var(--accent-soft); }
-        .nav-sub.open > .nav-sub-btn .nav-sub-arrow { transform:rotate(90deg); }
     }
     /* Telefon: w pasku zostają ☰, start, dzwonek, skala i ikona wylogowania; reszta konta w rozwijanym menu. */
     @media (max-width:600px) {
@@ -348,13 +337,17 @@ function toggleNavGroup(btn) {
     const group = btn.closest('.nav-group');
     const wasOpen = group.classList.contains('open');
     document.querySelectorAll('.nav-group.open').forEach(g => g.classList.remove('open'));
-    if (!wasOpen) group.classList.add('open');
-}
-// Pod-menu marketplace: klik rozwija (głównie mobile; na desktopie działa też hover).
-function toggleNavSub(btn, event) {
-    const sub = btn.closest('.nav-sub');
-    sub.classList.toggle('open');
-    event.stopPropagation();
+    if (!wasOpen) {
+        group.classList.add('open');
+        // Panel przy prawej krawędzi ekranu przesuwa się w lewo, żeby się zmieścił.
+        const panel = group.querySelector('.nav-dropdown');
+        if (panel && window.matchMedia('(min-width: 901px)').matches) {
+            panel.style.left = '';
+            const r = panel.getBoundingClientRect();
+            const over = r.right - (document.documentElement.clientWidth - 16);
+            if (over > 0) { panel.style.left = (-Math.min(over, r.left - 16)) + 'px'; }
+        }
+    }
 }
 // Bind events in the script so the 2FA page can block inline event handlers.
 document.querySelector('.nav-toggle').addEventListener('click', function () {
@@ -363,13 +356,9 @@ document.querySelector('.nav-toggle').addEventListener('click', function () {
 document.querySelectorAll('.nav-group-btn').forEach(function (button) {
     button.addEventListener('click', function () { toggleNavGroup(button); });
 });
-document.querySelectorAll('.nav-sub-btn').forEach(function (button) {
-    button.addEventListener('click', function (event) { toggleNavSub(button, event); });
-});
 document.addEventListener('click', function(e) {
     if (!e.target.closest('.nav-group')) {
         document.querySelectorAll('.nav-group.open').forEach(g => g.classList.remove('open'));
-        document.querySelectorAll('.nav-sub.open').forEach(s => s.classList.remove('open'));
     }
 });
 </script>

@@ -50,7 +50,7 @@ final class ZapachyExtension extends AbstractExtension
         $user = static fn(array $ctx): string => (string) $ctx['user'];
 
         // ---- Strony
-        Hooks::addPage('lista', ['title' => 'Zapachy', 'group' => 'catalog', 'role' => 'viewer',
+        Hooks::addPage('lista', ['title' => 'Zapachy', 'desc' => 'Olejki, nuty i miejsca na półce', 'section' => 'Produkty', 'group' => 'catalog', 'role' => 'viewer',
             'render' => static fn(PDO $pdo, array $ctx): string => Pages::list($store(), $ctx)]);
         Hooks::addPage('nuty', ['title' => 'Nuty zapachowe', 'menu' => false, 'role' => 'viewer',
             'render' => static fn(PDO $pdo, array $ctx): string => Pages::notes($store(), $ctx)]);

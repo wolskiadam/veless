@@ -6,9 +6,10 @@ namespace Pase\Services;
 use PDO;
 
 /**
- * Pasek nad listą zamówień: co jest do zrobienia teraz (do realizacji, do spakowania) i gdzie są
- * wysłane paczki (czeka na nadanie, w drodze, w punkcie, problem) - zamiast liczby wszystkich
- * aktywnych zamówień, z których większość jest dawno doręczona.
+ * Pasek nad listą zamówień: co jest do zrobienia teraz i gdzie są wysłane paczki - zamiast liczby
+ * wszystkich aktywnych zamówień, z których większość jest dawno doręczona. Kolejność pracy sprzedawcy:
+ * Do realizacji (realize) → Bez etykiety (pack: w realizacji, bez przesyłki) → Do spakowania (created:
+ * etykieta jest, paczka nie nadana) → W drodze / W punkcie / Problem.
  *
  * Każda liczba ma link do listy z tym samym filtrem, dlatego liczymy dokładnie tak jak filtry
  * w public/admin/_orders_query.php (status=open, need_shipping=..., date_from=...).

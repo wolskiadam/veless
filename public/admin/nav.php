@@ -238,6 +238,7 @@ if (isset($pdo) && $pdo instanceof PDO) {
     .nav-push-btns button.on { background:var(--accent); border-color:var(--accent); color:#fff; }
     .nav-push-btns button:disabled { opacity:.5; cursor:default; }
     .nav-push-msg { margin-top:6px; color:var(--ink); }
+    .nav-push-last { margin-top:4px; }
     .nav-push-src { margin-top:8px; }
     .nav-push-src label { display:flex; align-items:center; gap:8px; padding:3px 0; cursor:pointer; font-weight:500; }
     .nav-push-remind { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:-13px 0 20px; padding:10px 14px;
@@ -586,6 +587,24 @@ document.addEventListener('click', function(e) {
         Object.keys(fields).forEach(function (k) { [].concat(fields[k]).forEach(function (v) { fd.append(k, v); }); });
         return fetch('push.php', { method: 'POST', body: fd, credentials: 'same-origin' }).then(function (r) { return r.json(); });
     }
+    // Klucz serwera (VAPID) - raz na stronę; porównywany z kluczem, z którym urządzenie się zapisało.
+    var serverKeyP = null;
+    function serverKey() {
+        serverKeyP = serverKeyP || fetch('push.php', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
+            if (!d.ok) { serverKeyP = null; throw new Error(d.error || 'brak klucza'); }
+            return d.publicKey;
+        });
+        return serverKeyP;
+    }
+    function b64u(buf) {
+        var b = new Uint8Array(buf), s = '';
+        for (var i = 0; i < b.length; i++) { s += String.fromCharCode(b[i]); }
+        return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    // Klucz, z którym zapisano subskrypcję (null, gdy przeglądarka go nie podaje).
+    function subKey(sub) {
+        try { var k = sub.options && sub.options.applicationServerKey; return k ? b64u(k) : null; } catch (e) { return null; }
+    }
     function key(b64) {
         var s = b64.replace(/-/g, '+').replace(/_/g, '/');
         while (s.length % 4) { s += '='; }
@@ -616,17 +635,47 @@ document.addEventListener('click', function(e) {
         box.innerHTML = '<div class="nav-push-txt">' + t + '</div>' + (btns ? '<div class="nav-push-btns">' + btns + '</div>' : '')
             + (msg ? '<div class="nav-push-msg">' + esc(msg) + '</div>' : '')
             + (state === 'on' && endpoint ? '<div class="nav-push-src"></div>' : '');
-        if (state === 'on' && endpoint) { loadSources(); }
+        if (state === 'on' && endpoint) { loadSources(); loadStatus(); }
         showRemind(state);
     }
     // Subskrypcja push tego urządzenia; bez zgody najpierw pyta (na iPhonie tylko po stuknięciu, więc wołane z kliknięcia).
+    // Stara subskrypcja z innym kluczem (serwer utworzył nowe klucze) jest najpierw wyrejestrowana - inaczej
+    // przeglądarka odmawia nowej, a usługa push odrzuca każde powiadomienie (403).
     function subscribe() {
-        return fetch('push.php', { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (d) {
-            if (!d.ok) { throw new Error(d.error || 'brak klucza'); }
+        return serverKey().then(function (pub) {
             return navigator.serviceWorker.ready.then(function (reg) {
-                return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key(d.publicKey) });
+                return reg.pushManager.getSubscription().then(function (old) {
+                    if (old && subKey(old) === pub) { return old; }
+                    return (old ? old.unsubscribe().catch(function () {}) : Promise.resolve()).then(function () {
+                        return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key(pub) });
+                    });
+                });
             });
         }).then(save);
+    }
+    // Pod „włączone”: kiedy ostatnio coś tu doszło i ostatni błąd usługi push (Services\WebPush::deviceStatus).
+    function when(ts) {
+        var d = new Date(ts * 1000), p = function (n) { return (n < 10 ? '0' : '') + n; };
+        return p(d.getDate()) + '.' + p(d.getMonth() + 1) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+    var resaved = false;
+    function loadStatus() {
+        post({ action: 'status', endpoint: endpoint }).then(function (d) {
+            var txt = box.querySelector('.nav-push-txt');
+            if (!txt || !d.ok) { return; }
+            if (!d.saved && !resaved) {
+                // Serwer nie ma tego urządzenia (np. usunięte po zmianie kluczy) - zapisujemy je od nowa, zgoda już jest.
+                resaved = true;
+                subscribe().then(loadStatus).catch(function () {});
+                return;
+            }
+            var line = !d.saved ? 'Serwer nie zna tego urządzenia - stuknij „Wyłącz” i włącz ponownie.'
+                : (d.last_ok_at ? 'Ostatnio dostarczone: ' + when(d.last_ok_at) + '.' : 'Jeszcze nic tu nie wysłano.')
+                  + (d.last_error && (!d.last_ok_at || d.last_try_at > d.last_ok_at) ? ' Ostatni błąd: ' + d.last_error + '.' : '');
+            var el = txt.querySelector('.nav-push-last') || txt.appendChild(document.createElement('div'));
+            el.className = 'nav-push-last';
+            el.textContent = line;
+        }).catch(function () {});
     }
     function enable() {
         // Zgoda pytana od razu po stuknięciu - iPhone nie pokaże pytania później.
@@ -681,13 +730,20 @@ document.addEventListener('click', function(e) {
     navigator.serviceWorker.register('push-sw.js').then(function (reg) { return reg.pushManager.getSubscription(); }).then(function (sub) {
         if (sub && Notification.permission === 'granted') {
             endpoint = sub.endpoint;
-            render('on');
-            // Raz na sesję odświeżamy zapis na serwerze (np. po zmianie konta na tym urządzeniu).
-            try {
-                if (!sessionStorage.getItem('velessPushSynced')) {
-                    save(sub).then(function () { try { sessionStorage.setItem('velessPushSynced', '1'); } catch (e) {} }).catch(function () {});
+            var have = subKey(sub);
+            serverKey().then(function (pub) {
+                if (have && have !== pub) {
+                    // Urządzenie zapisane ze starym kluczem - po cichu zapisujemy je od nowa (bez pytania, zgoda jest).
+                    return subscribe().then(function () { render('on', 'Odnowiono zapis tego urządzenia (zmienił się klucz powiadomień).'); });
                 }
-            } catch (e) {}
+                render('on');
+                // Raz na sesję odświeżamy zapis na serwerze (np. po zmianie konta na tym urządzeniu).
+                try {
+                    if (!sessionStorage.getItem('velessPushSynced')) {
+                        save(sub).then(function () { try { sessionStorage.setItem('velessPushSynced', '1'); } catch (e) {} loadStatus(); }).catch(function () {});
+                    }
+                } catch (e) {}
+            }).catch(function () { render('on'); });
         } else if (!sub && Notification.permission === 'granted') {
             // Zgoda jest, a subskrypcji nie ma (np. przeglądarka ją wyczyściła) - zapisujemy ją od nowa bez pytania.
             subscribe().then(function () { render('on'); }).catch(function () { render('off'); });

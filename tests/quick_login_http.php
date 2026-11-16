@@ -73,7 +73,7 @@ try {
     mkdir($temp . '/public/admin/assets', 0700, true);
     mkdir($temp . '/storage/security', 0700, true);
     file_put_contents($temp . '/.env', "TOTP_REQUIRE_ADMIN=0\n");
-    foreach (['auth.php', 'login.php', 'login_quick.php', 'quick_approve.php', 'security.php', 'header.php', 'nav.php', 'footer.php',
+    foreach (['auth.php', 'login.php', 'login_quick.php', 'quick_approve.php', 'security.php', 'header.php', 'nav.php', '_nav_style.php', 'footer.php',
         'assets/qrcodegen.js', 'assets/quick-login.js', 'assets/quick-code-input.js'] as $file) {
         copy($root . '/public/admin/' . $file, $temp . '/public/admin/' . $file);
     }

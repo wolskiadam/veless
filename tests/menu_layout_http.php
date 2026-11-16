@@ -182,6 +182,9 @@ try {
     ok(str_contains($bar, 'class="nav-item-desc">Pakowanie, Zwroty</span>'), 'Channel without its own description lists its first items');
     ok(str_contains($bar, 'class="nav-item-desc">Kompletowanie i etykiety wysyłkowe</span>'), 'Menu items have a one-line description');
     ok(str_contains($bar, 'class="nav-section-title">Obsługa zamówień</div>'), 'Built-in items grouped under small headings');
+    $head = substr($page['body'], 0, (int) strpos($page['body'], '</head>'));
+    ok(str_contains($head, '.nav-bar {') && !str_contains(substr($page['body'], (int) strpos($page['body'], '</head>')), '.nav-bar {'),
+        'Menu styles sit in <head>, so a refresh never paints the menu as raw links');
     ok(preg_match('/[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]/u', str_replace('☰', '', $bar)) === 0, 'Menu bar has no emoji (besides the menu toggle)');
     ok(!str_contains($bar, 'href="queue.php"'), 'Hidden item missing from the menu bar');
     ok(str_contains($bar, 'href="customers.php"'), 'Items left out of the layout stay in their default tab');

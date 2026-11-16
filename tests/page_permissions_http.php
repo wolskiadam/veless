@@ -73,7 +73,7 @@ mkdir($temp . '/storage/security', 0700, true);
 $process = null;
 try {
     file_put_contents($temp . '/.env', "TOTP_REQUIRE_ADMIN=0\n");
-    foreach (['auth.php', 'login.php', 'users.php', 'header.php', 'nav.php', 'footer.php'] as $file) {
+    foreach (['auth.php', 'login.php', 'users.php', 'header.php', 'nav.php', '_nav_style.php', 'footer.php'] as $file) {
         copy($root . '/public/admin/' . $file, $temp . '/public/admin/' . $file);
     }
     file_put_contents($temp . '/public/admin/bootstrap_admin.php', '<?php \Pase\Support\PagePermissions::migrate($pdo);');

@@ -54,7 +54,7 @@ try {
     mkdir($temp . '/storage/security', 0700, true);
     $env = $temp . '/.env';
     file_put_contents($env, "TOTP_REQUIRE_ADMIN=0\n");
-    foreach (['auth.php', 'login.php', 'login_mfa.php', 'security.php', 'users.php', 'order_history.php', 'document_operations.php', 'header.php', 'nav.php', 'footer.php'] as $file) {
+    foreach (['auth.php', 'login.php', 'login_mfa.php', 'security.php', 'users.php', 'order_history.php', 'document_operations.php', 'header.php', 'nav.php', '_nav_style.php', 'footer.php'] as $file) {
         copy($root . '/public/admin/' . $file, $temp . '/public/admin/' . $file);
     }
     file_put_contents($temp . '/public/admin/bootstrap_admin.php', '<?php // Schema prepared by the test.');

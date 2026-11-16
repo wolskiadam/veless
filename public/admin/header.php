@@ -108,6 +108,8 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
     <?= $PAGE_HEAD ?? '' ?>
     <?php // Rozszerzenia (extensions/): własne style i skrypty na wszystkich stronach panelu + hak admin.head. ?>
     <?= \Pase\Plugin\Hooks::assetTags('admin') . \Pase\Plugin\Hooks::render('admin.head', $pageKey) ?>
+    <?php // Style menu w <head> (po stylach strony, jak dotąd), żeby menu nie mignęło bez nich przy odświeżaniu. ?>
+    <?php require __DIR__ . '/_nav_style.php'; ?>
 </head>
 <body>
     <?= \Pase\Support\Demo::bannerHtml() ?>

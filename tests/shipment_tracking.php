@@ -260,6 +260,28 @@ $pdo->exec("UPDATE shipments SET waybill_no = 'AD0LRDD1577GSTJC5', tracking_stat
 $r = (new ShipmentTracking($pdo, $client2, [], static fn(string $w): ?array => null))->checkOne($one);
 check($r['ok'] && $row($one)['tracking_status'] === 'in_transit', 'Allegro One parcel "nadana" moves from pending to in transit');
 
+// Harmonogram jak ↻: „Wysyłam z Allegro" zapisało carrierId ALLEGRO_ONE_KURIER, a Allegro zna paczkę tylko pod ALLEGRO
+// (One Kurier nadana 23:13, tło o 02:14 „Przewoźnik nie ma jeszcze informacji", ręczne ↻ od razu „W drodze").
+$pdo->exec("DELETE FROM shipments");
+$client->knows = 'ALLEGRO'; $client->failFor = []; $client->asked = [];
+$pdo->prepare("INSERT INTO shipments (courier_code, waybill_no, status, created_at, response_payload) VALUES ('Allegro · ALLEGRO', 'A006844665', 'created', ?, ?)")
+    ->execute([date('Y-m-d H:i:s', time() - 3 * 3600), json_encode(['shipment' => ['carrierId' => 'ALLEGRO_ONE_KURIER']])]);
+$oneKurier = (int) $pdo->lastInsertId();
+$trk = new ShipmentTracking($pdo, $client, [], static fn(string $w): ?array => null, [], static fn(string $w): ?string => null);
+check($trk->run() === 1 && $row($oneKurier)['tracking_status'] === 'in_transit', 'scheduler: empty answer for ALLEGRO_ONE_KURIER, found under ALLEGRO like the manual check');
+check($client->asked === ['ALLEGRO_ONE_KURIER', 'ALLEGRO'] && $row($oneKurier)['tracking_carrier'] === 'ALLEGRO', 'scheduler: tried the fallback id and stored the one that worked');
+$client->asked = [];
+$trk->run();
+check($client->asked === ['ALLEGRO'], 'scheduler: next run asks only the working carrier');
+$client->asked = []; $client->failFor = ['ALLEGRO_ONE_KURIER'];
+$pdo->prepare("INSERT INTO shipments (courier_code, waybill_no, status, created_at, response_payload) VALUES ('Allegro · ALLEGRO', 'A0068ERR01', 'created', ?, ?)")
+    ->execute([date('Y-m-d H:i:s'), json_encode(['carrierId' => 'ALLEGRO_ONE_KURIER'])]);
+$errRow = (int) $pdo->lastInsertId();
+$trk->run();
+check($client->asked === ['ALLEGRO_ONE_KURIER', 'ALLEGRO'] && $row($errRow)['tracking_status'] === null
+    && $row($errRow)['tracking_carrier'] === 'ALLEGRO_ONE_KURIER', 'scheduler: carrier error is logged, no fallback storm');
+$client->failFor = [];
+
 // Harmonogram: świeża paczka (One Box nadana dziś) nie czeka, aż przejdą setki zalegających starszych paczek.
 $pdo->exec("DELETE FROM shipments");
 $client->knows = 'ALLEGRO'; $client->failFor = []; $client->asked = [];

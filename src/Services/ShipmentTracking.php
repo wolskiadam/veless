@@ -72,6 +72,13 @@ final class ShipmentTracking
     /** Ile paczek DPD pytać bezpośrednio w jednym przebiegu (reszta przez Allegro / następnym razem). */
     private const DPD_BATCH = 60;
 
+    /**
+     * Ile przesyłek w jednym przebiegu harmonogramu może dostać zapasowe id przewoźnika, gdy pierwsze nic nie zwróciło.
+     * Np. „Wysyłam z Allegro" zapisuje carrierId ALLEGRO_ONE_KURIER, a API śledzenia zna tę paczkę tylko pod ALLEGRO -
+     * bez tego tło w kółko pytało ALLEGRO_ONE_KURIER, a status pojawiał się dopiero po ręcznym ↻.
+     */
+    private const FALLBACK_BATCH = 40;
+
     /** Ile przesyłek maksymalnie w jednym przebiegu harmonogramu. */
     private const BATCH_LIMIT = 300;
 
@@ -169,7 +176,7 @@ final class ShipmentTracking
             } catch (\Throwable) {
             }
         }
-        return $this->track($rows)['changed'];
+        return $this->track($rows, false, self::FALLBACK_BATCH)['changed'];
     }
 
     /** Domyślnie: paczki nadane w ostatnich tylu dniach sprawdzamy w każdym przebiegu (przed starszymi). */
@@ -207,9 +214,11 @@ final class ShipmentTracking
      * @param array<int,array<string,mixed>> $rows wiersze shipments
      * @param bool $fallback gdy rozpoznany przewoźnik nic nie zwrócił, pytamy też inne pasujące id z listy Allegro
      *                       (np. Orlen Paczka bywa pod innym id, paczki z Allegro Delivery pod ALLEGRO) - tylko „na żądanie"
+     * @param int $retryEmpty harmonogram: ilu przesyłkom, dla których przewoźnik odpowiedział poprawnie, ale pusto,
+     *                        sprawdzić też zapasowe id (jak przy ↻); błędy przewoźnika liczą się tu jak dotąd (log + bez zapasu)
      * @return array{changed:int,errors:string[],tried:array<int,string>}
      */
-    private function track(array $rows, bool $fallback = false): array
+    private function track(array $rows, bool $fallback = false, int $retryEmpty = 0): array
     {
         $repo    = new ShipmentRepository($this->pdo);
         $now     = date('Y-m-d H:i:s');
@@ -282,7 +291,7 @@ final class ShipmentTracking
                 foreach ($res['waybills'] as $wb) {
                     $key = self::normWaybill((string) ($wb['waybill'] ?? ''));
                     foreach ($byWaybill[$key] ?? [] as $sh) {
-                        if (($wb['trackingDetails']['statuses'] ?? []) === [] && $fallback) {
+                        if (($wb['trackingDetails']['statuses'] ?? []) === [] && ($fallback || $retryEmpty > 0)) {
                             continue;   // pusto - spróbujemy innego id przewoźnika
                         }
                         $seen[(int) $sh['id']] = true;
@@ -293,7 +302,7 @@ final class ShipmentTracking
                 }
                 foreach ($chunk as $sh) {
                     if (!isset($seen[(int) $sh['id']])) {
-                        if ($fallback) {
+                        if ($fallback || $retryEmpty-- > 0) {
                             $noData[] = $sh;
                             continue;
                         }

@@ -185,9 +185,9 @@ try {
     ok(str_contains($page['body'], 'name="action" value="save_stock"') && str_contains($page['body'], 'name="pase_stock" type="number" min="0" step="1" required value="5"'), 'Stock is an editable field');
     $before = $shopLog();
     $body = $saveStock($boss, 1, '12');
-    ok(str_contains($body, 'Zapisano stan: 12. Produkt nie jest powiązany ze sklepem') && $stockOf(1) === 12 && $shopLog() === $before, 'Product without shop: stock saved, shop not called');
+    ok(str_contains($body, 'Zapisano stan: 12.') && !str_contains($body, 'Wysyłka') && $stockOf(1) === 12 && $shopLog() === $before, 'Product without shop: stock saved, shop not called');
     $body = $saveStock($boss, 6, '3');
-    ok(str_contains($body, 'Sklep „Drugi Sklep” jest źródłem stanów') && $stockOf(6) === 3 && $shopLog() === $before, 'Shop as stock source: saved in CRM, nothing sent');
+    ok(str_contains($body, 'Zapisano stan: 3.') && !str_contains($body, 'Drugi Sklep”') && $stockOf(6) === 3 && $shopLog() === $before, 'Shop as stock source: saved in CRM, nothing sent from the page, short message');
     $body = $saveStock($boss, 1, '-4');
     ok(str_contains($body, 'Stan: wpisz liczbę całkowitą 0 lub większą.') && $stockOf(1) === 12, 'Negative stock refused');
     $body = $saveStock($boss, 1, '12');

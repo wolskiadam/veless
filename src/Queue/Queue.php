@@ -123,13 +123,17 @@ final class Queue
         return $job ?: null;
     }
 
-    /** Oznacza zadanie jako wykonane. */
-    public function complete(int $jobId): void
+    /** Oznacza zadanie jako wykonane; $result = krótki opis, co zrobiło (historia kolejki). */
+    public function complete(int $jobId, ?string $result = null): void
     {
-        $stmt = $this->pdo->prepare(
-            'UPDATE job_queue SET status = :done, last_error = NULL WHERE id = :id'
-        );
-        $stmt->execute([':done' => JobStatus::Done->value, ':id' => $jobId]);
+        try {
+            $this->pdo->prepare('UPDATE job_queue SET status = :done, last_error = NULL, result = :res WHERE id = :id')
+                ->execute([':done' => JobStatus::Done->value, ':res' => $result !== null ? mb_substr($result, 0, 2000) : null, ':id' => $jobId]);
+        } catch (\PDOException) {
+            // Kolumna result jeszcze nie dodana (przed migracją) - samo oznaczenie wykonania.
+            $this->pdo->prepare('UPDATE job_queue SET status = :done, last_error = NULL WHERE id = :id')
+                ->execute([':done' => JobStatus::Done->value, ':id' => $jobId]);
+        }
         Logger::info("Queue: zadanie #{$jobId} zakończone");
     }
 

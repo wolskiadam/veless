@@ -45,10 +45,14 @@ final class JobRunner
         return $this->ruleEngine ??= new RuleEngine($this->pdo, new AutomationRuleRepository($this->pdo), $this->allegroConfig());
     }
 
-    /** @param array<string,mixed> $payload */
-    public function handle(string $jobType, array $payload): void
+    /**
+     * @param array<string,mixed> $payload
+     * @return string|null opis wyniku, gdy handler go zwraca (zapisywany w historii kolejki)
+     */
+    public function handle(string $jobType, array $payload): ?string
     {
-        $this->handler($jobType)->handle($payload);
+        $result = $this->handler($jobType)->handle($payload);
+        return is_string($result) && $result !== '' ? $result : null;
     }
 
     private function handler(string $jobType): object

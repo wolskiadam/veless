@@ -101,6 +101,29 @@ $stmt = $pdo->prepare('SELECT * FROM job_queue' . $where . ' ORDER BY id DESC LI
 $stmt->execute($params);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Produkt zadania (wypych stanu/ceny ma w payloadzie product_id) - żeby w historii było widać, którego SKU dotyczy.
+$jobSku = [];
+$pids = [];
+foreach ($rows as $r) {
+    $pl = json_decode((string) ($r['payload'] ?? ''), true);
+    if (is_array($pl) && (int) ($pl['product_id'] ?? 0) > 0) {
+        $pids[(int) $r['id']] = (int) $pl['product_id'];
+    }
+}
+if ($pids !== []) {
+    try {
+        $in = implode(',', array_fill(0, count(array_unique($pids)), '?'));
+        $st = $pdo->prepare("SELECT id, sku FROM products WHERE id IN ($in)");
+        $st->execute(array_values(array_unique($pids)));
+        $skuById = array_column($st->fetchAll(PDO::FETCH_ASSOC), 'sku', 'id');
+        foreach ($pids as $jid => $pid) {
+            if (($skuById[$pid] ?? '') !== '') {
+                $jobSku[$jid] = (string) $skuById[$pid];
+            }
+        }
+    } catch (\PDOException) { /* bez SKU */ }
+}
+
 $qs = $_GET;
 $buildLink = static function (int $p) use ($qs): string {
     $qs['p'] = $p;
@@ -229,7 +252,7 @@ require __DIR__ . '/header.php';
                 <th style="width:28px"><input type="checkbox" id="selectAllJobs" aria-label="Zaznacz wszystkie widoczne zadania"></th>
             <?php endif; ?>
             <th>#</th><th>Typ</th><th>Status</th><th>Próby</th>
-            <th>Dostępne od (UTC)</th><th>Błąd</th><?php if ($canEdit): ?><th></th><?php endif; ?>
+            <th>Dostępne od (UTC)</th><th>Wynik / błąd</th><?php if ($canEdit): ?><th></th><?php endif; ?>
         </tr>
         <?php if ($rows === []): ?>
             <tr><td colspan="<?= $canEdit ? 8 : 6 ?>" style="color:#888">Kolejka pusta.</td></tr>
@@ -240,11 +263,14 @@ require __DIR__ . '/header.php';
                     <td><input type="checkbox" class="job-check" name="ids[]" value="<?= (int)$r['id'] ?>" form="deleteSelectedForm" aria-label="Zaznacz zadanie #<?= (int)$r['id'] ?>"></td>
                 <?php endif; ?>
                 <td><?= (int)$r['id'] ?></td>
-                <td><code><?= htmlspecialchars($r['job_type']) ?></code></td>
+                <td><code><?= htmlspecialchars($r['job_type']) ?></code><?php if (isset($jobSku[(int) $r['id']])): ?><div style="font-size:12px;color:#666">SKU <?= htmlspecialchars($jobSku[(int) $r['id']]) ?></div><?php endif; ?></td>
                 <td><span class="pill <?= $pillClass($r['status']) ?>"><?= htmlspecialchars($statusLabel($r['status'])) ?></span></td>
                 <td><?= (int)$r['attempts'] ?>/<?= (int)$r['max_attempts'] ?></td>
                 <td style="font-size:12px;white-space:nowrap"><?= htmlspecialchars($r['available_at']) ?></td>
-                <td style="max-width:240px;color:#c5221f;font-size:12px"><?= htmlspecialchars($r['last_error'] ?? '') ?></td>
+                <td style="max-width:360px;font-size:12px">
+                    <?php if (($r['last_error'] ?? '') !== ''): ?><span style="color:#c5221f"><?= htmlspecialchars($r['last_error']) ?></span>
+                    <?php elseif (($r['result'] ?? '') !== ''): ?><?= htmlspecialchars($r['result']) ?><?php endif; ?>
+                </td>
                 <?php if ($canEdit): ?>
                 <td style="white-space:nowrap;text-align:right">
                     <?php if ($r['status'] === 'failed'): ?>

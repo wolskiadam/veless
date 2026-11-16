@@ -46,8 +46,9 @@ $api->offers = [
 ];
 $h = new AllegroStockPushHandler($pdo, fn(): object => $api);
 
-$h->handle(['product_id' => 1]);
+$res = $h->handle(['product_id' => 1]);
 ksort($api->patched);
+check($res === 'Allegro: stan 10 -> oferty 111, 222, 444', 'result for the queue history names the offers and stock');
 check($api->patched === ['111' => 10, '222' => 10, '444' => 10], 'stock 10 goes to linked, CRM-listed and active same-signature offers, each once');
 check($api->queries === ['external.id=WMG60GC&limit=20'], 'signature lookup by SKU');
 
@@ -58,8 +59,7 @@ $h->handle(['product_id' => 3]);
 check($api->patched === [], 'price-only, scheduled (allegro=false) and product without stock push nothing');
 
 $api->offers = [];
-$h->handle(['product_id' => 2]);
-check($api->patched === [], 'product without any Allegro offer: nothing to push, no error');
+check($h->handle(['product_id' => 2]) === 'Allegro: brak powiązanych ofert' && $api->patched === [], 'product without any Allegro offer: nothing to push, no error, said in history');
 
 $api->token = null;
 $h->handle(['product_id' => 1]);
@@ -69,7 +69,7 @@ $api->token = 'tok';
 $api->fail = ['222'];
 $err = null;
 try { $h->handle(['product_id' => 1]); } catch (RuntimeException $e) { $err = $e->getMessage(); }
-check($err !== null && str_contains($err, '222') && ($api->patched['111'] ?? null) === 10, 'failed offer -> exception for retry, other offers still updated');
+check($err !== null && str_contains($err, '222') && str_contains($err, 'ustawiono w 111') && ($api->patched['111'] ?? null) === 10, 'failed offer -> exception for retry, other offers still updated and named');
 $api->fail = [];
 
 // Złożony handler: błąd sklepu nie blokuje Allegro, a wyjątek i tak leci dalej (ponowienie).
@@ -77,7 +77,11 @@ $api->patched = [];
 $shop = new class { public function handle(array $p): void { throw new RuntimeException('Woo down'); } };
 $err = null;
 try { (new StockPushHandler([$shop, $h]))->handle(['product_id' => 1]); } catch (RuntimeException $e) { $err = $e->getMessage(); }
-check($err === 'Woo down' && ($api->patched['111'] ?? null) === 10, 'shop failure does not stop the Allegro push and is rethrown');
+check($err === 'Woo down · Allegro: stan 10 -> oferty 111, 222' && ($api->patched['111'] ?? null) === 10, 'shop failure does not stop the Allegro push and is rethrown with what did go through');
+$okShop = new class { public function handle(array $p): string { return 'Sklep AWIEN WWW: stan 10'; } };
+check((new StockPushHandler([$okShop, $h]))->handle(['product_id' => 1]) === 'Sklep AWIEN WWW: stan 10 · Allegro: stan 10 -> oferty 111, 222', 'combined result: shop and Allegro');
+$void = new class { public function handle(array $p): void {} };
+check((new StockPushHandler([$void]))->handle(['product_id' => 1]) === null, 'nothing done -> no result');
 
 // Klient Allegro, którego nie da się utworzyć, nie wywraca wypychu do sklepu.
 $broken = new AllegroStockPushHandler($pdo, function (): object { throw new RuntimeException('no config'); });

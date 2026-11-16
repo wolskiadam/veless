@@ -38,26 +38,27 @@ final class AllegroStockPushHandler
         $this->clientFactory = $clientFactory;
     }
 
-    public function handle(array $payload): void
+    /** @return string|null co zrobiono / dlaczego pominięto - do historii kolejki */
+    public function handle(array $payload): ?string
     {
         $productId = (int) ($payload['product_id'] ?? 0);
         $what = $payload['what'] ?? 'stock';
         if ($productId <= 0 || $what === 'price' || ($payload['allegro'] ?? true) === false) {
-            return;
+            return null;
         }
 
         $st = $this->pdo->prepare('SELECT id, sku, pase_stock FROM products WHERE id = ?');
         $st->execute([$productId]);
         $p = $st->fetch(PDO::FETCH_ASSOC);
         if (!$p || $p['pase_stock'] === null) {
-            return;
+            return null;
         }
         $sku = trim((string) ($p['sku'] ?? ''));
         $stock = max(0, (int) $p['pase_stock']);
 
         $client = $this->client();
         if ($client === null || $client->bearerToken() === null) {
-            return; // Allegro niepołączone - nie ma dokąd wysyłać
+            return null; // Allegro niepołączone - nie ma dokąd wysyłać
         }
 
         $offerIds = $this->linkedOfferIds($productId, $sku);
@@ -72,22 +73,25 @@ final class AllegroStockPushHandler
             }
         }
         if ($offerIds === []) {
-            return;
+            return 'Allegro: brak powiązanych ofert';
         }
 
         $failed = [];
+        $done = [];
         foreach (array_keys($offerIds) as $offerId) {
             if ($client->updateOfferQuantity((string) $offerId, $stock)) {
                 Logger::info("AllegroStockPush: SKU {$sku} -> oferta {$offerId} = {$stock} szt.");
+                $done[] = (string) $offerId;
             } else {
                 $failed[] = (string) $offerId;
             }
         }
         if ($failed !== []) {
             // Błąd API -> wyjątek, Worker ponowi z backoffem (PATCH stanu jest idempotentny).
-            throw new \RuntimeException('Allegro: nie udało się ustawić stanu ' . $stock . ' dla SKU ' . $sku
-                . ' (oferty: ' . implode(', ', $failed) . ')');
+            throw new \RuntimeException('Allegro: nie udało się ustawić stanu ' . $stock
+                . ' (oferty: ' . implode(', ', $failed) . ')' . ($done !== [] ? ', ustawiono w ' . implode(', ', $done) : ''));
         }
+        return "Allegro: stan {$stock} -> " . (count($done) === 1 ? 'oferta ' : 'oferty ') . implode(', ', $done);
     }
 
     /** @return array<string,true> offer_id => true */

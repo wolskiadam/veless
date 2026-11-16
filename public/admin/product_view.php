@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '
         : 'Produkt znów wymaga wysyłki.';
 }
 // Stan CRM. Jak na liście produktów: zapis w CRM + wypych do sklepu (gdy CRM jest źródłem stanów
-// sklepu) i do powiązanych ofert Allegro (AllegroStockPushHandler).
+// sklepu) i do powiązanych ofert Allegro (AllegroStockPushHandler). Komunikat mówi tylko o zapisie.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '') === 'save_stock') {
     csrfCheck();
     $raw = trim((string) ($_POST['pase_stock'] ?? ''));
@@ -119,22 +119,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && canEdit() && ($_POST['action'] ?? '
         $stock = (int) $raw;
         $repo->setStock($id, $stock);
         $flashOk = "Zapisano stan: {$stock}.";
-        $intId = (int) ($cur['source_integration_id'] ?? 0);
-        $acc = (int) ($cur['woo_product_id'] ?? 0) > 0 && $intId > 0 ? (new \Pase\Repository\IntegrationAccountRepository($pdo))->find($intId) : null;
-        // Jedno zadanie wysyła stan do sklepu (gdy CRM jest źródłem stanów) i do ofert Allegro tego produktu.
+        // Jedno zadanie wysyła stan do sklepu (gdy CRM jest źródłem stanów) i do ofert Allegro tego produktu;
+        // dokąd faktycznie poszedł, widać w historii kolejki (kolumna „Wynik”).
         try {
             (new \Pase\Queue\Queue($pdo))->enqueue('woo.stock.push', ['product_id' => $id, 'what' => 'stock'], "woo.stock.push:{$id}:" . substr((string) microtime(true), -8));
-            $sent = ' zakolejkowana.';
         } catch (\PDOException $e) {
             \Pase\Support\Logger::error('Stan produktu: nie udało się zakolejkować wysyłki', ['product' => $id, 'error' => $e->getMessage()]);
-            $sent = ' nie została zakolejkowana (błąd kolejki) - zapisz stan jeszcze raz za chwilę.';
-        }
-        if ($acc === null) {
-            $flashOk .= ' Produkt nie jest powiązany ze sklepem. Wysyłka do powiązanych ofert Allegro' . $sent;
-        } elseif (($acc['config']['stock_master'] ?? 'pase') !== 'pase') {
-            $flashOk .= " Sklep „{$acc['name']}” jest źródłem stanów (Konfiguracja → Integracje), więc sklep go nie dostanie. Wysyłka do powiązanych ofert Allegro" . $sent;
-        } else {
-            $flashOk .= " Wysyłka do sklepu „{$acc['name']}” i do powiązanych ofert Allegro" . $sent;
         }
     }
 }

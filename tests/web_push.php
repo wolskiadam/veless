@@ -140,6 +140,18 @@ $pdo->exec("INSERT INTO woo_orders VALUES (504, '1237', 60, 'PLN', 'Ela', '" . g
 $sent = [];
 $push->notifyNewOrder(503, []);
 check(array_column($sent, 'url') === ['https://web.push.apple.com/ewa'], 'Allegro order skips the device that chose only the shop');
+$hist = static function (int $id) use ($pdo): array {
+    $rows = $pdo->query("SELECT after_json FROM audit_events WHERE action = 'push.new_order' AND order_id = $id")->fetchAll(PDO::FETCH_COLUMN);
+    return array_map(static fn($j) => json_decode($j, true)['push'], $rows);
+};
+$h503 = $hist(503);
+check(count($h503) === 1 && $h503[0]['summary'] === 'wysłano na 1 z 2 urządzeń'
+    && in_array(['user' => 'konto #2', 'device' => 'urządzenie', 'result' => 'dostarczono'], $h503[0]['devices'], true)
+    && in_array(['user' => 'konto #1', 'device' => 'iPhone', 'result' => 'pominięto: ten sklep jest odznaczony w dzwoneczku na tym urządzeniu'], $h503[0]['devices'], true),
+    'order history: who got the push, on which device, and why a device was skipped');
+$h500 = $hist(500);
+check(count($h500) === 1 && $h500[0]['summary'] === 'wysłano na 2 z 2 urządzeń', 'order history: one entry per order (repeat event not logged)');
+check(($hist(501)[0]['summary'] ?? '') === 'nie wysłano: zamówienie złożone ponad 2 dni przed pobraniem', 'order history: old order says why no push');
 $sent = [];
 $push->notifyNewOrder(504, []);
 check(count($sent) === 2, 'shop order reaches both devices');

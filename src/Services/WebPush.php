@@ -41,6 +41,9 @@ final class WebPush
     /** @var list<string> powody odrzucenia z ostatniego send() (komunikat „Wyślij test”) */
     private array $lastErrors = [];
 
+    /** @var list<array{user_id:int,device:string,result:string}> co ostatnie send() zrobiło na każdym urządzeniu */
+    private array $lastReport = [];
+
     public function __construct(private readonly PDO $pdo) {}
 
     public static function migrate(PDO $pdo): void
@@ -310,7 +313,9 @@ final class WebPush
 
         $ok = 0;
         $this->lastErrors = [];
+        $this->lastReport = [];
         foreach ($subs as $s) {
+            $report = ['user_id' => (int) $s['user_id'], 'device' => self::deviceLabel((string) ($s['user_agent'] ?? '')), 'result' => ''];
             try {
                 $endpoint = (string) $s['endpoint'];
                 if (!self::allowedEndpoint($endpoint)) {
@@ -341,22 +346,29 @@ final class WebPush
                     $ok++;
                     $this->pdo->prepare('UPDATE push_subscriptions SET last_ok_at = ? WHERE id = ?')->execute([time(), (int) $s['id']]);
                     $this->recordTry((int) $s['id'], $status, null);
+                    $report['result'] = 'dostarczono';
                 } elseif ($status === 404 || $status === 410) {
                     // Urządzenie wyłączyło powiadomienia albo usunęło aplikację - subskrypcja nieaktualna.
                     $this->pdo->prepare('DELETE FROM push_subscriptions WHERE id = ?')->execute([(int) $s['id']]);
                     Logger::info('Push: usunięto wygasłą subskrypcję #' . $s['id']);
                     $this->lastErrors[] = 'urządzenie nieaktualne (' . $status . ') - włącz powiadomienia ponownie';
+                    $report['result'] = 'urządzenie nieaktualne (' . $status . '), usunięte - trzeba włączyć powiadomienia ponownie';
                 } else {
                     $why = self::rejectReason($status, $respBody);
                     Logger::warn('Push: usługa odrzuciła powiadomienie', ['subscription' => (int) $s['id'], 'status' => $status,
                         'response' => mb_substr($respBody, 0, 200)]);
                     $this->recordTry((int) $s['id'], $status, $why);
                     $this->lastErrors[] = $why;
+                    $report['result'] = $why;
                 }
             } catch (\Throwable $e) {
                 Logger::warn('Push: błąd wysyłki', ['subscription' => (int) $s['id'], 'error' => $e->getMessage()]);
                 $this->recordTry((int) $s['id'], 0, 'błąd wysyłki: ' . $e->getMessage());
                 $this->lastErrors[] = 'błąd wysyłki: ' . $e->getMessage();
+                $report['result'] = 'błąd wysyłki: ' . $e->getMessage();
+            }
+            if ($report['result'] !== '') {
+                $this->lastReport[] = $report;
             }
         }
         return $ok;
@@ -429,9 +441,7 @@ final class WebPush
      */
     public function notifyNewOrder(int $wooOrderId, array $payload): int
     {
-        if ($this->subscriptions() === []) {
-            return 0;
-        }
+        $all = $this->subscriptions();
         // Import starych zamówień (np. pierwsze pobranie historii) nie zasypuje telefonu powiadomieniami.
         $sourceId = 0;
         try {
@@ -445,6 +455,14 @@ final class WebPush
         }
         $createdTs = $created !== '' ? strtotime($created . (preg_match('/[zZ]|[+-]\d\d:?\d\d$/', $created) ? '' : ' UTC')) : false;
         if ($createdTs !== false && $createdTs < time() - self::MAX_ORDER_AGE) {
+            // Wpis w historii tylko dla świeższych (do 30 dni) - import całej historii nie zaśmieca dziennika.
+            if ($createdTs >= time() - 30 * 86400) {
+                $this->recordOrder($wooOrderId, 'nie wysłano: zamówienie złożone ponad 2 dni przed pobraniem', []);
+            }
+            return 0;
+        }
+        if ($all === []) {
+            $this->recordOrder($wooOrderId, 'nie wysłano: na żadnym urządzeniu nie są włączone powiadomienia', []);
             return 0;
         }
         // Raz na zamówienie (ponowne zdarzenie po płatności, ponowny import itp.).
@@ -459,7 +477,67 @@ final class WebPush
             }
         }
         $exceptUser = self::authorToSkip($sourceId, PHP_SAPI, $_SESSION ?? []);
-        return $this->send(self::newOrderMessage($this->pdo, $wooOrderId, $payload), null, $exceptUser, $sourceId);
+        // Urządzenia pominięte celowo - do historii zamówienia, żeby było widać, czemu ktoś nie dostał pushu.
+        $skipped = [];
+        foreach ($all as $s) {
+            $why = null;
+            if ($exceptUser !== null && (int) $s['user_id'] === $exceptUser) {
+                $why = 'pominięto: autor zamówienia ręcznego';
+            } else {
+                $list = self::decodeSources($s['sources'] ?? null);
+                if ($list !== null && !in_array($sourceId, $list, true)) {
+                    $why = 'pominięto: ten sklep jest odznaczony w dzwoneczku na tym urządzeniu';
+                }
+            }
+            if ($why !== null) {
+                $skipped[] = ['user_id' => (int) $s['user_id'], 'device' => self::deviceLabel((string) ($s['user_agent'] ?? '')), 'result' => $why];
+            }
+        }
+        $ok = $this->send(self::newOrderMessage($this->pdo, $wooOrderId, $payload), null, $exceptUser, $sourceId);
+        $devices = array_merge($this->lastReport, $skipped);
+        $this->recordOrder($wooOrderId, $ok > 0 ? 'wysłano na ' . $ok . ' z ' . count($all) . ' urządzeń'
+            : ($this->lastReport === [] ? 'nie wysłano: wszystkie urządzenia pominięte' : 'nie dotarło na żadne urządzenie'), $devices);
+        return $ok;
+    }
+
+    /**
+     * Wpis „Powiadomienie push” w historii zamówienia (order_history.php): do kogo i na jakie urządzenie poszło,
+     * a jeśli nie - dlaczego. Błąd zapisu nie wstrzymuje wysyłki ani importu.
+     * @param list<array{user_id:int,device:string,result:string}> $devices
+     */
+    private function recordOrder(int $wooOrderId, string $summary, array $devices): void
+    {
+        try {
+            $names = [];
+            $ids = array_values(array_unique(array_column($devices, 'user_id')));
+            if ($ids !== []) {
+                try {
+                    $st = $this->pdo->prepare('SELECT id, username FROM admin_users WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+                    $st->execute($ids);
+                    $names = $st->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+                } catch (\PDOException) {
+                    $names = [];
+                }
+            }
+            $list = array_map(static fn(array $d): array => [
+                'user' => (string) ($names[$d['user_id']] ?? ('konto #' . $d['user_id'])), 'device' => $d['device'], 'result' => $d['result'],
+            ], $devices);
+            AuditTrail::migrate($this->pdo);
+            (new AuditTrail($this->pdo))->record($wooOrderId, 'push.new_order', [], ['push' => ['summary' => $summary, 'devices' => $list]]);
+        } catch (\Throwable $e) {
+            Logger::warn("Push: nie zapisano wpisu w historii zamówienia {$wooOrderId}", ['error' => $e->getMessage()]);
+        }
+    }
+
+    /** Krótka nazwa urządzenia z nagłówka przeglądarki (iPhone, Android, Mac, Windows…). */
+    public static function deviceLabel(string $ua): string
+    {
+        foreach (['iPhone' => 'iPhone', 'iPad' => 'iPad', 'Android' => 'Android', 'Macintosh' => 'Mac', 'Windows' => 'Windows', 'Linux' => 'Linux'] as $needle => $label) {
+            if (stripos($ua, $needle) !== false) {
+                return $label;
+            }
+        }
+        return 'urządzenie';
     }
 
     /**

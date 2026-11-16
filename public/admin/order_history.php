@@ -26,6 +26,7 @@ $labels = [
     'allegro.issue_reply' => 'Odpowiedź w dyskusji Allegro', 'allegro.rating_answer' => 'Odpowiedź na ocenę Allegro',
     'document.linked' => 'Zapisanie dokumentu', 'document.unlinked' => 'Usunięcie lokalnego powiązania',
     'document.remote_deleted' => 'Usunięcie dokumentu z wFirma i lokalnego powiązania',
+    'push.new_order' => 'Powiadomienie push o nowym zamówieniu',
 ];
 $escape = static fn($value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $PAGE_TITLE = 'Historia zmian' . ($orderId ? ' — zamówienie #' . $orderId : '');
@@ -42,8 +43,16 @@ require __DIR__ . '/header.php';
             <summary><?= $escape($event['created_at']) ?> · <?= $escape($event['actor_name']) ?>
                 <?= $event['actor_id'] ? '(ID ' . (int) $event['actor_id'] . ')' : '' ?> ·
                 #<?= (int) $event['order_id'] ?> · <?= $escape($labels[$event['action']] ?? $event['action']) ?></summary>
+            <?php $push = $event['action'] === 'push.new_order' ? (json_decode((string) $event['after_json'], true)['push'] ?? null) : null; ?>
+            <?php if (is_array($push)): // Services\WebPush::recordOrder - do kogo poszło albo dlaczego nie ?>
+            <p><b><?= $escape(ucfirst((string) ($push['summary'] ?? ''))) ?></b></p>
+            <?php if (!empty($push['devices'])): ?><ul><?php foreach ((array) $push['devices'] as $d): ?>
+                <li><?= $escape($d['user'] ?? '') ?> · <?= $escape($d['device'] ?? '') ?> — <?= $escape($d['result'] ?? '') ?></li>
+            <?php endforeach; ?></ul><?php endif; ?>
+            <?php else: ?>
             <p>Przed:</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape(json_encode(json_decode($event['before_json'], true), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) ?></pre>
             <p>Po:</p><pre style="white-space:pre-wrap;overflow-wrap:anywhere"><?= $escape(json_encode(json_decode($event['after_json'], true), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) ?></pre>
+            <?php endif; ?>
         </details>
     <?php endforeach; ?>
     <?php if ($hasMore): ?><a class="btn" href="?id=<?= $orderId ?>&amp;before=<?= (int) end($events)['id'] ?>">Starsze wpisy</a><?php endif; ?>

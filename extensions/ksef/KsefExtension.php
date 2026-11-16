@@ -96,6 +96,13 @@ final class KsefExtension extends AbstractExtension
         };
         $cfg = $this->settings();
 
+        // ---- Kontrola stanu (System → Kontrola stanu, rozszerzenie kontrola): połączenie i automatyczne pobieranie
+        Hooks::addFilter('health.checks', static function (array $checks) use ($service): array {
+            $checks['conn.ksef'] = ['group' => 'conn', 'title' => 'KSeF (e-faktury)', 'network' => true,
+                'run' => static fn(): array => self::healthCheck($service())];
+            return $checks;
+        });
+
         // ---- Zawsze: połączenie z KSeF i lista wystawionych e-faktur
         Hooks::addPage('faktury', ['title' => 'Faktury KSeF', 'desc' => 'E-faktury wysłane do KSeF', 'section' => 'Dokumenty i rozmowy', 'group' => 'orders', 'role' => 'viewer', 'menu' => ($cfg['do_sales'] ?? '1') !== '0',
             'render' => fn(PDO $pdo, array $ctx): string => $this->listPage($service(), $ctx)]);
@@ -134,6 +141,25 @@ final class KsefExtension extends AbstractExtension
         }
         if (($cfg['do_sales'] ?? '1') !== '0') {
             $this->bootSales($service);
+        }
+    }
+
+    /** Wynik dla Kontroli stanu: brak tokenu, błąd ostatniego automatycznego pobierania albo test połączenia. */
+    private static function healthCheck(KsefService $svc): array
+    {
+        $link = ['label' => 'Faktury KSeF', 'href' => Hooks::pageUrl('ksef.faktury')];
+        $missing = $svc->missingConnection();
+        if ($missing !== []) {
+            return ['state' => 'warn', 'summary' => 'Brakuje: ' . implode(', ', $missing) . '. Bez tego e-faktury nie idą do KSeF.', 'link' => $link];
+        }
+        $last = json_decode((string) ((new SettingsRepository(\Pase\Support\Runtime::pdo()))->get(KsefService::AUTO_LAST_KEY, '') ?? ''), true);
+        if (is_array($last) && !empty($last['errors']) && time() - (int) ($last['at'] ?? 0) < 2 * 86400) {
+            return ['state' => 'bad', 'summary' => 'Automatyczne pobieranie faktur z KSeF nie działa: ' . mb_substr(implode(' | ', (array) $last['errors']), 0, 300), 'link' => $link];
+        }
+        try {
+            return ['state' => 'ok', 'summary' => $svc->testConnection()];
+        } catch (\Throwable $e) {
+            return ['state' => 'bad', 'summary' => 'KSeF: ' . mb_substr($e->getMessage(), 0, 300), 'link' => $link];
         }
     }
 

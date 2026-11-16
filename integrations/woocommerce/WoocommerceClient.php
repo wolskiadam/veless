@@ -130,6 +130,27 @@ final class WoocommerceClient
     }
 
     /**
+     * Wskazane produkty jednym zapytaniem (parametr include, najwyżej 100) - np. porównanie stanów w Kontroli stanu.
+     * @param list<int> $ids
+     * @return list<array<string,mixed>>
+     */
+    public function fetchProductsByIds(array $ids): array
+    {
+        $ids = array_slice(array_values(array_filter(array_map('intval', $ids))), 0, 100);
+        if ($ids === []) {
+            return [];
+        }
+        $params = ['include' => implode(',', $ids), 'per_page' => 100, 'orderby' => 'include'];
+        $res = Http::request('GET', $this->url('/wp-json/wc/v3/products', $params));
+        Logger::apiResponse('woo', 'GET', $this->safeUrl('/wp-json/wc/v3/products'), $res->status, 'products include=' . count($ids));
+        if (!$res->isSuccess()) {
+            throw new \RuntimeException("WooCommerce zwróciło HTTP {$res->status} przy pobieraniu produktów.");
+        }
+        $json = $res->json();
+        return is_array($json) ? array_values(array_filter($json, 'is_array')) : [];
+    }
+
+    /**
      * Warianty produktu wariantowego (type=variable). Sam produkt-rodzic zwykle
      * nie ma własnego SKU/ceny - te siedzą na poszczególnych wariantach.
      * @return array{variations:array, isEmpty:bool, status:int}

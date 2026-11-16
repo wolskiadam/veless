@@ -336,6 +336,20 @@ try {
     $plugins = request($boss, 'admin/plugins.php');
     ok(str_contains($plugins['body'], 'Zapachy') && str_contains($plugins['body'], 'Karta produktu') && str_contains($plugins['body'], 'Lista produkcji'), 'Plugins page lists the new permissions');
 
+    // ---- Lista: podział na strony (50 na stronie) i szukanie na żywo
+    $insP = $pdo->prepare("INSERT INTO ext_zap_fragrances (id, storage_no, name, aliases, producer, producer_code, head_notes, heart_notes, base_notes, description, comments, ufi, source_id, archived, created_at, updated_at) VALUES (?, ?, ?, '', '', '', 'testowa', '', '', '', '', '', '', 0, '2026-11-16', '2026-11-16')");
+    for ($i = 1; $i <= 60; $i++) { $insP->execute(['pg' . $i, (string) (500 + $i), sprintf('Strona Test %02d', $i)]); }
+    $p1 = request($vi, $url('lista'));
+    $p2 = request($vi, $url('lista', ['strona' => 2]));
+    ok(str_contains($p1['body'], ' z 6') && str_contains($p1['body'], 'zapachy.lista&amp;strona=2') && !str_contains($p1['body'], 'Strona Test 60</a>')
+        && str_contains($p2['body'], 'Strona Test 60</a>') && !str_contains($p2['body'], 'Gingerbread</a>'), 'List is paged, 50 per page');
+    $all = request($vi, $url('lista', ['na_stronie' => 0]));
+    $p100 = request($vi, $url('lista', ['na_stronie' => 25, 'strona' => 3]));
+    ok(str_contains($all['body'], 'Gingerbread</a>') && str_contains($all['body'], 'Strona Test 60</a>') && str_contains($p100['body'], '51–'), 'Per-page choice: all and 25');
+    $pq = request($vi, $url('lista', ['q' => 'strona test 5', 'strona' => 9]));
+    ok(str_contains($pq['body'], 'Strona Test 59</a>') && str_contains($pq['body'], 'id="zp-results"') && str_contains($pq['body'], 'zp-filter'), 'Search narrows pages; results block for live search');
+    $pdo->exec("DELETE FROM ext_zap_fragrances WHERE id LIKE 'pg%'");
+
     $warnings = preg_grep('/PHP (Warning|Fatal|Parse|Deprecated|Notice)|Rozszerzenie .* błąd/', file("$temp/server.log") ?: []);
     ok($warnings === [], 'No PHP warnings or extension errors' . ($warnings ? ': ' . implode(' | ', array_map('trim', $warnings)) : ''));
     echo "PASS: {$checks} Zapachy HTTP checks\n";

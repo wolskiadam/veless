@@ -8,7 +8,8 @@ WordPress „Aroma Helper” (aroma-category) ze sklepu, przeniesiony do CRM. Be
 
 - **Magazyn → Zapachy**: lista olejków z numerem miejsca (np. Sweet Caramel = 18), nazwą i innymi nazwami, nutami głowy,
   serca i bazy. Szukanie po nazwie (bez polskich znaków), numerze (dokładnie: „18” nie znajdzie 118), nucie i producencie,
-  filtr po nucie (kliknięcie nuty) i kategorii nut, najczęstsze nuty, archiwum. Na telefonie lista kart.
+  filtr po nucie (kliknięcie nuty) i kategorii nut, najczęstsze nuty, archiwum. Wyniki odświeżają się podczas pisania.
+  Po 50 na stronie (do wyboru 25, 50, 100 albo wszystkie). Na telefonie lista kart.
 - **Karta zapachu**: nuty z kolorami kategorii, charakter zapachu (procent kategorii), opis, producent i kod, cena za kg,
   maks. stężenie, UFI, uwagi, produkty z tym zapachem (odłączanie i dodawanie z wyszukiwarki produktów).
 - **Numer miejsca jest unikalny** wśród aktywnych zapachów: drugi zapach z numerem 18 nie zapisze się.

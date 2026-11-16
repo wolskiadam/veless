@@ -95,6 +95,7 @@ jobs:
       - run: php tests/order_margins.php
       - run: php tests/order_margins_http.php
       - run: php tests/low_stock.php
+      - run: php tests/allegro_stock_push.php
       - run: php tests/woo_custom_fields.php
       - run: php tests/woo_custom_fields_http.php
       - run: php tests/product_name_http.php

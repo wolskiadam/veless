@@ -53,11 +53,11 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         pass('"+" is centred in its circle');
         const row = (r) => (r.top + r.bottom) / 2;
         if ([top.sync, top.plus, top.open].some((r) => Math.abs(row(r) - row(top.title)) > 6 || r.right > top.vw)) fail('title row is not one line that fits: ' + JSON.stringify(top));
-        // Między wyszukiwarką a zamówieniami jest tylko jeden rząd liczb „Do realizacji / Bez etykiety / Do spakowania / W drodze…”.
+        // Między wyszukiwarką a zamówieniami jest tylko jeden rząd liczb „Do realizacji / Bez etykiety / Z etykietą / W drodze…”.
         if (!(top.search.top > top.title.bottom && top.band.top > top.search.bottom && top.band.top - top.search.bottom < 56
             && top.band.height < 48 && top.firstCard.top >= top.band.bottom && top.firstCard.top - top.band.bottom < 24 && top.band.right <= top.vw)) fail('orders do not follow right after the search and one row of numbers: ' + JSON.stringify(top));
         // Paczka InPost w drodze jest z zamówienia sprzed ponad 30 dni - nie liczy się do „W drodze”.
-        if (!/^Do realizacji 2 Bez etykiety 1 Do spakowania 0 W drodze 0 W punkcie 0$/.test(top.bandText)) fail('numbers row: ' + top.bandText);
+        if (!/^Do realizacji 2 Bez etykiety 1 Z etykietą 0 W drodze 0 W punkcie 0$/.test(top.bandText)) fail('numbers row: ' + top.bandText);
         pass('top: title, refresh, "+", panel button, search, one row of numbers and right after it the orders');
 
         // Znaczek „Powracający” stoi w karcie przy nazwisku klienta i mieści się w ekranie.

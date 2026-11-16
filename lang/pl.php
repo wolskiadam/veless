@@ -324,7 +324,7 @@ return [
     'orders.pipe.realize_option' => 'Do realizacji (przed wysłaniem)',
     'orders.pipe.nolabel'        => 'Bez etykiety',
     'orders.pipe.nolabel_sub'    => 'w realizacji, bez przesyłki',
-    'orders.pipe.pack'           => 'Do spakowania',
+    'orders.pipe.pack'           => 'Z etykietą',
     'orders.pipe.pack_sub'       => 'etykieta jest, paczka jeszcze nie nadana',
     'orders.pipe.on_the_way'     => 'W drodze',
     'orders.pipe.on_the_way_sub' => 'u przewoźnika i w doręczeniu',

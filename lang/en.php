@@ -324,7 +324,7 @@ return [
     'orders.pipe.realize_option' => 'To fulfil (before shipping)',
     'orders.pipe.nolabel'        => 'No label',
     'orders.pipe.nolabel_sub'    => 'in progress, no shipment yet',
-    'orders.pipe.pack'           => 'To pack',
+    'orders.pipe.pack'           => 'With label',
     'orders.pipe.pack_sub'       => 'label ready, parcel not sent yet',
     'orders.pipe.on_the_way'     => 'On the way',
     'orders.pipe.on_the_way_sub' => 'with the carrier and out for delivery',

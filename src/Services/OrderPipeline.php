@@ -8,7 +8,7 @@ use PDO;
 /**
  * Pasek nad listą zamówień: co jest do zrobienia teraz i gdzie są wysłane paczki - zamiast liczby
  * wszystkich aktywnych zamówień, z których większość jest dawno doręczona. Kolejność pracy sprzedawcy:
- * Do realizacji (realize) → Bez etykiety (pack: w realizacji, bez przesyłki) → Do spakowania (created:
+ * Do realizacji (realize) → Bez etykiety (pack: w realizacji, bez przesyłki) → Z etykietą (created:
  * etykieta jest, paczka nie nadana) → W drodze / W punkcie / Problem.
  *
  * Każda liczba ma link do listy z tym samym filtrem, dlatego liczymy dokładnie tak jak filtry

@@ -32,7 +32,8 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
             const newBtn = document.querySelector('.page-title-row .new-order-btn');
             return {
                 title: box('.page-title-row h1'), sync: box('#ordersSyncNow button'), plus: newBtn.getBoundingClientRect(),
-                plusText: newBtn.innerText.trim(), open: box('#ordersDrawerOpen'), search: box('#ordersSearchInput'),
+                plusText: newBtn.innerText.trim(), open: box('#ordersDrawerOpen'), search: box('#ordersSearchInput'), band: box('.orders-band'),
+                bandText: document.querySelector('.orders-band').innerText.replace(/\s+/g, ' ').trim(),
                 firstCard: box('.orders-table tr:not(.orders-head)'), vw: document.documentElement.clientWidth,
                 pieces: ['.orders-mobile-selall', '.orders-mobile-sort', '#ordersFilterToggle', '#ordersFilterBar', '#ordersSideNav'].filter((s) => !inDrawer(s)),
                 drawer: getComputedStyle(document.getElementById('ordersDrawer')).visibility,
@@ -52,8 +53,12 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         pass('"+" is centred in its circle');
         const row = (r) => (r.top + r.bottom) / 2;
         if ([top.sync, top.plus, top.open].some((r) => Math.abs(row(r) - row(top.title)) > 6 || r.right > top.vw)) fail('title row is not one line that fits: ' + JSON.stringify(top));
-        if (!(top.search.top > top.title.bottom && top.firstCard.top > top.search.bottom && top.firstCard.top - top.search.bottom < 60)) fail('orders do not follow right after the search: ' + JSON.stringify(top));
-        pass('top: title, refresh, "+", panel button, search and right after it the orders');
+        // Między wyszukiwarką a zamówieniami jest tylko jeden rząd liczb „Do realizacji / Do spakowania / W drodze…”.
+        if (!(top.search.top > top.title.bottom && top.band.top > top.search.bottom && top.band.top - top.search.bottom < 56
+            && top.band.height < 48 && top.firstCard.top >= top.band.bottom && top.firstCard.top - top.band.bottom < 24 && top.band.right <= top.vw)) fail('orders do not follow right after the search and one row of numbers: ' + JSON.stringify(top));
+        // Paczka InPost w drodze jest z zamówienia sprzed ponad 30 dni - nie liczy się do „W drodze”.
+        if (!/^Do realizacji 2 Do spakowania 1 Czeka na nadanie 0 W drodze 0 W punkcie 0$/.test(top.bandText)) fail('numbers row: ' + top.bandText);
+        pass('top: title, refresh, "+", panel button, search, one row of numbers and right after it the orders');
 
         // Znaczek „Powracający” stoi w karcie przy nazwisku klienta i mieści się w ekranie.
         const ret = await page.evaluate(() => {

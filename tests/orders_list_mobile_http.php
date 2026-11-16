@@ -165,6 +165,22 @@ try {
     ok(str_contains($page['body'], '<option value="c:inpost" selected>') && !str_contains($page['body'], 'id="ordersFilterBar" hidden'),
         'Order page keeps the delivery filter selected and the filter panel open');
 
+    // Pasek nad listą: liczby do zrobienia i paczek, każda z linkiem do listy z tym samym filtrem.
+    ok(\Pase\Services\OrderPipeline::openStatusKeys([['status_key' => 'new', 'position' => 1], ['status_key' => 'czeka', 'position' => 2],
+        ['status_key' => 'shipped', 'position' => 3], ['status_key' => 'zrealizowano', 'position' => 4], ['status_key' => 'cancelled', 'position' => 5]]) === ['new', 'czeka'],
+        'Open statuses: system "new" and custom statuses before "Wysłane"; "Zrealizowano" after it and cancelled are closed');
+    ok(preg_match('/<a href="index\.php\?status=open" class="band-tile tone-todo[^"]*" data-pipe="realize"[^>]*>.*?<b>2<\/b>/s', $list['body']) === 1
+        && preg_match('/data-pipe="pack"[^>]*>.*?<b>1<\/b>/s', $list['body']) === 1 && !str_contains($list['body'], 'aktywnych zamówień'),
+        'Band shows "Do realizacji 2" and "Do spakowania 1" instead of the count of all active orders');
+    ok(!str_contains($list['body'], 'data-pipe="problem"'), 'No "Problem" tile when there are no problem parcels');
+    ok($rows(request($boss, 'admin/orders_search.php?status=open')) === 2, 'status=open lists the 2 orders before shipping (new + processing)');
+    ok($rows(request($boss, 'admin/orders_search.php?status=open&need_shipping=1')) === 1, 'status=open&need_shipping=1 lists the 1 order to pack');
+    ok($rows(request($boss, 'admin/orders_search.php?need_shipping=on_the_way')) === 1, 'need_shipping=on_the_way finds the parcel in transit');
+    ok($rows(request($boss, 'admin/orders_search.php?need_shipping=on_the_way&date_from=' . \Pase\Services\OrderPipeline::shipmentsSince())) === 0,
+        'Old parcel (order older than 30 days) is not in the band window');
+    ok(str_contains(request($boss, 'admin/index.php?status=open')['body'], '<option value="open" selected>Do realizacji (przed wysłaniem)</option>'),
+        'Status filter keeps "Do realizacji" selected');
+
     $node = trim((string) shell_exec('command -v node'));
     $hasPw = $node !== '' && trim((string) shell_exec('NODE_PATH=' . escapeshellarg((string) getenv('NODE_PATH')) . ' ' . escapeshellarg($node)
         . ' -e "require.resolve(\'playwright\'); console.log(1)" 2>/dev/null')) === '1';

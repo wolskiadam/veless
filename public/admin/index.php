@@ -135,6 +135,10 @@ function ordersSparkChart(array $dailyCounts, string $ariaLabel): string
 // patrz _orders_query.php. Wymaga $pdo, $view (już ustawione wyżej).
 require __DIR__ . '/_orders_query.php';
 
+// Pasek nad listą: co trzeba zrobić teraz i gdzie są paczki (Services\OrderPipeline) - liczby zgodne z filtrami listy.
+$pipeSince  = \Pase\Services\OrderPipeline::shipmentsSince();
+$pipeCounts = $view === 'active' && !$noTable ? \Pase\Services\OrderPipeline::counts($pdo, $statusList, $pipeSince) : null;
+
 $PAGE_TITLE = $view === 'archived' ? t('orders.title.archived')
     : ($view === 'trashed' ? t('orders.title.trashed') : t('orders.title'));
 $PAGE_KEY   = 'orders';
@@ -524,17 +528,32 @@ $PAGE_HEAD = <<<'CSS'
     /* Pasek dnia */
     .orders-band { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:32px; align-items:end; margin:0 0 24px; padding:20px 24px;
         background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
-    .band-head { display:flex; align-items:baseline; gap:8px; margin-bottom:12px; }
-    .band-total { font-size:32px; font-weight:500; line-height:1; font-variant-numeric:tabular-nums; }
-    .band-label { font-size:14px; color:var(--ink-2); }
-    .band-bar { display:flex; gap:3px; height:10px; }
-    .band-bar a { min-width:6px; border-radius:3px; background:var(--st); transition:opacity .15s cubic-bezier(.22,1,.36,1); }
-    .band-bar:hover a { opacity:.45; } .band-bar a:hover, .band-bar a:focus-visible { opacity:1; }
-    .band-legend { display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:12px; }
-    .band-key { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--ink-2); text-decoration:none; }
-    .band-key b { font-weight:500; color:var(--ink); font-variant-numeric:tabular-nums; }
-    .band-key:hover, .band-key.on { color:var(--ink); }
-    .band-key .status-dot { width:8px; height:8px; border-radius:50%; background:var(--st); }
+    .band-flow { display:flex; gap:28px; min-width:0; overflow-x:auto; scrollbar-width:none; }
+    .band-group { display:flex; flex-direction:column; gap:8px; flex:none; }
+    .band-group + .band-group { padding-left:28px; border-left:1px solid var(--line); }
+    .band-group-label { font-size:12px; color:var(--ink-3); }
+    .band-tiles { display:flex; gap:4px; margin-left:-10px; }
+    .band-tile { --tone:var(--ink-3); display:flex; flex-direction:column; gap:8px; padding:8px 10px; border-radius:10px; color:var(--ink); text-decoration:none; transition:background .15s cubic-bezier(.22,1,.36,1); }
+    .band-tile:hover, .band-tile.on { background:var(--surface-2); }
+    .band-tile-label { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--ink-2); white-space:nowrap; }
+    .band-dot { width:8px; height:8px; border-radius:50%; background:var(--tone); flex:none; }
+    .band-tile b { font-size:30px; font-weight:500; line-height:1; font-variant-numeric:tabular-nums; }
+    .band-tile.is-zero b { color:var(--ink-3); }
+    .band-tile.is-zero .band-dot { opacity:.35; }
+    .band-tile.tone-todo { --tone:var(--accent); }
+    .band-tile.tone-warn { --tone:#e3a73f; }
+    .band-tile.tone-transit { --tone:#1d5fb8; }
+    .band-tile.tone-bad { --tone:#b3261e; }
+    .band-tile.tone-bad b { color:#b3261e; }
+    /* Liczby sprzedaży z boku jako spokojna kolumna - pierwsze miejsce mają liczby do zrobienia. */
+    .orders-band .band-stats { grid-template-columns:auto auto; gap:6px 20px; align-items:baseline; align-self:center; }
+    .orders-band .band-fig { display:contents; }
+    .orders-band .band-fig span { font-size:13px; }
+    .orders-band .band-fig b { font-size:15px; text-align:right; }
+    .orders-band .band-chart { grid-column:1 / -1; }
+    .orders-band .band-chart svg { height:28px; width:150px; }
+    @media (max-width:1500px) { .orders-band .band-chart { display:none; } }
+    @media (max-width:1280px) { .orders-band { grid-template-columns:minmax(0,1fr); } .orders-band .band-stats { display:none; } }
     .band-stats { display:grid; grid-template-columns:repeat(3, auto) 200px; gap:24px; align-items:end; color:inherit; text-decoration:none;
         padding:8px 12px; margin:-8px -12px; border-radius:10px; transition:background .15s cubic-bezier(.22,1,.36,1); }
     .band-stats:hover { background:var(--surface-2); }
@@ -575,10 +594,17 @@ $PAGE_HEAD = <<<'CSS'
     /* Telefon: karta z paskiem statusu po lewej i spokojnym paskiem dnia nad listą. */
     @media (max-width:820px) {
         .page-title-row h1 { font-size:26px; }
-        /* Na telefonie zamówienia mają być zaraz pod wyszukiwarką - zostaje sam cienki pasek udziału statusów. */
-        .orders-band { display:block; padding:0; margin:-4px 4px 8px; background:transparent; border:0; box-shadow:none; }
-        .band-head, .band-legend, .band-stats { display:none; }
-        .band-bar { height:6px; gap:2px; }
+        /* Na telefonie zamówienia mają być zaraz pod wyszukiwarką - liczby w jednym rzędzie, przewijanym w bok. */
+        .orders-band { display:block; padding:0; margin:-4px 0 8px; background:transparent; border:0; box-shadow:none; }
+        .band-stats, .band-group-label { display:none; }
+        .band-flow { gap:6px; padding:0 0 2px; }
+        .band-flow::-webkit-scrollbar { display:none; }
+        .band-group, .band-tiles { flex-direction:row; gap:6px; flex:none; margin:0; }
+        .band-group + .band-group { padding-left:0; border-left:0; }
+        .band-tile { flex-direction:row; align-items:center; gap:6px; min-width:0; margin:0; padding:6px 12px; border-radius:999px;
+            background:var(--surface); box-shadow:inset 0 0 0 1px var(--line); }
+        .band-tile b { font-size:15px; }
+        .band-tile-label { color:var(--ink); }
         .orders-table tr:not(.orders-head) { box-shadow:inset 3px 0 0 var(--st), var(--shadow); border-radius:14px; padding:16px 16px 16px 20px; }
         .orders-table td[data-col="status"] > span:first-child { height:auto; padding:0; font-size:13px; }
         .orders-table td[data-col="amount"] { font-size:20px; }
@@ -625,6 +651,8 @@ if ($view === 'archived') {
     $currentSide = ['label' => t('orders.side.archive'), 'color' => null, 'count' => (int) $lifeCounts['archived']];
 } elseif ($view === 'trashed') {
     $currentSide = ['label' => t('orders.side.trash'), 'color' => null, 'count' => (int) $lifeCounts['trashed']];
+} elseif ($fStatus === \Pase\Services\OrderPipeline::OPEN) {
+    $currentSide = ['label' => t('orders.pipe.realize'), 'color' => null, 'count' => (int) ($pipeCounts['realize'] ?? 0)];
 } elseif ($fStatus !== '') {
     foreach ($statusList as $s) {
         if ($s['status_key'] === $fStatus) {
@@ -747,21 +775,48 @@ unset($searchHidden['q'], $searchHidden['p']);
 <!-- ===== Treść (filtry + lista) ===== -->
 <div class="orders-main">
 
-<?php if ($view === 'active' && !$noTable && $ordersTotal > 0): ?>
-<?php // Pasek dnia: udział statusów (kolory ze Statusów, klik = filtr) i liczby zamówień z wykresem 30 dni (dziś w kolorze systemu). ?>
-<section class="orders-band" aria-label="Podsumowanie zamówień">
-    <div class="band-share">
-        <div class="band-head"><span class="band-total"><?= (int) $ordersTotal ?></span><span class="band-label">aktywnych zamówień</span></div>
-        <div class="band-bar">
-            <?php foreach ($statusList as $s): $n = (int) ($statusCounts[$s['status_key']] ?? 0); if ($n === 0) { continue; } ?>
-                <a href="<?= htmlspecialchars($statusLink($s['status_key'])) ?>" style="flex:<?= $n ?>;--st:<?= htmlspecialchars($s['color'] ?? '#888') ?>" title="<?= htmlspecialchars($s['label'] . ': ' . $n) ?>" aria-label="<?= htmlspecialchars($s['label'] . ': ' . $n) ?>"<?= $fStatus === $s['status_key'] ? ' class="on"' : '' ?>></a>
-            <?php endforeach; ?>
-        </div>
-        <div class="band-legend">
-            <?php foreach ($statusList as $s): $n = (int) ($statusCounts[$s['status_key']] ?? 0); if ($n === 0) { continue; } ?>
-                <a href="<?= htmlspecialchars($statusLink($s['status_key'])) ?>" class="band-key<?= $fStatus === $s['status_key'] ? ' on' : '' ?>" style="--st:<?= htmlspecialchars($s['color'] ?? '#888') ?>"><span class="status-dot"></span><?= htmlspecialchars($s['label']) ?><b><?= $n ?></b></a>
-            <?php endforeach; ?>
-        </div>
+<?php if ($pipeCounts !== null && $ordersTotal > 0): ?>
+<?php
+// Pasek nad listą: najpierw to, co trzeba zrobić (do realizacji, do spakowania), potem gdzie są paczki
+// z ostatnich 30 dni. Każda liczba otwiera listę z tym samym filtrem (Services\OrderPipeline).
+$pipeOpen = \Pase\Services\OrderPipeline::openStatusKeys($statusList);
+$pipeSub = [];
+foreach ($statusList as $s) {
+    if (in_array($s['status_key'], $pipeOpen, true)) { $pipeSub[] = $s['label'] . ' ' . (int) ($statusCounts[$s['status_key']] ?? 0); }
+}
+$pipeLink = static fn(array $qs): string => 'index.php?' . http_build_query($qs);
+$pipeOn = static fn(array $qs): bool => (string) ($_GET['status'] ?? '') === (string) ($qs['status'] ?? '')
+    && (string) ($_GET['need_shipping'] ?? '') === (string) ($qs['need_shipping'] ?? '');
+$pipeGroups = [
+    ['label' => t('orders.pipe.todo'), 'tiles' => [
+        ['key' => 'realize', 'tone' => 'todo', 'qs' => ['status' => 'open'], 'sub' => implode(' · ', $pipeSub)],
+        ['key' => 'pack', 'tone' => 'warn', 'qs' => ['status' => 'open', 'need_shipping' => '1'], 'sub' => t('orders.pipe.pack_sub')],
+    ]],
+    ['label' => t('orders.pipe.parcels', ['days' => \Pase\Services\OrderPipeline::SHIPMENT_DAYS]), 'tiles' => [
+        ['key' => 'created', 'tone' => 'idle', 'qs' => ['need_shipping' => 'created', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.created_sub')],
+        ['key' => 'on_the_way', 'tone' => 'transit', 'qs' => ['need_shipping' => 'on_the_way', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.on_the_way_sub')],
+        ['key' => 'pickup', 'tone' => 'transit', 'qs' => ['need_shipping' => 'pickup', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.pickup_sub')],
+        ['key' => 'problem', 'tone' => 'bad', 'qs' => ['need_shipping' => 'problem', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.problem_sub')],
+    ]],
+];
+?>
+<section class="orders-band" aria-label="<?= htmlspecialchars(t('orders.pipe.aria')) ?>">
+    <div class="band-flow">
+        <?php foreach ($pipeGroups as $g): ?>
+            <div class="band-group">
+                <div class="band-group-label"><?= htmlspecialchars($g['label']) ?></div>
+                <div class="band-tiles">
+                    <?php foreach ($g['tiles'] as $tile): $n = (int) $pipeCounts[$tile['key']];
+                        // Problem tylko, gdy jest - zero problemów nie musi zajmować miejsca.
+                        if ($tile['key'] === 'problem' && $n === 0) { continue; } ?>
+                        <a href="<?= htmlspecialchars($pipeLink($tile['qs'])) ?>" class="band-tile tone-<?= $tile['tone'] ?><?= $n === 0 ? ' is-zero' : '' ?><?= $pipeOn($tile['qs']) ? ' on' : '' ?>" data-pipe="<?= $tile['key'] ?>" title="<?= htmlspecialchars($tile['sub']) ?>">
+                            <span class="band-tile-label"><span class="band-dot"></span><?= htmlspecialchars(t('orders.pipe.' . $tile['key'])) ?></span>
+                            <b><?= $n ?></b>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php endforeach; ?>
     </div>
     <a class="band-stats" href="statistics.php" title="<?= htmlspecialchars(t('stats.widget_link')) ?>">
         <span class="band-fig"><span><?= htmlspecialchars(t('orders.stats.today')) ?></span><b><?= (int) $statsToday ?></b></span>
@@ -785,6 +840,7 @@ unset($searchHidden['q'], $searchHidden['p']);
                 <label style="font-size:12px;color:var(--ink-2);display:block"><?= htmlspecialchars(t('orders.status')) ?></label>
                 <select name="status" style="width:100%">
                     <option value="">— <?= htmlspecialchars(t('common.all')) ?> —</option>
+                    <option value="<?= \Pase\Services\OrderPipeline::OPEN ?>" <?= $fStatus === \Pase\Services\OrderPipeline::OPEN ? 'selected' : '' ?>><?= htmlspecialchars(t('orders.pipe.realize_option')) ?></option>
                     <?php foreach ($statusList as $s): ?>
                         <option value="<?= htmlspecialchars($s['status_key']) ?>" <?= $fStatus === $s['status_key'] ? 'selected' : '' ?>><?= htmlspecialchars($s['label']) ?></option>
                     <?php endforeach; ?>
@@ -862,7 +918,8 @@ unset($searchHidden['q'], $searchHidden['p']);
                 'unread' => ['Wiadomości', $fUnread ? '1' : '', ['' => 'Wszystkie', '1' => 'Z nieprzeczytanymi']],
                 'need_invoice' => ['Żądanie faktury', $fNeedInvoice ? '1' : '', ['' => 'Wszystkie', '1' => 'Wymagana i niewystawiona']],
                 'need_shipping' => ['Wysyłka', $fShipping, ['' => 'Wszystkie', '1' => 'Wymaga wysyłki']
-                    + array_map(static fn(array $f): string => $f[0], \Pase\Services\OrderIndicators::TRACKING_FILTERS)],
+                    + array_map(static fn(array $f): string => $f[0], \Pase\Services\OrderIndicators::TRACKING_FILTERS)
+                    + array_map(static fn(array $f): string => $f[0], \Pase\Services\OrderIndicators::TRACKING_GROUPS)],
                 'delivery' => ['Dostawa', $fDelivery, $deliveryFilter],
                 'unpaid' => ['Płatność', $fUnpaid ? '1' : '', ['' => 'Wszystkie', '1' => 'Nieopłacone / pobranie']],
                 'need_receipt' => ['Paragon do wystawienia', $fNeedReceipt ? '1' : '', ['' => 'Wszystkie', '1' => 'Bez faktury i bez paragonu']],

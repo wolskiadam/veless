@@ -124,13 +124,24 @@ final class OrderIndicators
         'problem'          => ['Problem / zwrot',              ['returned', 'issue']],
     ];
 
+    /** Dodatkowe grupy etapów dla linków z paska nad listą (OrderPipeline) - nie ma ich w rozwijanej liście filtra. */
+    public const TRACKING_GROUPS = [
+        'on_the_way' => ['W drodze lub w doręczeniu', ['in_transit', 'out_for_delivery']],
+    ];
+
+    /** Etapy śledzenia dla klucza filtra „Wysyłka” (TRACKING_FILTERS albo TRACKING_GROUPS); null = nieznany klucz. */
+    public static function trackingStages(string $filter): ?array
+    {
+        return (self::TRACKING_FILTERS[$filter] ?? self::TRACKING_GROUPS[$filter] ?? null)[1] ?? null;
+    }
+
     /**
-     * Czy któraś aktywna przesyłka zamówienia jest na danym etapie śledzenia (klucz z TRACKING_FILTERS).
+     * Czy któraś aktywna przesyłka zamówienia jest na danym etapie śledzenia (klucz z TRACKING_FILTERS / TRACKING_GROUPS).
      * Przesyłka bez danych ze śledzenia liczy się jako „Utworzona".
      */
     public static function matchesTracking(?array $shipments, string $filter): bool
     {
-        $stages = self::TRACKING_FILTERS[$filter][1] ?? null;
+        $stages = self::trackingStages($filter);
         if ($stages === null) {
             return false;
         }

@@ -38,7 +38,7 @@ $fNeedInvoice  = ($_GET['need_invoice'] ?? '') === '1';  // wskaźnik "faktura" 
 // Filtr „Wysyłka": '1' = wymaga wysyłki (wskaźnik "wysyłka" = warn) albo etap śledzenia przesyłki
 // (klucz z OrderIndicators::TRACKING_FILTERS, np. in_transit, delivered).
 $fShipping = (string) ($_GET['need_shipping'] ?? '');
-if ($fShipping !== '1' && !isset(\Pase\Services\OrderIndicators::TRACKING_FILTERS[$fShipping])) { $fShipping = ''; }
+if ($fShipping !== '1' && \Pase\Services\OrderIndicators::trackingStages($fShipping) === null) { $fShipping = ''; }
 $fNeedShipping = $fShipping === '1';
 $fShipmentTracking = $fShipping !== '' && !$fNeedShipping ? $fShipping : '';
 $fUnpaid       = ($_GET['unpaid'] ?? '') === '1';        // wskaźnik "płatność" = warn (nieopłacone/pobranie)
@@ -118,7 +118,16 @@ if ($q !== '' && preg_match('/^#\s*(\d+)$/', $q, $qm)) {
     $params[':q2'] = $like;
     $params[':q3'] = $like;
 }
-if ($fStatus !== '') {
+if ($fStatus === \Pase\Services\OrderPipeline::OPEN) {
+    // „Do realizacji” z paska nad listą: wszystkie statusy przed „Wysłane” (Services\OrderPipeline).
+    $openKeys = \Pase\Services\OrderPipeline::openStatusKeys($statusList ?? []);
+    $openIn = [];
+    foreach ($openKeys as $i => $key) {
+        $openIn[] = ':open' . $i;
+        $params[':open' . $i] = $key;
+    }
+    $where[] = $openIn === [] ? '1 = 0' : 'wo.pase_status IN (' . implode(',', $openIn) . ')';
+} elseif ($fStatus !== '') {
     $where[] = 'wo.pase_status = :status';
     $params[':status'] = $fStatus;
 }

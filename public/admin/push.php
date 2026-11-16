@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Powiadomienia push tego urządzenia (JSON, z dzwoneczka w nav.php - Services\WebPush).
  * GET - klucz publiczny VAPID; POST action=subscribe (endpoint, p256dh, auth) | unsubscribe (endpoint) | test
- *   | sources (endpoint) | save_sources (endpoint, all=1 albo sources[]=id konta, 0 = ręczne).
+ *   | status (endpoint) | sources (endpoint) | save_sources (endpoint, all=1 albo sources[]=id konta, 0 = ręczne).
  */
 
 use Pase\Services\WebPush;
@@ -64,8 +64,13 @@ try {
     } elseif ($action === 'test') {
         $sent = $push->send(['title' => 'Powiadomienia działają', 'body' => 'Tak będą wyglądać powiadomienia o nowych zamówieniach.',
             'url' => 'orders.php', 'tag' => 'test'], $uid);
-        echo json_encode(['ok' => $sent > 0, 'sent' => $sent, 'error' => $sent > 0 ? null : 'Nie udało się wysłać powiadomienia na żadne urządzenie.'],
+        $why = $push->lastErrors();
+        echo json_encode(['ok' => $sent > 0, 'sent' => $sent, 'error' => $sent > 0 ? null
+            : 'Nie udało się wysłać powiadomienia na żadne urządzenie' . ($why !== [] ? ': ' . implode('; ', $why) : ' (to konto nie ma zapisanych urządzeń)') . '.'],
             JSON_UNESCAPED_UNICODE);
+    } elseif ($action === 'status') {
+        // Dzwoneczek: czy serwer zna to urządzenie, kiedy ostatnio coś doszło i ostatni błąd.
+        echo json_encode(['ok' => true] + $push->deviceStatus((string) ($_POST['endpoint'] ?? ''), $uid), JSON_UNESCAPED_UNICODE);
     } else {
         http_response_code(400);
         echo json_encode(['ok' => false, 'error' => 'Nieznana akcja.'], JSON_UNESCAPED_UNICODE);

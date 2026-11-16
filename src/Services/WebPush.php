@@ -38,6 +38,12 @@ final class WebPush
     /** @var null|\Closure(string,string,array<string,string>,string):array{status:int,body:string} testy podstawiają wysyłkę */
     private ?\Closure $sender = null;
 
+    /** @var list<string> powody odrzucenia z ostatniego send() (komunikat „Wyślij test”) */
+    private array $lastErrors = [];
+
+    /** @var list<array{user_id:int,device:string,result:string}> co ostatnie send() zrobiło na każdym urządzeniu */
+    private array $lastReport = [];
+
     public function __construct(private readonly PDO $pdo) {}
 
     public static function migrate(PDO $pdo): void
@@ -63,6 +69,22 @@ final class WebPush
             id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INT NOT NULL, endpoint_hash CHAR(64) NOT NULL UNIQUE,
             endpoint TEXT NOT NULL, p256dh VARCHAR(120) NOT NULL, auth VARCHAR(40) NOT NULL,
             user_agent VARCHAR(255) NOT NULL DEFAULT '', created_at INT NOT NULL, last_ok_at INT NULL, sources TEXT NULL)");
+    }
+
+    /** Kolumny ostatniej próby wysyłki (dzwoneczek pokazuje, czy i kiedy coś doszło). */
+    private static function ensureStatusColumns(PDO $pdo): void
+    {
+        try {
+            $pdo->query('SELECT last_try_at, last_status, last_error FROM push_subscriptions LIMIT 1');
+        } catch (\PDOException) {
+            foreach (['last_try_at INT NULL', 'last_status INT NULL', 'last_error VARCHAR(255) NULL'] as $col) {
+                try {
+                    $pdo->exec('ALTER TABLE push_subscriptions ADD COLUMN ' . $col);
+                } catch (\PDOException) {
+                    // kolumna już jest
+                }
+            }
+        }
     }
 
     /** Kolumna sources (wybór sklepów/źródeł) w tabeli sprzed tej zmiany. */
@@ -97,6 +119,16 @@ final class WebPush
             }
             $pub = self::b64u(self::rawPublic($key));
             $settings->setMany([self::PUBLIC_KEY => $pub, self::PRIVATE_KEY => (string) $pem]);
+            // Subskrypcje urządzeń są związane z poprzednim kluczem - usługi push i tak by je odrzucały (403).
+            // Usunięte: urządzenie przy następnym otwarciu panelu zapisze się od nowa z nowym kluczem (nav.php).
+            try {
+                $n = $this->pdo->exec('DELETE FROM push_subscriptions');
+                if ($n > 0) {
+                    Logger::warn("Push: utworzono nowe klucze VAPID - usunięto {$n} subskrypcji ze starym kluczem");
+                }
+            } catch (\PDOException) {
+                // brak tabeli
+            }
         }
         if ($subject !== null && $subject !== '' && (string) $settings->get(self::SUBJECT, '') !== $subject) {
             $settings->setMany([self::SUBJECT => $subject]);
@@ -132,6 +164,7 @@ final class WebPush
         }
         self::migrate($this->pdo);
         self::ensureSourcesColumn($this->pdo);
+        self::ensureStatusColumns($this->pdo);
         $hash = hash('sha256', $endpoint);
         // Wybór sklepów zostaje przy ponownym zapisie tego samego urządzenia (to samo konto).
         $st = $this->pdo->prepare('SELECT user_id, sources FROM push_subscriptions WHERE endpoint_hash = ?');
@@ -279,7 +312,10 @@ final class WebPush
         }
 
         $ok = 0;
+        $this->lastErrors = [];
+        $this->lastReport = [];
         foreach ($subs as $s) {
+            $report = ['user_id' => (int) $s['user_id'], 'device' => self::deviceLabel((string) ($s['user_agent'] ?? '')), 'result' => ''];
             try {
                 $endpoint = (string) $s['endpoint'];
                 if (!self::allowedEndpoint($endpoint)) {
@@ -309,30 +345,103 @@ final class WebPush
                 if ($status >= 200 && $status < 300) {
                     $ok++;
                     $this->pdo->prepare('UPDATE push_subscriptions SET last_ok_at = ? WHERE id = ?')->execute([time(), (int) $s['id']]);
+                    $this->recordTry((int) $s['id'], $status, null);
+                    $report['result'] = 'dostarczono';
                 } elseif ($status === 404 || $status === 410) {
                     // Urządzenie wyłączyło powiadomienia albo usunęło aplikację - subskrypcja nieaktualna.
                     $this->pdo->prepare('DELETE FROM push_subscriptions WHERE id = ?')->execute([(int) $s['id']]);
                     Logger::info('Push: usunięto wygasłą subskrypcję #' . $s['id']);
+                    $this->lastErrors[] = 'urządzenie nieaktualne (' . $status . ') - włącz powiadomienia ponownie';
+                    $report['result'] = 'urządzenie nieaktualne (' . $status . '), usunięte - trzeba włączyć powiadomienia ponownie';
                 } else {
+                    $why = self::rejectReason($status, $respBody);
                     Logger::warn('Push: usługa odrzuciła powiadomienie', ['subscription' => (int) $s['id'], 'status' => $status,
                         'response' => mb_substr($respBody, 0, 200)]);
+                    $this->recordTry((int) $s['id'], $status, $why);
+                    $this->lastErrors[] = $why;
+                    $report['result'] = $why;
                 }
             } catch (\Throwable $e) {
                 Logger::warn('Push: błąd wysyłki', ['subscription' => (int) $s['id'], 'error' => $e->getMessage()]);
+                $this->recordTry((int) $s['id'], 0, 'błąd wysyłki: ' . $e->getMessage());
+                $this->lastErrors[] = 'błąd wysyłki: ' . $e->getMessage();
+                $report['result'] = 'błąd wysyłki: ' . $e->getMessage();
+            }
+            if ($report['result'] !== '') {
+                $this->lastReport[] = $report;
             }
         }
         return $ok;
     }
 
+    /** @return list<string> czemu ostatnie send() nie dotarło na część urządzeń */
+    public function lastErrors(): array
+    {
+        return array_values(array_unique($this->lastErrors));
+    }
+
+    /** Krótki opis odrzucenia przez usługę push (403 = zwykle podpis innym kluczem niż przy zapisie urządzenia). */
+    public static function rejectReason(int $status, string $body): string
+    {
+        $detail = '';
+        $j = json_decode($body, true);
+        if (is_array($j)) {
+            $detail = (string) ($j['reason'] ?? ($j['error']['message'] ?? ($j['message'] ?? '')));
+        } elseif (trim($body) !== '' && strlen($body) < 200 && !str_contains($body, '<')) {
+            $detail = trim($body);
+        }
+        $text = match (true) {
+            $status === 403 => 'usługa push odrzuciła podpis (403) - urządzenie zapisane z innym kluczem, włącz powiadomienia ponownie',
+            $status === 413 => 'za długa treść (413)',
+            $status === 429 => 'za dużo powiadomień naraz (429)',
+            $status === 0 => 'brak odpowiedzi usługi push',
+            default => 'usługa push odrzuciła powiadomienie (' . $status . ')',
+        };
+        return mb_substr($text . ($detail !== '' ? ': ' . $detail : ''), 0, 250);
+    }
+
+    private function recordTry(int $id, int $status, ?string $error): void
+    {
+        try {
+            self::ensureStatusColumns($this->pdo);
+            $this->pdo->prepare('UPDATE push_subscriptions SET last_try_at = ?, last_status = ?, last_error = ? WHERE id = ?')
+                ->execute([time(), $status, $error !== null ? mb_substr($error, 0, 250) : null, $id]);
+        } catch (\PDOException) {
+            // bez kolumn - tylko log
+        }
+    }
+
+    /**
+     * Stan urządzenia w dzwoneczku: kiedy ostatnio coś doszło i ostatni błąd.
+     * @return array{saved:bool,last_ok_at:?int,last_try_at:?int,last_error:?string}
+     */
+    public function deviceStatus(string $endpoint, int $userId): array
+    {
+        $out = ['saved' => false, 'last_ok_at' => null, 'last_try_at' => null, 'last_error' => null];
+        try {
+            self::ensureStatusColumns($this->pdo);
+            $st = $this->pdo->prepare('SELECT last_ok_at, last_try_at, last_error FROM push_subscriptions WHERE endpoint_hash = ? AND user_id = ?');
+            $st->execute([hash('sha256', $endpoint), $userId]);
+            $r = $st->fetch(PDO::FETCH_ASSOC);
+            if (is_array($r)) {
+                $out = ['saved' => true, 'last_ok_at' => $r['last_ok_at'] !== null ? (int) $r['last_ok_at'] : null,
+                    'last_try_at' => $r['last_try_at'] !== null ? (int) $r['last_try_at'] : null,
+                    'last_error' => $r['last_error'] !== null && $r['last_error'] !== '' ? (string) $r['last_error'] : null];
+            }
+        } catch (\PDOException) {
+            // brak tabeli
+        }
+        return $out;
+    }
+
     /**
      * Powiadomienie „Nowe zamówienie” - wołane raz na zamówienie przy zdarzeniu „Pobrano zamówienie”
      * (RuleEngine). Zamówienie dodane ręcznie w panelu nie trafia na urządzenia osoby, która je dodała.
+     * Zamówienia ze sklepów i marketplace'ów pobrane w panelu („Pobierz teraz”, przeciągnięcie listy) idą do wszystkich.
      */
     public function notifyNewOrder(int $wooOrderId, array $payload): int
     {
-        if ($this->subscriptions() === []) {
-            return 0;
-        }
+        $all = $this->subscriptions();
         // Import starych zamówień (np. pierwsze pobranie historii) nie zasypuje telefonu powiadomieniami.
         $sourceId = 0;
         try {
@@ -346,6 +455,14 @@ final class WebPush
         }
         $createdTs = $created !== '' ? strtotime($created . (preg_match('/[zZ]|[+-]\d\d:?\d\d$/', $created) ? '' : ' UTC')) : false;
         if ($createdTs !== false && $createdTs < time() - self::MAX_ORDER_AGE) {
+            // Wpis w historii tylko dla świeższych (do 30 dni) - import całej historii nie zaśmieca dziennika.
+            if ($createdTs >= time() - 30 * 86400) {
+                $this->recordOrder($wooOrderId, 'nie wysłano: zamówienie złożone ponad 2 dni przed pobraniem', []);
+            }
+            return 0;
+        }
+        if ($all === []) {
+            $this->recordOrder($wooOrderId, 'nie wysłano: na żadnym urządzeniu nie są włączone powiadomienia', []);
             return 0;
         }
         // Raz na zamówienie (ponowne zdarzenie po płatności, ponowny import itp.).
@@ -359,8 +476,78 @@ final class WebPush
                 return 0; // już wysłane
             }
         }
-        $exceptUser = PHP_SAPI !== 'cli' && isset($_SESSION['pase_user_id']) ? (int) $_SESSION['pase_user_id'] : null;
-        return $this->send(self::newOrderMessage($this->pdo, $wooOrderId, $payload), null, $exceptUser, $sourceId);
+        $exceptUser = self::authorToSkip($sourceId, PHP_SAPI, $_SESSION ?? []);
+        // Urządzenia pominięte celowo - do historii zamówienia, żeby było widać, czemu ktoś nie dostał pushu.
+        $skipped = [];
+        foreach ($all as $s) {
+            $why = null;
+            if ($exceptUser !== null && (int) $s['user_id'] === $exceptUser) {
+                $why = 'pominięto: autor zamówienia ręcznego';
+            } else {
+                $list = self::decodeSources($s['sources'] ?? null);
+                if ($list !== null && !in_array($sourceId, $list, true)) {
+                    $why = 'pominięto: ten sklep jest odznaczony w dzwoneczku na tym urządzeniu';
+                }
+            }
+            if ($why !== null) {
+                $skipped[] = ['user_id' => (int) $s['user_id'], 'device' => self::deviceLabel((string) ($s['user_agent'] ?? '')), 'result' => $why];
+            }
+        }
+        $ok = $this->send(self::newOrderMessage($this->pdo, $wooOrderId, $payload), null, $exceptUser, $sourceId);
+        $devices = array_merge($this->lastReport, $skipped);
+        $this->recordOrder($wooOrderId, $ok > 0 ? 'wysłano na ' . $ok . ' z ' . count($all) . ' urządzeń'
+            : ($this->lastReport === [] ? 'nie wysłano: wszystkie urządzenia pominięte' : 'nie dotarło na żadne urządzenie'), $devices);
+        return $ok;
+    }
+
+    /**
+     * Wpis „Powiadomienie push” w historii zamówienia (order_history.php): do kogo i na jakie urządzenie poszło,
+     * a jeśli nie - dlaczego. Błąd zapisu nie wstrzymuje wysyłki ani importu.
+     * @param list<array{user_id:int,device:string,result:string}> $devices
+     */
+    private function recordOrder(int $wooOrderId, string $summary, array $devices): void
+    {
+        try {
+            $names = [];
+            $ids = array_values(array_unique(array_column($devices, 'user_id')));
+            if ($ids !== []) {
+                try {
+                    $st = $this->pdo->prepare('SELECT id, username FROM admin_users WHERE id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+                    $st->execute($ids);
+                    $names = $st->fetchAll(PDO::FETCH_KEY_PAIR) ?: [];
+                } catch (\PDOException) {
+                    $names = [];
+                }
+            }
+            $list = array_map(static fn(array $d): array => [
+                'user' => (string) ($names[$d['user_id']] ?? ('konto #' . $d['user_id'])), 'device' => $d['device'], 'result' => $d['result'],
+            ], $devices);
+            AuditTrail::migrate($this->pdo);
+            (new AuditTrail($this->pdo))->record($wooOrderId, 'push.new_order', [], ['push' => ['summary' => $summary, 'devices' => $list]]);
+        } catch (\Throwable $e) {
+            Logger::warn("Push: nie zapisano wpisu w historii zamówienia {$wooOrderId}", ['error' => $e->getMessage()]);
+        }
+    }
+
+    /** Krótka nazwa urządzenia z nagłówka przeglądarki (iPhone, Android, Mac, Windows…). */
+    public static function deviceLabel(string $ua): string
+    {
+        foreach (['iPhone' => 'iPhone', 'iPad' => 'iPad', 'Android' => 'Android', 'Macintosh' => 'Mac', 'Windows' => 'Windows', 'Linux' => 'Linux'] as $needle => $label) {
+            if (stripos($ua, $needle) !== false) {
+                return $label;
+            }
+        }
+        return 'urządzenie';
+    }
+
+    /**
+     * Czyje urządzenia pominąć: tylko autora zamówienia ręcznego (bez konta źródła) dodanego w panelu. Zamówienie ze
+     * sklepu/marketplace'u pobrane w żądaniu panelu („Pobierz teraz”, przeciągnięcie listy) idzie do wszystkich.
+     * @param array<string,mixed> $session
+     */
+    public static function authorToSkip(int $sourceId, string $sapi, array $session): ?int
+    {
+        return $sourceId === 0 && $sapi !== 'cli' && isset($session['pase_user_id']) ? (int) $session['pase_user_id'] : null;
     }
 
     /** @return array{title:string,body:string,url:string,tag:string} */

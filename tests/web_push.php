@@ -98,6 +98,20 @@ check($push->send(['title' => 'X'], 1) === 1 && (int) $pdo->query('SELECT COUNT(
     'expired subscription (410) is removed, the rest still delivered');
 unset($status['https://fcm.googleapis.com/fcm/send/adam2']);
 
+// --- stan urządzenia w dzwoneczku: ostatnie dostarczenie i ostatni błąd ---
+$st0 = $push->deviceStatus('https://web.push.apple.com/adam', 1);
+check($st0['saved'] && $st0['last_ok_at'] !== null && $st0['last_error'] === null, 'device status: saved, last delivery time, no error');
+check(!$push->deviceStatus('https://web.push.apple.com/adam', 2)['saved'] && !$push->deviceStatus('https://web.push.apple.com/nope', 1)['saved'],
+    'device status: unknown device / other account reads as not saved');
+$status['https://web.push.apple.com/adam'] = 403;
+$sent = [];
+check($push->send(['title' => 'X'], 1) === 0 && str_contains(implode(' ', $push->lastErrors()), '403'), 'rejected push (403) reported for the test message');
+$st1 = $push->deviceStatus('https://web.push.apple.com/adam', 1);
+check($st1['last_try_at'] >= $st1['last_ok_at'] && str_contains((string) $st1['last_error'], 'inny'), 'device status keeps the last rejection reason');
+unset($status['https://web.push.apple.com/adam']);
+$push->send(['title' => 'X'], 1);
+check($push->deviceStatus('https://web.push.apple.com/adam', 1)['last_error'] === null, 'successful delivery clears the error');
+
 // --- nowe zamówienie ---
 $pdo->exec("INSERT INTO integration_accounts (id, type, name) VALUES (3, 'allegro', 'Allegro Klub')");
 $pdo->exec("INSERT INTO woo_orders VALUES (500, '1234', 129.9, 'PLN', 'Jan Kowalski', '" . gmdate('Y-m-d H:i:s') . "', 3)");
@@ -126,6 +140,18 @@ $pdo->exec("INSERT INTO woo_orders VALUES (504, '1237', 60, 'PLN', 'Ela', '" . g
 $sent = [];
 $push->notifyNewOrder(503, []);
 check(array_column($sent, 'url') === ['https://web.push.apple.com/ewa'], 'Allegro order skips the device that chose only the shop');
+$hist = static function (int $id) use ($pdo): array {
+    $rows = $pdo->query("SELECT after_json FROM audit_events WHERE action = 'push.new_order' AND order_id = $id")->fetchAll(PDO::FETCH_COLUMN);
+    return array_map(static fn($j) => json_decode($j, true)['push'], $rows);
+};
+$h503 = $hist(503);
+check(count($h503) === 1 && $h503[0]['summary'] === 'wysłano na 1 z 2 urządzeń'
+    && in_array(['user' => 'konto #2', 'device' => 'urządzenie', 'result' => 'dostarczono'], $h503[0]['devices'], true)
+    && in_array(['user' => 'konto #1', 'device' => 'iPhone', 'result' => 'pominięto: ten sklep jest odznaczony w dzwoneczku na tym urządzeniu'], $h503[0]['devices'], true),
+    'order history: who got the push, on which device, and why a device was skipped');
+$h500 = $hist(500);
+check(count($h500) === 1 && $h500[0]['summary'] === 'wysłano na 2 z 2 urządzeń', 'order history: one entry per order (repeat event not logged)');
+check(($hist(501)[0]['summary'] ?? '') === 'nie wysłano: zamówienie złożone ponad 2 dni przed pobraniem', 'order history: old order says why no push');
 $sent = [];
 $push->notifyNewOrder(504, []);
 check(count($sent) === 2, 'shop order reaches both devices');
@@ -134,6 +160,22 @@ check($push->sources('https://web.push.apple.com/adam', 1) === [4], 'choice surv
 $sent = [];
 check($push->send(['title' => 'Test'], 1) === 1, 'test notification ignores the source choice');
 $push->saveSources('https://web.push.apple.com/adam', 1, null);
+
+// --- zamówienie ze sklepu pobrane w panelu („Pobierz teraz”) idzie też na urządzenia tej osoby; ręczne - nie ---
+check(WebPush::authorToSkip(4, 'fpm-fcgi', ['pase_user_id' => 1]) === null, 'shop order fetched in the panel reaches the user\'s own devices');
+check(WebPush::authorToSkip(0, 'fpm-fcgi', ['pase_user_id' => 1]) === 1 && WebPush::authorToSkip(0, 'cli', ['pase_user_id' => 1]) === null,
+    'manual order added in the panel skips its author; worker (cli) skips nobody');
+
+// --- nowe klucze VAPID unieważniają stare subskrypcje (usługi push odrzucałyby je 403) ---
+$keys = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+$keys->exec('CREATE TABLE settings (setting_key VARCHAR(64) PRIMARY KEY, setting_value TEXT NULL)');
+$kp = new WebPush($keys);
+$k1 = $kp->publicKey();
+$kp->subscribe(1, 'https://web.push.apple.com/k', $adam['p256dh'], $adam['auth']);
+$keys->exec("UPDATE settings SET setting_value = '' WHERE setting_key = 'WEBPUSH_VAPID_PRIVATE_KEY'"); // np. nieczytelny klucz
+$k2 = $kp->publicKey();
+check($k2 !== $k1 && (int) $keys->query('SELECT COUNT(*) FROM push_subscriptions')->fetchColumn() === 0,
+    'regenerated VAPID keys drop subscriptions made with the old key (device re-subscribes on next visit)');
 
 // --- zdarzenie „Pobrano zamówienie” w silniku reguł wysyła push ---
 $pdo->exec("INSERT INTO woo_orders VALUES (502, 'R7', 0, 'PLN', 'Anna', '" . gmdate('Y-m-d H:i:s') . "', NULL)");

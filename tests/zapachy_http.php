@@ -251,6 +251,7 @@ try {
     $csrf = csrfOf($page['body']);
     $page = follow($ola, request($ola, $url('produkt_zapisz'), ['csrf' => $csrf, 'product_id' => '2', 'fragrances' => [$sc['id']]]));
     ok(str_contains($page['body'], 'Zapach produktu: #18 Sweet Caramel') && str_contains($page['body'], 'value="' . $sc['id'] . '" checked'), 'Fragrance assigned on the product card');
+    ok(preg_match('~data-s="sweet caramel karmel slony" data-no="18"~', $page['body']) === 1 && !preg_match('~data-s="[^"]*tonka~', $page['body']), 'Product card picker searches by name only, not notes');
     $vpage = request($vi, 'admin/product_view.php?id=2');
     ok(str_contains($vpage['body'], 'Sweet Caramel') && !str_contains($vpage['body'], 'zapachy.produkt_zapisz'), 'Viewer sees fragrance without the form');
     $r = request($vi, $url('produkt_zapisz'), ['csrf' => $vcsrf(), 'product_id' => '2', 'fragrances' => []]);

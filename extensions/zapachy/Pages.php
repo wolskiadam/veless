@@ -522,7 +522,8 @@ JS;
         $rows = '';
         foreach ($all as $f) {
             $on = in_array($f['id'], $ids, true);
-            $hay = Store::norm(implode(' ', [$f['storage_no'], $f['name'], $f['aliases'], $f['head_notes'], $f['heart_notes'], $f['base_notes']]));
+            // Tylko nazwa i inne nazwy (bez nut), numer osobno w data-no.
+            $hay = Store::norm(implode(' ', [$f['name'], $f['aliases']]));
             $sub = trim((string) $f['aliases']);
             $rows .= '<label class="zp-pick-row" data-s="' . U::h($hay) . '" data-no="' . U::h(mb_strtolower(trim((string) $f['storage_no']))) . '">'
                 . '<input type="checkbox" name="fragrances[]" value="' . U::h($f['id']) . '"' . ($on ? ' checked' : '') . '>'
@@ -536,7 +537,7 @@ JS;
             . '.zp-pick-row[hidden]{display:none}.zp-pick-row input{align-self:center}.zp-pick-row:has(input:checked){background:#f3ecfb}.zp-pick-empty{padding:10px;color:var(--ink-3,#888);font-size:13px}</style>'
             . '<form method="post" action="' . U::h(U::url('produkt_zapisz')) . '" class="zp-pick" style="margin:0">'
             . U::csrf($ctx) . '<input type="hidden" name="product_id" value="' . $pid . '">'
-            . '<input type="search" class="zp-pick-q" placeholder="Szukaj zapachu: nazwa, numer (np. 18) albo nuta" autocomplete="off" aria-label="Szukaj zapachu">'
+            . '<input type="search" class="zp-pick-q" placeholder="Szukaj zapachu po nazwie albo numerze (np. 18)" autocomplete="off" aria-label="Szukaj zapachu">'
             . '<div class="zp-pick-list">' . $rows . '<div class="zp-pick-empty" hidden>Nie ma takiego zapachu.</div></div>'
             . '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn" type="submit">Zapisz zapach</button>'
             . '<span class="zp-small zp-pick-count"></span></div></form>'

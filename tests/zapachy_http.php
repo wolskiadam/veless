@@ -250,7 +250,7 @@ try {
         && str_contains($page['body'], 'Pasuje po nazwie') && str_contains($page['body'], '#18</b> Sweet Caramel'), 'Product card suggests the fragrance from the name');
     $csrf = csrfOf($page['body']);
     $page = follow($ola, request($ola, $url('produkt_zapisz'), ['csrf' => $csrf, 'product_id' => '2', 'fragrances' => [$sc['id']]]));
-    ok(str_contains($page['body'], 'Zapach produktu: #18 Sweet Caramel') && str_contains($page['body'], 'option value="' . $sc['id'] . '" selected'), 'Fragrance assigned on the product card');
+    ok(str_contains($page['body'], 'Zapach produktu: #18 Sweet Caramel') && str_contains($page['body'], 'value="' . $sc['id'] . '" checked'), 'Fragrance assigned on the product card');
     $vpage = request($vi, 'admin/product_view.php?id=2');
     ok(str_contains($vpage['body'], 'Sweet Caramel') && !str_contains($vpage['body'], 'zapachy.produkt_zapisz'), 'Viewer sees fragrance without the form');
     $r = request($vi, $url('produkt_zapisz'), ['csrf' => $vcsrf(), 'product_id' => '2', 'fragrances' => []]);

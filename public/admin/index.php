@@ -542,6 +542,7 @@ $PAGE_HEAD = <<<'CSS'
     .band-tile.is-zero .band-dot { opacity:.35; }
     .band-tile.tone-todo { --tone:var(--accent); }
     .band-tile.tone-warn { --tone:#e3a73f; }
+    .band-tile.tone-ready { --tone:#2f8f5b; }
     .band-tile.tone-transit { --tone:#1d5fb8; }
     .band-tile.tone-bad { --tone:#b3261e; }
     .band-tile.tone-bad b { color:#b3261e; }
@@ -844,15 +845,17 @@ $pipeLink = static fn(array $qs): string => 'index.php?' . http_build_query($qs)
 $pipeOn = static fn(array $qs): bool => (string) ($_GET['status'] ?? '') === (string) ($qs['status'] ?? '')
     && (string) ($_GET['need_shipping'] ?? '') === (string) ($qs['need_shipping'] ?? '');
 $pipeGroups = [
+    // Kolejność pracy: zamówienie w realizacji → etykieta → pakowanie (paczka z etykietą, jeszcze nie nadana) → u przewoźnika.
+    // 'key' = liczba z OrderPipeline::counts(), 'label' = tekst orders.pipe.<label>.
     ['label' => t('orders.pipe.todo'), 'tiles' => [
-        ['key' => 'realize', 'tone' => 'todo', 'qs' => ['status' => 'open'], 'sub' => implode(' · ', $pipeSub)],
-        ['key' => 'pack', 'tone' => 'warn', 'qs' => ['status' => 'open', 'need_shipping' => '1'], 'sub' => t('orders.pipe.pack_sub')],
+        ['key' => 'realize', 'label' => 'realize', 'tone' => 'todo', 'qs' => ['status' => 'open'], 'sub' => implode(' · ', $pipeSub)],
+        ['key' => 'pack', 'label' => 'nolabel', 'tone' => 'warn', 'qs' => ['status' => 'open', 'need_shipping' => '1'], 'sub' => t('orders.pipe.nolabel_sub')],
+        ['key' => 'created', 'label' => 'pack', 'tone' => 'ready', 'qs' => ['need_shipping' => 'created', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.pack_sub')],
     ]],
     ['label' => t('orders.pipe.parcels', ['days' => \Pase\Services\OrderPipeline::SHIPMENT_DAYS]), 'tiles' => [
-        ['key' => 'created', 'tone' => 'idle', 'qs' => ['need_shipping' => 'created', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.created_sub')],
-        ['key' => 'on_the_way', 'tone' => 'transit', 'qs' => ['need_shipping' => 'on_the_way', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.on_the_way_sub')],
-        ['key' => 'pickup', 'tone' => 'transit', 'qs' => ['need_shipping' => 'pickup', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.pickup_sub')],
-        ['key' => 'problem', 'tone' => 'bad', 'qs' => ['need_shipping' => 'problem', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.problem_sub')],
+        ['key' => 'on_the_way', 'label' => 'on_the_way', 'tone' => 'transit', 'qs' => ['need_shipping' => 'on_the_way', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.on_the_way_sub')],
+        ['key' => 'pickup', 'label' => 'pickup', 'tone' => 'transit', 'qs' => ['need_shipping' => 'pickup', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.pickup_sub')],
+        ['key' => 'problem', 'label' => 'problem', 'tone' => 'bad', 'qs' => ['need_shipping' => 'problem', 'date_from' => $pipeSince], 'sub' => t('orders.pipe.problem_sub')],
     ]],
 ];
 ?>
@@ -866,7 +869,7 @@ $pipeGroups = [
                         // Problem tylko, gdy jest - zero problemów nie musi zajmować miejsca.
                         if ($tile['key'] === 'problem' && $n === 0) { continue; } ?>
                         <a href="<?= htmlspecialchars($pipeLink($tile['qs'])) ?>" class="band-tile tone-<?= $tile['tone'] ?><?= $n === 0 ? ' is-zero' : '' ?><?= $pipeOn($tile['qs']) ? ' on' : '' ?>" data-pipe="<?= $tile['key'] ?>" title="<?= htmlspecialchars($tile['sub']) ?>">
-                            <span class="band-tile-label"><span class="band-dot"></span><?= htmlspecialchars(t('orders.pipe.' . $tile['key'])) ?></span>
+                            <span class="band-tile-label"><span class="band-dot"></span><?= htmlspecialchars(t('orders.pipe.' . $tile['label'])) ?></span>
                             <b><?= $n ?></b>
                         </a>
                     <?php endforeach; ?>

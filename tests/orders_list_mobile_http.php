@@ -171,10 +171,10 @@ try {
         'Open statuses: system "new" and custom statuses before "Wysłane"; "Zrealizowano" after it and cancelled are closed');
     ok(preg_match('/<a href="index\.php\?status=open" class="band-tile tone-todo[^"]*" data-pipe="realize"[^>]*>.*?<b>2<\/b>/s', $list['body']) === 1
         && preg_match('/data-pipe="pack"[^>]*>.*?<b>1<\/b>/s', $list['body']) === 1 && !str_contains($list['body'], 'aktywnych zamówień'),
-        'Band shows "Do realizacji 2" and "Do spakowania 1" instead of the count of all active orders');
+        'Band shows "Do realizacji 2" and "Bez etykiety 1" instead of the count of all active orders');
     ok(!str_contains($list['body'], 'data-pipe="problem"'), 'No "Problem" tile when there are no problem parcels');
     ok($rows(request($boss, 'admin/orders_search.php?status=open')) === 2, 'status=open lists the 2 orders before shipping (new + processing)');
-    ok($rows(request($boss, 'admin/orders_search.php?status=open&need_shipping=1')) === 1, 'status=open&need_shipping=1 lists the 1 order to pack');
+    ok($rows(request($boss, 'admin/orders_search.php?status=open&need_shipping=1')) === 1, 'status=open&need_shipping=1 lists the 1 order without a label');
     ok($rows(request($boss, 'admin/orders_search.php?need_shipping=on_the_way')) === 1, 'need_shipping=on_the_way finds the parcel in transit');
     ok($rows(request($boss, 'admin/orders_search.php?need_shipping=on_the_way&date_from=' . \Pase\Services\OrderPipeline::shipmentsSince())) === 0,
         'Old parcel (order older than 30 days) is not in the band window');

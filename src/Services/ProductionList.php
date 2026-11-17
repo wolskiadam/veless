@@ -5,6 +5,7 @@ namespace Pase\Services;
 
 use Pase\Plugin\Hooks;
 use PDO;
+use Pase\Support\Units;
 
 /**
  * Lista produkcji: produkty z zaznaczonych zamówień zsumowane po produkcie i wariancie - do wydrukowania
@@ -130,6 +131,23 @@ final class ProductionList
                     $materials[$mk]['total'] += $line['total'];
                 }
             }
+            // Wariant „knot: drewniany” przy recepturze „Knot: Drewniany 15 mm 0.6” - zostaje tylko dokładny z receptury.
+            $exact = [];
+            foreach ($r['details'] as $d) {
+                $exact[mb_strtolower(trim($d['label']))][] = mb_strtolower($d['value']);
+            }
+            // (Zapach z wariantu zostaje - po nim grupujemy, a w grupie i tak go nie ma.)
+            $r['attrs'] = array_values(array_filter($r['attrs'], static function (array $a) use ($exact): bool {
+                if (self::isScent($a[0])) {
+                    return true;
+                }
+                foreach ($exact[mb_strtolower(trim($a[0]))] ?? [] as $v) {
+                    if (trim($a[1]) !== '' && str_contains($v, mb_strtolower(trim($a[1])))) {
+                        return false;
+                    }
+                }
+                return true;
+            }));
             // Waga osobno (kolumna „Waga”): pole „Waga” wyrobu z Produkcji, potem waga produktu w magazynie (karta produktu, z Woo),
             // potem atrybut „Waga”/„Gramatura”, potem nazwa („... 200 g”).
             $r['weight'] = '';
@@ -141,7 +159,13 @@ final class ProductionList
             }
             $r['details'] = array_values($r['details']);
             if ($r['weight'] === '' && $p !== null && is_numeric($p['weight'] ?? null) && (float) $p['weight'] > 0) {
-                $r['weight'] = self::amount(round((float) $p['weight'] * 1000, 1), 'g');
+                $kg = (float) $p['weight'];
+                // Sklep podał gramy, a magazyn zapisał je jako kg (240 „kg” przy słoiku 6×6×6 cm) - to są gramy.
+                if (Units::implausibleWeight($kg, $p['length'] ?? null, $p['width'] ?? null, $p['height'] ?? null)
+                    || ($kg >= 50 && !((float) ($p['length'] ?? 0) > 0))) {
+                    $kg /= 1000;
+                }
+                $r['weight'] = self::amount(round($kg * 1000, 1), 'g');
             }
             foreach ($r['attrs'] as $i => [$k, $v]) {
                 if (self::isWeight($k)) {
@@ -227,6 +251,20 @@ final class ProductionList
             if ($key !== '') {
                 $r['attrs'] = array_values(array_filter($r['attrs'], static fn(array $a) => !self::isScent($a[0])));
                 $r['details'] = array_values(array_filter($r['details'], static fn(array $d) => mb_strtolower($d['label']) !== 'nr zapachu'));
+                // „Zapach: Pumpkin pie (8%)” z receptury - nazwa jest w nagłówku, zostaje „Zapach: 8%” (albo ilość).
+                $name = mb_strtolower(trim((string) preg_replace('/^\s*[\w-]{1,6}\s*·\s*/u', '', $r['scent'])));
+                foreach ($r['details'] as $i => $d) {
+                    if (mb_strtolower($d['label']) === 'zapach' && $name !== '' && str_contains(mb_strtolower($d['value']), $name)) {
+                        $rest = trim((string) preg_replace('/' . preg_quote($name, '/') . '/iu', '', $d['value']));
+                        $rest = trim((string) preg_replace('/^\((.*)\)$/u', '$1', $rest));
+                        if ($rest === '' && $d['total'] === null) {
+                            unset($r['details'][$i]);
+                        } else {
+                            $r['details'][$i]['value'] = $rest;
+                        }
+                    }
+                }
+                $r['details'] = array_values($r['details']);
             }
             $groups[$key]['rows'][] = $r;
         }

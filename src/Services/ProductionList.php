@@ -234,7 +234,7 @@ final class ProductionList
 
     /**
      * Pozycje ułożone po zapachu: ten sam zapach (różne produkty, knoty) obok siebie, bez zapachu na końcu.
-     * Zapach wspólny dla kilku pozycji dostaje literę (mark: „A”, „B”...), żeby na wydruku było widać, co robić razem.
+     * Zapach wspólny dla kilku pozycji dostaje znak (mark): numer zapachu („7”), a bez numeru literę („A”) - na wydruku w kółku.
      * Pozycje zostają jak są (z „Nr zapachu” / „Zapach” w parametrach) - bez nagłówków grup.
      * @return list<array> pozycje z kluczem mark ('' gdy zapach jest tylko w jednej pozycji albo go nie ma)
      */
@@ -249,25 +249,21 @@ final class ProductionList
         usort($keyed, static fn(array $a, array $b) => ($a[0] === '') <=> ($b[0] === '') ?: strnatcasecmp($a[0], $b[0]) ?: $a[1] <=> $b[1]);
         $letters = [];
         $out = [];
+        $nextLetter = 0;
         foreach ($keyed as [$k, , $r]) {
             if ($k !== '' && $count[$k] > 1 && !isset($letters[$k])) {
-                $n = count($letters);
-                $letters[$k] = ($n >= 26 ? chr(65 + intdiv($n, 26) - 1) : '') . chr(65 + $n % 26);
+                // Numer zapachu z wtyczki Zapachy („7 · Pumpkin pie” → 7); bez numeru litera A, B...
+                if (preg_match('/^\s*([\w-]{1,6})\s*·/u', (string) $r['scent'], $m)) {
+                    $letters[$k] = $m[1];
+                } else {
+                    $n = $nextLetter++;
+                    $letters[$k] = ($n >= 26 ? chr(65 + intdiv($n, 26) - 1) : '') . chr(65 + $n % 26);
+                }
             }
             $r['mark'] = $letters[$k] ?? '';
             $out[] = $r;
         }
         return $out;
-    }
-
-    /** Numer litery wspólnego zapachu: A → 0, B → 1, ..., Z → 25, AA → 26. */
-    public static function markIndex(string $mark): int
-    {
-        $n = 0;
-        foreach (str_split(strtoupper($mark)) as $ch) {
-            $n = $n * 26 + (ord($ch) - 64);
-        }
-        return max(0, $n - 1);
     }
 
     /** Nazwa parametru oznacza wagę świecy (Waga, Waga netto, Gramatura, Weight). */

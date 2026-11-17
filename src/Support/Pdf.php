@@ -145,17 +145,16 @@ final class Pdf
             . sprintf('%.2F %.2F %.2F %.2F re %s', $x * self::K, (self::H - $y - $h) * self::K, $w * self::K, $h * self::K, $op));
     }
 
-    /** Kropla (np. „ten sam zapach”): czubek u góry w (cx, top), wysokość h w mm; wypełniona albo sam kontur. */
-    public function drop(float $cx, float $top, float $h, string $color = '111111', bool $filled = true): void
+    /** Okrąg (kontur) o środku (cx, cy) i promieniu r w mm - cztery łuki Béziera. */
+    public function circle(float $cx, float $cy, float $r, string $color = '111111', float $lineWidth = 0.35): void
     {
-        $r = $h * 0.36;
-        $cy = $top + $h - $r;
+        $k = 0.5523 * $r;
         $pt = fn(float $x, float $y): string => sprintf('%.2F %.2F', $x * self::K, (self::H - $y) * self::K);
-        $this->out(($filled ? $this->rgb($color) . ' rg ' : strtoupper($this->rgb($color)) . ' RG ' . sprintf('%.2F w ', 0.35 * self::K)) . $pt($cx, $top) . ' m '
-            . $pt($cx + $r * 0.2, $top + $h * 0.3) . ' ' . $pt($cx + $r, $cy - $r * 0.6) . ' ' . $pt($cx + $r, $cy) . ' c '
-            . $pt($cx + $r, $cy + $r * 0.55) . ' ' . $pt($cx + $r * 0.55, $cy + $r) . ' ' . $pt($cx, $cy + $r) . ' c '
-            . $pt($cx - $r * 0.55, $cy + $r) . ' ' . $pt($cx - $r, $cy + $r * 0.55) . ' ' . $pt($cx - $r, $cy) . ' c '
-            . $pt($cx - $r, $cy - $r * 0.6) . ' ' . $pt($cx - $r * 0.2, $top + $h * 0.3) . ' ' . $pt($cx, $top) . ($filled ? ' c f' : ' c h S'));
+        $this->out(strtoupper($this->rgb($color)) . ' RG ' . sprintf('%.2F w ', $lineWidth * self::K) . $pt($cx + $r, $cy) . ' m '
+            . $pt($cx + $r, $cy + $k) . ' ' . $pt($cx + $k, $cy + $r) . ' ' . $pt($cx, $cy + $r) . ' c '
+            . $pt($cx - $k, $cy + $r) . ' ' . $pt($cx - $r, $cy + $k) . ' ' . $pt($cx - $r, $cy) . ' c '
+            . $pt($cx - $r, $cy - $k) . ' ' . $pt($cx - $k, $cy - $r) . ' ' . $pt($cx, $cy - $r) . ' c '
+            . $pt($cx + $k, $cy - $r) . ' ' . $pt($cx + $r, $cy - $k) . ' ' . $pt($cx + $r, $cy) . ' c S');
     }
 
     public function line(float $x1, float $y1, float $x2, float $y2, string $color = '000000', float $width = 0.2): void

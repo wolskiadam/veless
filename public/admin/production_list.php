@@ -18,8 +18,8 @@ $ids = array_values(array_unique(array_filter(array_map('intval',
 $ids = array_slice($ids, 0, 500);
 
 $list = (new ProductionList($pdo))->build($ids);
-// Ten sam zapach razem (domyślnie, ?grp=0 wyłącza): pozycje po zapachu, wspólny zapach oznaczony kroplą
-// (kolejne zapachy na zmianę: pełna kropla / sam kontur, plus grubsza linia na początku każdego).
+// Ten sam zapach razem (domyślnie, ?grp=0 wyłącza): pozycje po zapachu, wspólny zapach oznaczony numerem zapachu
+// w kółku (bez numeru - literą), plus grubsza linia na początku każdego.
 $groupBy = ($_GET['grp'] ?? '') !== '0';
 if ($groupBy) {
     $list['rows'] = ProductionList::markScents($list['rows']);
@@ -97,10 +97,9 @@ header('Content-Type: text/html; charset=utf-8');
     .sku { font-weight: 400; color: #777; font-size: 10px; margin-left: 6px; }
     td.cap { width: 58px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
     th.cap { width: 58px; }
-    /* Wspólny zapach: czarna kropla (drukuje się - to treść, nie tło), pierwsza pozycja zapachu oddzielona grubszą linią. */
-    td.mk, th.mk { width: 22px; text-align: center; padding-left: 2px; padding-right: 2px; }
-    .mk-d { width: 11px; height: 15px; fill: #111; margin-top: 1px; }
-    .mk-d.alt { fill: none; stroke: #111; stroke-width: 1.5; }   /* kolejny zapach: sam kontur, żeby sąsiednie grupy się nie zlewały */
+    /* Wspólny zapach: numer zapachu w kółku (obwódka drukuje się bez tła), pierwsza pozycja zapachu oddzielona grubszą linią. */
+    td.mk, th.mk { width: 28px; text-align: center; padding-left: 2px; padding-right: 2px; }
+    .mk-b { display: inline-block; min-width: 20px; height: 20px; padding: 0 3px; border: 1.6px solid #111; border-radius: 10px; font-size: 11px; font-weight: 800; line-height: 17px; font-variant-numeric: tabular-nums; }
     tr.mk-first td { border-top: 1.6px solid #111; }
     td.ord { width: 21%; font-size: 10px; line-height: 1.3; color: #444; }
     tfoot td { border-bottom: 0; font-weight: 700; }
@@ -159,7 +158,7 @@ header('Content-Type: text/html; charset=utf-8');
             <tr<?= $first ? ' class="mk-first"' : '' ?>>
                 <td class="chk"><div class="box"></div></td>
                 <td class="qty"><?= (int) $r['qty'] ?></td>
-                <?php if ($marked): ?><td class="mk"><?php if ($mk !== ''): ?><svg class="mk-d<?= ProductionList::markIndex($mk) % 2 ? ' alt' : '' ?>" viewBox="0 0 12 16" aria-label="Ten sam zapach" data-scent="<?= $h($mk) ?>"><title>Ten sam zapach: <?= $h($r['scent']) ?></title><path d="M6 0.6C6.6 3.6 10.6 7 10.6 10.6A4.6 4.6 0 0 1 1.4 10.6C1.4 7 5.4 3.6 6 0.6Z"/></svg><?php endif; ?></td><?php endif; ?>
+                <?php if ($marked): ?><td class="mk"><?php if ($mk !== ''): ?><span class="mk-b" title="Ten sam zapach: <?= $h($r['scent']) ?>"><?= $h($mk) ?></span><?php endif; ?></td><?php endif; ?>
                 <td>
                     <div class="name"><?= $h($r['name']) ?></div>
                     <div class="params"><?= implode(' · ', $params) ?><?php if ($r['sku'] !== ''): ?><span class="sku"><?= $h($r['sku']) ?></span><?php endif; ?></div>

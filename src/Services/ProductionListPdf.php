@@ -23,7 +23,7 @@ final class ProductionListPdf
 
     /**
      * @param array{rows:list<array>,orders:list<array>,materials:list<array>,total:int} $list
-     * @param bool $marked pozycje oznaczone wspólnym zapachem (ProductionList::markScents) - kolumna z kroplą
+     * @param bool $marked pozycje oznaczone wspólnym zapachem (ProductionList::markScents) - kolumna z numerem zapachu w kółku
      */
     public function render(array $list, bool $numbers = true, ?string $when = null, bool $marked = false): string
     {
@@ -49,8 +49,8 @@ final class ProductionListPdf
 
         $this->itemsHeader();
         // Gęsto, żeby na stronie zmieściło się dużo pozycji: nazwa (pogrubiona) + jedna linia parametrów, waga w kolumnie.
-        $nameW = ($numbers ? 119.0 : 149.0) - ($marked ? 6 : 0);
-        $nx = $marked ? 35.0 : 29.0;   // początek nazwy (przy literach zapachu przesunięty)
+        $nameW = ($numbers ? 119.0 : 149.0) - ($marked ? 7.5 : 0);
+        $nx = $marked ? 36.5 : 29.0;   // początek nazwy (przy literach zapachu przesunięty)
         $prevMark = '';
         foreach ($list['rows'] as $r) {
             $name = $p->wrap($r["name"], $nameW, 9, true);
@@ -76,8 +76,10 @@ final class ProductionListPdf
             $p->rect(self::L + 0.8, $top + 1.6, 3.4, 3.4, null, '111111', 0.3);
             $p->text(26, $top + 4.6, (string) (int) $r['qty'], 11, true, '111111', 'R');
             if ($mk !== '') {
-                // Kropla = ten sam zapach co sąsiednie pozycje; kolejne zapachy na zmianę pełna / sam kontur.
-                $p->drop(31.5, $top + 1.3, 4.0, '111111', ProductionList::markIndex($mk) % 2 === 0);
+                // Numer zapachu w kółku = ten sam zapach co sąsiednie pozycje z tym numerem.
+                $fs = strlen($mk) > 2 ? 6.5 : 8;
+                $p->circle(31.5, $top + 3.4, max(2.3, $p->width($mk, $fs, true) / 2 + 0.7), '111111', 0.4);
+                $p->text(31.5, $top + 3.4 + $fs * 0.125, $mk, $fs, true, '111111', 'C');
             }
             $ly = $top + 4.4;
             foreach ($name as $line) {
@@ -150,7 +152,7 @@ final class ProductionListPdf
         if ($this->marked) {
             $p->text(31.5, $this->y + 4.5, 'ZAP.', 6.5, true, '555555', 'C');
         }
-        $p->text($this->marked ? 35 : 29, $this->y + 4.5, 'PRODUKT', 6.5, true, '555555');
+        $p->text($this->marked ? 36.5 : 29, $this->y + 4.5, 'PRODUKT', 6.5, true, '555555');
         $p->text($this->numbers ? 151 : 181, $this->y + 4.5, 'WAGA', 6.5, true, '555555');
         if ($this->numbers) {
             $p->text(170, $this->y + 4.5, 'ZAMÓWIENIA', 6.5, true, '555555');

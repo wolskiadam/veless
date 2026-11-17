@@ -204,19 +204,21 @@ try {
 
     // Ten sam zapach razem (domyślne): bez nagłówków, pozycje po zapachu, wspólny zapach oznaczony literą, bez zapachu na końcu.
     $g = request($boss, 'admin/production_list.php?ids=101,102,103')['body'];
-    preg_match_all('#<td class="qty">(\d+)</td>\s*<td class="mk">(?:<svg class="mk-d"[^>]*data-scent="([A-Z]+)">.*?</svg>)?</td>\s*<td>\s*<div class="name">([^<]+)</div>#', $g, $gm, PREG_SET_ORDER);
+    preg_match_all('#<td class="qty">(\d+)</td>\s*<td class="mk">(?:<span class="mk-b"[^>]*>([\w-]+)</span>)?</td>\s*<td>\s*<div class="name">([^<]+)</div>#', $g, $gm, PREG_SET_ORDER);
     $seq = array_map(static fn($m) => $m[1] . ($m[2] !== '' ? ' [' . $m[2] . ']' : '') . ' ' . $m[3], $gm);
     ok($seq === ['1 Świeca sojowa 180 ml', '2 [A] Świeca kokosowa z drewnianym knotem', '3 [A] Świeca sojowa 180 ml', '8 GINGERBREAD 1l', '3 Wosk do kominka', '1 Zapałki'],
-        'Same scent side by side and marked with a drop icon (same letter = same scent) (Cynamon alone unmarked), no scent last: ' . implode(' | ', $seq));
+        'Same scent side by side and marked in a circle (scent number, here a letter - the test scent has no number) (Cynamon alone unmarked), no scent last: ' . implode(' | ', $seq));
     ok(!str_contains($g, 'class="grp"') && !str_contains($g, 'Bez zapachu') && str_contains($g, '<th class="mk">Zap.</th>') && substr_count($g, 'class="mk-first"') === 1
         && str_contains(rowWith($g, 'Świeca kokosowa'), 'Zapach: Wanilia') && str_contains($g, 'id="groupScent" checked'), 'No group headers; the scent stays a small parameter in each row; toggle on');
-    ok(\Pase\Services\ProductionList::markIndex('A') === 0 && \Pase\Services\ProductionList::markIndex('B') === 1 && \Pase\Services\ProductionList::markIndex('AA') === 26
-        && str_contains($g, 'class="mk-d"') && !str_contains($g, 'class="mk-d alt"'), 'First shared scent: filled drop (the next one would be an outline)');
+    $rows = \Pase\Services\ProductionList::markScents([
+        ['name' => 'a', 'qty' => 1, 'scent' => '7 · Pumpkin pie'], ['name' => 'b', 'qty' => 1, 'scent' => 'Wanilia'],
+        ['name' => 'c', 'qty' => 1, 'scent' => '7 · Pumpkin pie'], ['name' => 'd', 'qty' => 1, 'scent' => 'Wanilia'], ['name' => 'e', 'qty' => 1, 'scent' => '8 · Hot Wine']]);
+    ok(array_map(static fn($r) => $r['name'] . $r['mark'], $rows) === ['a7', 'c7', 'e', 'bA', 'dA'], 'Mark = scent number from Zapachy (7), letter when the scent has no number, none for a single position');
     $plain = request($boss, 'admin/production_list.php?ids=101,102,103&grp=0')['body'];
-    ok(!str_contains($plain, 'class="mk-d"') && !str_contains($plain, 'class="mk"') && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without drops too');
+    ok(!str_contains($plain, 'class="mk-b"') && !str_contains($plain, 'class="mk"') && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without marks too');
     ok(!str_contains(request($boss, 'admin/production_list.php?ids=104')['body'], 'class="mk"'), 'No shared scent: no letter column');
     $gpRaw = request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1')['body'];
-    ok(substr_count($gpRaw, ' c f') === 2, 'PDF: a drop next to both positions with the shared scent');
+    ok(substr_count($gpRaw, ' c S') === 2 && substr_count(pdfText($gpRaw), "\nA\n") === 2, 'PDF: the mark in a circle next to both positions with the shared scent');
     $gp = pdfText($gpRaw);
     ok(str_contains($gp, "ZAP.") && !str_contains($gp, 'BEZ ZAPACHU') && strpos($gp, 'Świeca kokosowa') < strpos($gp, 'GINGERBREAD'), 'PDF: scent column, same order, no headers');
 

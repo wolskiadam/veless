@@ -7,15 +7,34 @@ declare(strict_types=1);
  * Otwierana z listy zamówień: zaznaczone → „Lista produkcji” (?ids=1,2,3). Dane: Pase\Services\ProductionList.
  */
 
-require __DIR__ . '/auth.php';
-/** @var PDO $pdo */
-
 use Pase\Services\ProductionList;
 
-$rawIds = $_GET['ids'] ?? [];
-$ids = array_values(array_unique(array_filter(array_map('intval',
-    is_array($rawIds) ? $rawIds : explode(',', (string) $rawIds)), static fn(int $i) => $i > 0)));
-$ids = array_slice($ids, 0, 500);
+// ?t=... - link do druku poza aplikacją (iPhone: aplikacja z ekranu początkowego nie drukuje, a przeglądarka,
+// którą otwiera, nie ma sesji panelu). Działa bez logowania, krótko i tylko dla zamówień zapisanych przy linku.
+$printToken = is_string($_GET['t'] ?? null) ? (string) $_GET['t'] : '';
+if ($printToken !== '') {
+    require_once __DIR__ . '/db_admin.php';
+    /** @var PDO $pdo */
+    $ids = (new ProductionList($pdo))->printLinkIds($printToken);
+    header('Referrer-Policy: no-referrer');
+    header('X-Robots-Tag: noindex');
+    header('Cache-Control: no-store');
+    if ($ids === null) {
+        http_response_code(410);
+        header('Content-Type: text/html; charset=utf-8');
+        echo '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Lista produkcji</title>'
+            . '<p style="font:16px/1.5 system-ui,sans-serif;padding:24px">Link do druku wygasł. Wróć do aplikacji i kliknij „Drukuj” jeszcze raz.</p>';
+        return;
+    }
+} else {
+    require __DIR__ . '/auth.php';
+    /** @var PDO $pdo */
+    $rawIds = $_GET['ids'] ?? [];
+    $ids = array_values(array_unique(array_filter(array_map('intval',
+        is_array($rawIds) ? $rawIds : explode(',', (string) $rawIds)), static fn(int $i) => $i > 0)));
+    $ids = array_slice($ids, 0, 500);
+}
+$hideNumbers = ($_GET['nr'] ?? '') === '0';
 
 $list = (new ProductionList($pdo))->build($ids);
 $h = static fn($s): string => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
@@ -31,6 +50,16 @@ $ref = (string) ($_SERVER['HTTP_REFERER'] ?? '');
 if ($ref !== '' && parse_url($ref, PHP_URL_HOST) === ($_SERVER['HTTP_HOST'] ?? '')
     && preg_match('#/admin/index\.php#', (string) parse_url($ref, PHP_URL_PATH))) {
     $back = $ref;
+}
+
+// Link do druku poza aplikacją - tylko gdy jest co drukować i strona jest otwarta po zalogowaniu.
+$printUrl = '';
+if ($printToken === '' && $list['rows'] !== [] && ($uid = currentUserId()) !== null) {
+    try {
+        $printUrl = 'production_list.php?t=' . (new ProductionList($pdo))->createPrintLink($ids, $uid);
+    } catch (\PDOException) {
+        $printUrl = '';
+    }
 }
 
 $nonce = base64_encode(random_bytes(18));
@@ -50,7 +79,9 @@ header('Content-Type: text/html; charset=utf-8');
     .sheet { max-width: 210mm; margin: 0 auto 24px; background: #fff; padding: 12mm; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
     .toolbar { max-width: 210mm; margin: 0 auto; display: flex; gap: 8px; align-items: center; padding: 12px 16px; }
     .toolbar a, .toolbar button { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 8px; border: 1px solid #d6d3cc; background: #fff; color: #111; text-decoration: none; cursor: pointer; }
-    .toolbar button.primary { background: #111; color: #fff; border-color: #111; }
+    .toolbar button.primary, .toolbar a.primary { background: #111; color: #fff; border-color: #111; }
+    .toolbar .hint { font-size: 13px; color: #555; }
+    [hidden] { display: none !important; }
     .toolbar .sp { flex: 1; }
     .toolbar label { font-size: 13px; color: #555; display: inline-flex; align-items: center; gap: 6px; }
     header.top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 10px; }
@@ -89,12 +120,18 @@ header('Content-Type: text/html; charset=utf-8');
     }
 </style>
 </head>
-<body>
+<body<?= $hideNumbers ? ' class="no-orders"' : '' ?>>
 <div class="toolbar">
-    <a href="<?= $h($back) ?>">← Wróć</a>
+    <?php if ($printToken === ''): ?>
+        <a href="<?= $h($back) ?>">← Wróć</a>
+    <?php else: ?>
+        <span class="hint">Nie widać okna drukowania? Kliknij Udostępnij (□↑) i wybierz „Drukuj”.</span>
+    <?php endif; ?>
     <span class="sp"></span>
-    <label><input type="checkbox" id="showOrders" checked> Numery zamówień</label>
+    <label><input type="checkbox" id="showOrders"<?= $hideNumbers ? '' : ' checked' ?>> Numery zamówień</label>
     <button type="button" class="primary" id="printBtn">Drukuj</button>
+    <?php // Aplikacja na iPhonie: zamiast window.print() otwieramy listę w przeglądarce (skrypt niżej podmienia przycisk). ?>
+    <?php if ($printUrl !== ''): ?><a class="primary" id="printOut" href="<?= $h($printUrl) ?>" target="_blank" rel="noopener" hidden>Drukuj</a><?php endif; ?>
 </div>
 <main class="sheet">
     <header class="top">
@@ -165,9 +202,21 @@ header('Content-Type: text/html; charset=utf-8');
     <?php endif; ?>
 </main>
 <script nonce="<?= $nonce ?>">
-    document.getElementById('printBtn').addEventListener('click', function () { window.print(); });
-    var so = document.getElementById('showOrders');
-    so.addEventListener('change', function () { document.body.classList.toggle('no-orders', !so.checked); });
+    var btn = document.getElementById('printBtn'), out = document.getElementById('printOut'), so = document.getElementById('showOrders');
+    btn.addEventListener('click', function () { window.print(); });
+    // iPhone/iPad, aplikacja dodana do ekranu początkowego: window.print() nic nie robi - drukujemy w przeglądarce.
+    var ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var app = navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    if (out && ios && app) { btn.hidden = true; out.hidden = false; }
+    function syncNumbers() {
+        document.body.classList.toggle('no-orders', !so.checked);
+        if (out) { out.href = out.href.replace(/&nr=0$/, '') + (so.checked ? '' : '&nr=0'); }
+    }
+    so.addEventListener('change', syncNumbers);
+    <?php if ($printToken !== ''): ?>
+    // Otwarte z aplikacji: od razu okno drukowania (gdy przeglądarka na to pozwala).
+    window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 300); });
+    <?php endif; ?>
 </script>
 </body>
 </html>

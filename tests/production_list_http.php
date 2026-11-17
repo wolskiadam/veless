@@ -170,6 +170,30 @@ try {
     ok(str_starts_with(rowWith($r['body'], 'GINGERBREAD'), '5 GINGERBREAD'), 'Merged order alone: its own items');
     ok(str_contains(request($boss, 'admin/production_list.php')['body'], 'Brak produktów do zrobienia'), 'No selection: empty message');
 
+    // iPhone, aplikacja z ekranu początkowego: druk przez link otwierany w przeglądarce (bez sesji panelu).
+    ok(!str_contains(request($boss, 'admin/production_list.php')['body'], 'id="printOut"'), 'Empty list: no print link');
+    $b = request($boss, 'admin/production_list.php?ids=101,102')['body'];
+    ok(preg_match('#id="printOut" href="production_list\.php\?t=([a-f0-9]{48})" target="_blank"#', $b, $m) === 1, 'Page carries a print link for the app');
+    $token = $m[1];
+    ok((int) $pdo->query('SELECT COUNT(*) FROM production_print_links WHERE token_hash = ' . $pdo->quote(hash('sha256', $token)))->fetchColumn() === 1
+        && (int) $pdo->query('SELECT COUNT(*) FROM production_print_links WHERE token_hash = ' . $pdo->quote($token))->fetchColumn() === 0, 'Only the token hash is stored');
+    $anon = client();
+    $r = request($anon, 'admin/production_list.php?t=' . $token);
+    ok($r['status'] === 200 && str_contains(rowWith($r['body'], 'Zapach: Wanilia'), '74001 ×2, 74002') && !str_contains($r['body'], 'GINGERBREAD 1l GB-1L Pojemność: 1 l #1203'),
+        'Print link opens the same list without logging in');
+    ok(str_contains($r['body'], 'window.print(); }, 300)') && !str_contains($r['body'], '← Wróć') && str_contains($r['headers'], 'Referrer-Policy: no-referrer'), 'Print link prints on open, no back link, no referrer');
+    ok(!str_contains($r['body'], 'id="printOut"'), 'Print link page does not make further links');
+    ok(str_contains(request($anon, 'admin/production_list.php?t=' . $token . '&nr=0')['body'], '<body class="no-orders">'), 'Order numbers can be hidden on the printout');
+    ok(!str_contains(request($anon, 'admin/production_list.php?t=' . $token . '&ids=103')['body'], 'Wosk do kominka'), 'Link prints only its own orders');
+    ok(request($anon, 'admin/production_list.php?t=' . str_repeat('a', 48))['status'] === 410, 'Unknown token refused');
+    ok(request($anon, 'admin/production_list.php?t=..%2F')['status'] === 410, 'Malformed token refused');
+    $pdo->exec('UPDATE production_print_links SET expires_at = ' . (time() - 1));
+    ok(request($anon, 'admin/production_list.php?t=' . $token)['status'] === 410, 'Expired link refused');
+    $pdo->exec('UPDATE production_print_links SET expires_at = ' . (time() + 600));
+    $pdo->exec('UPDATE admin_users SET is_active = 0 WHERE id = 1');
+    ok(request($anon, 'admin/production_list.php?t=' . $token)['status'] === 410, 'Link of a disabled account refused');
+    $pdo->exec('UPDATE admin_users SET is_active = 1 WHERE id = 1');
+
     // Uprawnienia: strona idzie za uprawnieniem „Zamówienia”.
     $perms = array_fill_keys(array_keys(PagePermissions::registry()), 'hidden');
     PagePermissions::save($pdo, 3, array_merge($perms, ['orders' => 'view']));

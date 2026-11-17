@@ -41,7 +41,7 @@ function login(string $user): CurlHandle {
 }
 /** Tekst wiersza tabeli produktów, w którym jest $needle (bez znaczników, spacje zwinięte). */
 function rowWith(string $html, string $needle): string {
-    preg_match_all('#<tr>(.*?)</tr>#s', $html, $m);
+    preg_match_all('#<tr(?: class="[^"]*")?>(.*?)</tr>#s', $html, $m);
     foreach ($m[1] as $tr) {
         $txt = trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(str_replace('<', ' <', $tr)), ENT_QUOTES, 'UTF-8')));
         if (str_contains($txt, $needle)) { return $txt; }
@@ -173,8 +173,8 @@ try {
     $b = $r['body'];
     ok($r['status'] === 200 && str_contains($b, '<h1>Lista produkcji</h1>') && str_contains($b, '@page { size: A4'), 'Print page opens (A4)');
     ok(str_contains($r['headers'], "script-src 'nonce-"), 'Print page has a strict CSP');
-    $van = rowWith($b, 'Świeca sojowa 180 ml Zapach: Wanilia');
-    ok(str_starts_with($van, '3 Świeca sojowa 180 ml Zapach: Wanilia') && str_ends_with($van, 'SOJ-180 200 g 74001 ×2, 74002'), 'Same product and scent summed across orders, weight column from Produkcja, order numbers: ' . $van);
+    $van = rowWith($b, 'Zapach: Olejek Wanilia (36 g)');
+    ok(str_starts_with($van, '3 Świeca sojowa 180 ml Czas palenia') && str_ends_with($van, 'SOJ-180 200 g 74001 ×2, 74002'), 'Same product and scent summed across orders, weight column from Produkcja, order numbers: ' . $van);
     ok(!str_contains($van, 'Waga:') && str_contains($van, 'Czas palenia: 40 h') && !str_contains($van, 'Las') && !str_contains($van, 'https://x'),
         'Weight in its own column, not among parameters; short custom fields from the product');
     ok(!str_contains($b, 'Aroma head') && !str_contains($b, 'Zielone liście') && !str_contains($b, 'Nuta serca'), 'Scent notes left out');
@@ -186,8 +186,7 @@ try {
     $pier = rowWith($p107, 'Piernik');
     ok(str_contains($pier, 'PIER 240 g') && !str_contains($pier, 'kg'), 'Grams saved as kg on the product card (240 kg for a small jar) shown as 240 g: ' . $pier);
     ok(!str_contains($pier, 'knot: drewniany') && str_contains($pier, 'Knot: Drewniany 15 mm 0.6 (2 szt.)'), 'Variant wick dropped when the recipe has the exact one: ' . $pier);
-    ok(str_contains($p107, '<span class="grp-t">Zapach: Pumpkin pie</span>') && str_contains($pier, 'Zapach: 8%') && !str_contains($pier, 'Pumpkin'),
-        'Inside the scent group the recipe oil shows only what the header does not (8%): ' . $pier);
+    ok(str_contains($pier, 'Zapach: Pumpkin pie (8%) (2 szt.)') && substr_count($pier, 'Pumpkin') === 1, 'Variant scent dropped when the recipe oil names it more exactly: ' . $pier);
     ok(str_contains(rowWith(request($boss, 'admin/production_list.php?ids=107')['body'], 'Świeca z wariantem'), 'STARE-SKU 240 g'), 'Weight from the product card of the variation (shop variation ID)');
     ok(str_contains($van, 'Knot: Knot drewniany 13 mm (3 szt.)') && str_contains($van, 'Zapach: Olejek Wanilia (36 g)') && str_contains($van, 'Wosk: Wosk sojowy Golden 464 (450 g)')
         && str_contains($van, 'Pojemnik: Słoik 180 ml bursztyn (3 szt.)') && !str_contains($van, 'Etykieta'), 'Recipe from Produkcja: wick, scent, wax, jar multiplied by pieces (labels skipped)');
@@ -203,19 +202,19 @@ try {
     ok(str_contains($b, 'Uwagi klientów') && str_contains($b, 'Proszę zapakować na prezent'), 'Customer notes listed');
     ok(str_contains($b, '3 zamówienia') && !str_contains($b, 'Tomasz Nowak'), 'Only selected orders');
 
-    // Grupowanie po zapachu (domyślne): różne produkty z tym samym zapachem pod jednym nagłówkiem, bez zapachu na końcu.
+    // Ten sam zapach razem (domyślne): bez nagłówków, pozycje po zapachu, wspólny zapach oznaczony literą, bez zapachu na końcu.
     $g = request($boss, 'admin/production_list.php?ids=101,102,103')['body'];
-    preg_match_all('#<tr class="grp">(.*?)</tr>#s', $g, $gm);
-    $heads = array_map(static fn($t) => trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(str_replace('<', ' <', $t)), ENT_QUOTES, 'UTF-8'))), $gm[1]);
-    ok($heads === ['Zapach: Cynamon 1 szt. · 1 pozycja', 'Zapach: Wanilia 5 szt. · 2 pozycje', 'Bez zapachu 12 szt. · 3 pozycje'], 'Groups by scent with piece sums, no scent last: ' . implode(' | ', $heads));
-    $pos = static fn(string $n) => strpos($g, $n);
-    ok($pos('<span class="grp-t">Zapach: Wanilia') < $pos('Świeca kokosowa') && $pos('Świeca kokosowa') < $pos('Bez zapachu') && $pos('<span class="grp-t">Zapach: Wanilia') < strpos($g, '>Świeca sojowa 180 ml<', $pos('<span class="grp-t">Zapach: Wanilia')),
-        'Different products with the same scent sit together under their scent');
-    ok(str_starts_with(rowWith($g, 'Świeca kokosowa'), '2 Świeca kokosowa z drewnianym knotem KOK') && str_contains($g, 'id="groupScent" checked'), 'Scent left out of rows inside a group (it is in the header); toggle on');
-    ok(!str_contains(request($boss, 'admin/production_list.php?ids=101,102,103&grp=0')['body'], 'class="grp"')
-        && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without groups too');
+    preg_match_all('#<td class="qty">(\d+)</td>\s*<td class="mk">(?:<span class="mk-b"[^>]*>([A-Z]+)</span>)?</td>\s*<td>\s*<div class="name">([^<]+)</div>#', $g, $gm, PREG_SET_ORDER);
+    $seq = array_map(static fn($m) => $m[1] . ($m[2] !== '' ? ' [' . $m[2] . ']' : '') . ' ' . $m[3], $gm);
+    ok($seq === ['1 Świeca sojowa 180 ml', '2 [A] Świeca kokosowa z drewnianym knotem', '3 [A] Świeca sojowa 180 ml', '8 GINGERBREAD 1l', '3 Wosk do kominka', '1 Zapałki'],
+        'Same scent side by side and marked with a letter (Cynamon alone unmarked), no scent last: ' . implode(' | ', $seq));
+    ok(!str_contains($g, 'class="grp"') && !str_contains($g, 'Bez zapachu') && str_contains($g, '<th class="mk">Zap.</th>') && substr_count($g, 'class="mk-first"') === 1
+        && str_contains(rowWith($g, 'Świeca kokosowa'), 'Zapach: Wanilia') && str_contains($g, 'id="groupScent" checked'), 'No group headers; the scent stays a small parameter in each row; toggle on');
+    $plain = request($boss, 'admin/production_list.php?ids=101,102,103&grp=0')['body'];
+    ok(!str_contains($plain, 'class="mk-b"') && !str_contains($plain, 'class="mk"') && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without letters too');
+    ok(!str_contains(request($boss, 'admin/production_list.php?ids=104')['body'], 'class="mk"'), 'No shared scent: no letter column');
     $gp = pdfText(request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1')['body']);
-    ok(str_contains($gp, 'ZAPACH: WANILIA') && str_contains($gp, '5 szt. · 2 pozycje') && strpos($gp, 'ZAPACH: CYNAMON') < strpos($gp, 'BEZ ZAPACHU'), 'PDF grouped by scent (header in capitals, sum as text)');
+    ok(str_contains($gp, "ZAP.") && !str_contains($gp, 'BEZ ZAPACHU') && strpos($gp, 'Świeca kokosowa') < strpos($gp, 'GINGERBREAD'), 'PDF: letter column, same order, no headers');
 
     $r = request($boss, 'admin/production_list.php?ids=103,104');
     ok(str_starts_with(rowWith($r['body'], 'GINGERBREAD'), '7 GINGERBREAD'), 'Main and merged both selected: merged items not doubled');
@@ -230,12 +229,12 @@ try {
     ok($r['status'] === 200 && str_starts_with($r['body'], '%PDF-1.4') && str_contains($r['headers'], 'Content-Type: application/pdf')
         && str_contains($r['headers'], 'Cache-Control: private, no-store'), 'PDF of the list');
     $txt = pdfText($r['body']);
-    ok(str_contains($txt, 'Lista produkcji') && str_contains($txt, 'Świeca sojowa 180 ml') && str_contains($txt, 'ZAPACH: WANILIA')
+    ok(str_contains($txt, 'Lista produkcji') && str_contains($txt, 'Świeca sojowa 180 ml') && str_contains($txt, 'Zapach: Wanilia')
         && str_contains($txt, 'Knot: Knot drewniany 13 mm (3 szt.)') && str_contains($txt, '74001 ×2, 74002') && str_contains($txt, 'Razem sztuk')
         && str_contains($txt, 'MATERIAŁY RAZEM') && str_contains($txt, 'Proszę zapakować na prezent') && str_contains($txt, '3 zamówienia · 18 szt. · 6 pozycji'),
         'PDF holds products, scents, wicks, orders, materials and notes (Polish letters intact)');
     $no = pdfText(request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1&nr=0')['body']);
-    ok(!str_contains($no, "\nZAMÓWIENIA\n") && !str_contains($no, '74001 ×2') && str_contains($no, 'ZAPACH: WANILIA'), 'PDF without order numbers');
+    ok(!str_contains($no, "\nZAMÓWIENIA\n") && !str_contains($no, '74001 ×2') && str_contains($no, 'Zapach: Wanilia'), 'PDF without order numbers');
     ok(request(client(), 'admin/production_list.php?ids=101&pdf=1')['status'] === 302, 'PDF needs login');
     $many = [];
     for ($i = 0; $i < 60; ++$i) { $many[] = $woo('Świeca testowa nr ' . $i . ' z bardzo długą nazwą, która zawija się w dwa wiersze na wydruku', 1, 'T-' . $i, ['Zapach' => 'Wanilia']); }

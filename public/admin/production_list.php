@@ -18,18 +18,17 @@ $ids = array_values(array_unique(array_filter(array_map('intval',
 $ids = array_slice($ids, 0, 500);
 
 $list = (new ProductionList($pdo))->build($ids);
-// Grupowanie po zapachu (domyślnie włączone, ?grp=0 wyłącza). Bez żadnego zapachu na liście - zwykła lista.
+// Ten sam zapach razem (domyślnie, ?grp=0 wyłącza): pozycje po zapachu, wspólny zapach oznaczony literą (A, B...).
 $groupBy = ($_GET['grp'] ?? '') !== '0';
-$groups = $groupBy ? ProductionList::groups($list['rows']) : [];
-$grouped = $groups !== [] && $groups[0]['scent'] !== '';
-if (!$grouped) {
-    $groups = [['scent' => '', 'qty' => (int) $list['total'], 'rows' => $list['rows']]];
+if ($groupBy) {
+    $list['rows'] = ProductionList::markScents($list['rows']);
 }
+$marked = $groupBy && array_filter(array_column($list['rows'], 'mark')) !== [];
 
 // ?pdf=1 - ta sama lista jako plik PDF. Aplikacja na iPhonie (ekran początkowy) nie drukuje stron (window.print()
 // nic nie robi), więc tam „Drukuj” udostępnia ten plik (navigator.share) - iOS pokazuje arkusz z „Drukuj”.
 if (($_GET['pdf'] ?? '') === '1') {
-    $pdfData = (new \Pase\Services\ProductionListPdf())->render($list, ($_GET['nr'] ?? '') !== '0', null, $grouped ? $groups : null);
+    $pdfData = (new \Pase\Services\ProductionListPdf())->render($list, ($_GET['nr'] ?? '') !== '0', null, $marked);
     header('Content-Type: application/pdf');
     header('Content-Disposition: inline; filename="lista-produkcji-' . date('Y-m-d') . '.pdf"');
     header('Content-Length: ' . strlen($pdfData));
@@ -97,11 +96,10 @@ header('Content-Type: text/html; charset=utf-8');
     .sku { font-weight: 400; color: #777; font-size: 10px; margin-left: 6px; }
     td.cap { width: 58px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
     th.cap { width: 58px; }
-    /* Nagłówek grupy bez tła (drukarki go nie drukują): pełna szerokość, gruba linia nad, wersaliki, bez kratki i liczby. */
-    tr.grp td { border-top: 2.5px solid #111; border-bottom: 1px solid #111; padding: 12px 5px 3px; break-after: avoid; page-break-after: avoid; }
-    tr.grp:first-child td { padding-top: 6px; }
-    tr.grp .grp-t { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
-    tr.grp .grp-n { float: right; font-size: 11px; font-weight: 600; color: #333; margin-top: 2px; }
+    /* Wspólny zapach: litera w obwódce (drukuje się bez tła), pierwsza pozycja z literą oddzielona grubszą linią. */
+    td.mk, th.mk { width: 26px; text-align: center; padding-left: 2px; padding-right: 2px; }
+    .mk-b { display: inline-block; min-width: 19px; padding: 0 3px; border: 1.6px solid #111; border-radius: 10px; font-size: 11.5px; font-weight: 800; line-height: 16px; margin-top: 1px; }
+    tr.mk-first td { border-top: 1.6px solid #111; }
     td.ord { width: 21%; font-size: 10px; line-height: 1.3; color: #444; }
     tfoot td { border-bottom: 0; font-weight: 700; }
     .small { font-size: 12px; color: #444; }
@@ -124,7 +122,7 @@ header('Content-Type: text/html; charset=utf-8');
 <div class="toolbar">
     <a href="<?= $h($back) ?>">← Wróć</a>
     <span class="sp"></span>
-    <label><input type="checkbox" id="groupScent"<?= $groupBy ? ' checked' : '' ?>> Grupuj po zapachu</label>
+    <label><input type="checkbox" id="groupScent"<?= $groupBy ? ' checked' : '' ?>> Ten sam zapach razem</label>
     <label><input type="checkbox" id="showOrders" checked> Numery zamówień</label>
     <button type="button" class="primary" id="printBtn">Drukuj</button>
     <span class="hint" id="printHint" hidden></span>
@@ -143,14 +141,9 @@ header('Content-Type: text/html; charset=utf-8');
         <p class="empty">Brak produktów do zrobienia. Zaznacz zamówienia na liście i wybierz „Lista produkcji”.</p>
     <?php else: ?>
     <table class="items">
-        <thead><tr><th class="chk"></th><th class="qty">Szt.</th><th>Produkt</th><th class="cap">Waga</th><th class="ord">Zamówienia</th></tr></thead>
+        <thead><tr><th class="chk"></th><th class="qty">Szt.</th><?php if ($marked): ?><th class="mk">Zap.</th><?php endif; ?><th>Produkt</th><th class="cap">Waga</th><th class="ord">Zamówienia</th></tr></thead>
         <tbody>
-        <?php foreach ($groups as $g): ?>
-            <?php if ($grouped): ?>
-            <tr class="grp"><td colspan="5"><span class="grp-t"><?= $g['scent'] !== '' ? 'Zapach: ' . $h($g['scent']) : 'Bez zapachu' ?></span>
-                <span class="grp-n"><?= (int) $g['qty'] ?> szt. · <?= count($g['rows']) ?> <?= $plural(count($g['rows']), 'pozycja', 'pozycje', 'pozycji') ?></span></td></tr>
-            <?php endif; ?>
-        <?php foreach ($g['rows'] as $r): ?>
+        <?php $prevMark = ''; foreach ($list['rows'] as $r): ?>
             <?php
                 // Jedna linia parametrów: wariant (knot, zapach), szczegóły z rozszerzeń (nr zapachu, receptura), SKU na końcu.
                 $params = array_merge(
@@ -160,9 +153,11 @@ header('Content-Type: text/html; charset=utf-8');
                         : '<b>' . $h($d['value']) . '</b>' . ($d['total'] !== null ? ' (' . $h(ProductionList::amount($d['total'], $d['unit'])) . ')' : '')), $r['details'])
                 );
             ?>
-            <tr>
+            <?php $mk = $marked ? (string) ($r['mark'] ?? '') : ''; $first = $mk !== '' && $mk !== $prevMark; $prevMark = $mk; ?>
+            <tr<?= $first ? ' class="mk-first"' : '' ?>>
                 <td class="chk"><div class="box"></div></td>
                 <td class="qty"><?= (int) $r['qty'] ?></td>
+                <?php if ($marked): ?><td class="mk"><?php if ($mk !== ''): ?><span class="mk-b" title="Ten sam zapach co pozycje z literą <?= $h($mk) ?>"><?= $h($mk) ?></span><?php endif; ?></td><?php endif; ?>
                 <td>
                     <div class="name"><?= $h($r['name']) ?></div>
                     <div class="params"><?= implode(' · ', $params) ?><?php if ($r['sku'] !== ''): ?><span class="sku"><?= $h($r['sku']) ?></span><?php endif; ?></div>
@@ -172,9 +167,8 @@ header('Content-Type: text/html; charset=utf-8');
                     array_keys($r['orders']), $r['orders'])) ?></td>
             </tr>
         <?php endforeach; ?>
-        <?php endforeach; ?>
         </tbody>
-        <tfoot><tr><td></td><td class="qty"><?= (int) $list['total'] ?></td><td>Razem sztuk</td><td class="cap"></td><td class="ord"></td></tr></tfoot>
+        <tfoot><tr><td></td><td class="qty"><?= (int) $list['total'] ?></td><?php if ($marked): ?><td></td><?php endif; ?><td>Razem sztuk</td><td class="cap"></td><td class="ord"></td></tr></tfoot>
     </table>
 
     <?php if ($list['materials'] !== []): ?>

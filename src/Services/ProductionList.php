@@ -131,16 +131,29 @@ final class ProductionList
                     $materials[$mk]['total'] += $line['total'];
                 }
             }
+            // Zapach do grupowania: numer i nazwa z wtyczki Zapachy, potem wariant („Zapach: Wanilia”), potem olejek z receptury.
+            $r['scent'] = '';
+            foreach ($r['details'] as $d) {
+                if ($r['scent'] === '' && mb_strtolower($d['label']) === 'nr zapachu') {
+                    $r['scent'] = $d['value'];
+                }
+            }
+            foreach ($r['attrs'] as [$k, $v]) {
+                if ($r['scent'] === '' && self::isScent($k)) {
+                    $r['scent'] = $v;
+                }
+            }
+            foreach ($r['details'] as $d) {
+                if ($r['scent'] === '' && mb_strtolower($d['label']) === 'zapach') {
+                    $r['scent'] = $d['value'];
+                }
+            }
             // Wariant „knot: drewniany” przy recepturze „Knot: Drewniany 15 mm 0.6” - zostaje tylko dokładny z receptury.
             $exact = [];
             foreach ($r['details'] as $d) {
                 $exact[mb_strtolower(trim($d['label']))][] = mb_strtolower($d['value']);
             }
-            // (Zapach z wariantu zostaje - po nim grupujemy, a w grupie i tak go nie ma.)
             $r['attrs'] = array_values(array_filter($r['attrs'], static function (array $a) use ($exact): bool {
-                if (self::isScent($a[0])) {
-                    return true;
-                }
                 foreach ($exact[mb_strtolower(trim($a[0]))] ?? [] as $v) {
                     if (trim($a[1]) !== '' && str_contains($v, mb_strtolower(trim($a[1])))) {
                         return false;
@@ -176,23 +189,6 @@ final class ProductionList
             $r['attrs'] = array_values($r['attrs']);
             if ($r['weight'] === '') {
                 $r['weight'] = self::weightIn($r['name']);
-            }
-            // Zapach do grupowania: numer i nazwa z wtyczki Zapachy, potem wariant („Zapach: Wanilia”), potem olejek z receptury.
-            $r['scent'] = '';
-            foreach ($r['details'] as $d) {
-                if ($r['scent'] === '' && mb_strtolower($d['label']) === 'nr zapachu') {
-                    $r['scent'] = $d['value'];
-                }
-            }
-            foreach ($r['attrs'] as [$k, $v]) {
-                if ($r['scent'] === '' && self::isScent($k)) {
-                    $r['scent'] = $v;
-                }
-            }
-            foreach ($r['details'] as $d) {
-                if ($r['scent'] === '' && mb_strtolower($d['label']) === 'zapach') {
-                    $r['scent'] = $d['value'];
-                }
             }
         }
         unset($r);
@@ -237,39 +233,31 @@ final class ProductionList
     }
 
     /**
-     * Pozycje pogrupowane po zapachu (różne produkty i knoty z tym samym zapachem razem). Grupy po nazwie zapachu,
-     * pozycje bez zapachu na końcu (scent = ''). W pozycjach grupy pomijamy zapach z wariantu i „Nr zapachu” - jest w nagłówku.
-     * @return list<array{scent:string,qty:int,rows:list<array>}>
+     * Pozycje ułożone po zapachu: ten sam zapach (różne produkty, knoty) obok siebie, bez zapachu na końcu.
+     * Zapach wspólny dla kilku pozycji dostaje literę (mark: „A”, „B”...), żeby na wydruku było widać, co robić razem.
+     * Pozycje zostają jak są (z „Nr zapachu” / „Zapach” w parametrach) - bez nagłówków grup.
+     * @return list<array> pozycje z kluczem mark ('' gdy zapach jest tylko w jednej pozycji albo go nie ma)
      */
-    public static function groups(array $rows): array
+    public static function markScents(array $rows): array
     {
-        $groups = [];
+        $count = [];
         foreach ($rows as $r) {
-            $key = mb_strtolower(trim((string) ($r['scent'] ?? '')));
-            $groups[$key] ??= ['scent' => trim((string) ($r['scent'] ?? '')), 'qty' => 0, 'rows' => []];
-            $groups[$key]['qty'] += (int) $r['qty'];
-            if ($key !== '') {
-                $r['attrs'] = array_values(array_filter($r['attrs'], static fn(array $a) => !self::isScent($a[0])));
-                $r['details'] = array_values(array_filter($r['details'], static fn(array $d) => mb_strtolower($d['label']) !== 'nr zapachu'));
-                // „Zapach: Pumpkin pie (8%)” z receptury - nazwa jest w nagłówku, zostaje „Zapach: 8%” (albo ilość).
-                $name = mb_strtolower(trim((string) preg_replace('/^\s*[\w-]{1,6}\s*·\s*/u', '', $r['scent'])));
-                foreach ($r['details'] as $i => $d) {
-                    if (mb_strtolower($d['label']) === 'zapach' && $name !== '' && str_contains(mb_strtolower($d['value']), $name)) {
-                        $rest = trim((string) preg_replace('/' . preg_quote($name, '/') . '/iu', '', $d['value']));
-                        $rest = trim((string) preg_replace('/^\((.*)\)$/u', '$1', $rest));
-                        if ($rest === '' && $d['total'] === null) {
-                            unset($r['details'][$i]);
-                        } else {
-                            $r['details'][$i]['value'] = $rest;
-                        }
-                    }
-                }
-                $r['details'] = array_values($r['details']);
-            }
-            $groups[$key]['rows'][] = $r;
+            $k = mb_strtolower(trim((string) ($r['scent'] ?? '')));
+            $count[$k] = ($count[$k] ?? 0) + 1;
         }
-        uksort($groups, static fn($a, $b) => ((string) $a === '') <=> ((string) $b === '') ?: strnatcasecmp((string) $a, (string) $b));
-        return array_values($groups);
+        $keyed = array_map(static fn(array $r, int $i) => [mb_strtolower(trim((string) ($r['scent'] ?? ''))), $i, $r], $rows, array_keys($rows));
+        usort($keyed, static fn(array $a, array $b) => ($a[0] === '') <=> ($b[0] === '') ?: strnatcasecmp($a[0], $b[0]) ?: $a[1] <=> $b[1]);
+        $letters = [];
+        $out = [];
+        foreach ($keyed as [$k, , $r]) {
+            if ($k !== '' && $count[$k] > 1 && !isset($letters[$k])) {
+                $n = count($letters);
+                $letters[$k] = ($n >= 26 ? chr(65 + intdiv($n, 26) - 1) : '') . chr(65 + $n % 26);
+            }
+            $r['mark'] = $letters[$k] ?? '';
+            $out[] = $r;
+        }
+        return $out;
     }
 
     /** Nazwa parametru oznacza wagę świecy (Waga, Waga netto, Gramatura, Weight). */

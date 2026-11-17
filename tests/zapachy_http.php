@@ -291,9 +291,6 @@ try {
 
     // ---- Lista produkcji
     $pl = request($vi, 'admin/production_list.php?ids=501,502');
-    ok(str_contains($pl['body'], 'grp-t">Zapach: 18 · Sweet Caramel<') && str_contains($pl['body'], 'grp-t">Zapach: 12 · Mulled Wine<') && str_contains($pl['body'], 'grp-t">Zapach: 7 · Gingerbread<')
-        && !str_contains($pl['body'], 'Nr zapachu:'), 'Production list grouped by fragrance number and name');
-    $pl = request($vi, 'admin/production_list.php?ids=501,502&grp=0');
     ok(str_contains($pl['body'], 'Nr zapachu: <b>18 · Sweet Caramel</b>') && str_contains($pl['body'], 'Nr zapachu: <b>12 · Mulled Wine</b>') && str_contains($pl['body'], 'Nr zapachu: <b>7 · Gingerbread</b>'), 'Production list shows fragrance numbers');
 
     // ---- Tylko przypisane (ustawienie): wariant i nazwa nie zgadują
@@ -315,7 +312,7 @@ try {
     $ps->saveProduct(null, ['name' => 'Świeca karmelowa', 'sku' => 'KAR-1', 'recipe' => [['material_id' => $wosk['id'], 'qty' => 150], ['material_id' => $oil['id'], 'qty' => 12]]]);
     $oi->execute([503, 13, '503', $payload([$woo('Świeca karmelowa', 1, 'KAR-1')])]);
     $pl = request($vi, 'admin/production_list.php?ids=503');
-    ok(str_contains($pl['body'], 'Zapach: <b>Olejek Sweet Caramel</b>') && str_contains($pl['body'], 'grp-t">Zapach: 18 · Sweet Caramel<'), 'Recipe oil shows its fragrance number on the production list');
+    ok(str_contains($pl['body'], 'Zapach: <b>Olejek Sweet Caramel</b>') && str_contains($pl['body'], 'Nr zapachu: <b>18 · Sweet Caramel</b>'), 'Recipe oil shows its fragrance number on the production list');
 
     // ---- Eksport CSV i powrót tym samym plikiem (przypisania po SKU)
     $exp = request($vi, $url('eksport'));

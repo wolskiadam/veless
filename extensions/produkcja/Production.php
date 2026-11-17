@@ -24,6 +24,7 @@ final class Production
     /**
      * Receptura wyrobu o danym SKU na listę produkcji (rdzeń: Pase\Services\ProductionList, filtr production_list.details):
      * „Knot: ECO 8”, „Zapach: Wanilia” z ilością na sztukę - lista sama mnoży przez liczbę sztuk.
+     * Waga wyrobu idzie jako „Waga: 200 g” bez ilości - lista pokazuje ją w osobnej kolumnie.
      * @return list<array{label:string,value:string,per:float,unit:string}>
      */
     public static function listDetails(Store $s, string $sku): array
@@ -39,8 +40,10 @@ final class Production
         $order = array_flip(self::LIST_CATEGORIES);
         $lines = array_values(array_filter($s->recipe((string) $product['id']), static fn(array $l) => isset($order[$l['category']])));
         usort($lines, static fn(array $a, array $b) => $order[$a['category']] <=> $order[$b['category']]);
-        return array_map(static fn(array $l) => ['label' => Store::CATEGORIES[$l['category']] ?? (string) $l['category'],
-            'value' => (string) $l['name'], 'per' => (float) $l['qty'], 'unit' => (string) $l['unit']], $lines);
+        $weight = ($product['weight_g'] ?? null) !== null && (float) $product['weight_g'] > 0
+            ? [['label' => 'Waga', 'value' => \Pase\Services\ProductionList::amount((float) $product['weight_g'], 'g')]] : [];
+        return array_merge($weight, array_map(static fn(array $l) => ['label' => Store::CATEGORIES[$l['category']] ?? (string) $l['category'],
+            'value' => (string) $l['name'], 'per' => (float) $l['qty'], 'unit' => (string) $l['unit']], $lines));
     }
 
     public function pattern(): string

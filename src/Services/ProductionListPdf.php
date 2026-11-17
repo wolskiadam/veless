@@ -43,7 +43,7 @@ final class ProductionListPdf
         }
 
         $this->itemsHeader();
-        // Gęsto, żeby na stronie zmieściło się dużo pozycji: nazwa (pogrubiona) + jedna linia parametrów, pojemność w kolumnie.
+        // Gęsto, żeby na stronie zmieściło się dużo pozycji: nazwa (pogrubiona) + jedna linia parametrów, waga w kolumnie.
         $nameW = $numbers ? 119.0 : 149.0;
         foreach ($list['rows'] as $r) {
             $name = $p->wrap($r["name"], $nameW, 9, true);
@@ -72,8 +72,8 @@ final class ProductionListPdf
                 $p->text(29, $ly, $line, 7.8, false, '333333');
                 $ly += 3.2;
             }
-            if ($r['capacity'] !== '') {
-                $p->text($numbers ? 151 : 181, $top + 4.4, $r['capacity'], 9.5, true);
+            if ($r['weight'] !== '') {
+                $p->text($numbers ? 151 : 181, $top + 4.4, $r['weight'], 9.5, true);
             }
             $oy = $top + 4.2;
             foreach ($orders as $line) {
@@ -131,7 +131,7 @@ final class ProductionListPdf
         $p = $this->pdf;
         $p->text(26, $this->y + 4.5, 'SZT.', 6.5, true, '555555', 'R');
         $p->text(29, $this->y + 4.5, 'PRODUKT', 6.5, true, '555555');
-        $p->text($this->numbers ? 151 : 181, $this->y + 4.5, 'POJ.', 6.5, true, '555555');
+        $p->text($this->numbers ? 151 : 181, $this->y + 4.5, 'WAGA', 6.5, true, '555555');
         if ($this->numbers) {
             $p->text(170, $this->y + 4.5, 'ZAMÓWIENIA', 6.5, true, '555555');
         }

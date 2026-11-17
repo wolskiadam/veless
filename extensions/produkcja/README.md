@@ -28,6 +28,7 @@ i numer partii przy zamówieniu. Kod numerów partii pochodzi z wtyczki WordPres
 - **Lista produkcji**: na liście zamówień zaznaczone → „Lista produkcji” (wydruk A4 z kratkami). Przy produkcie,
   którego SKU ma wyrób, wtyczka dopisuje recepturę (knot, zapach, pojemnik, wosk, barwnik, dodatki) z ilością
   na wszystkie sztuki, a pod listą „Materiały razem”. Zapach z wariantu zamówienia wygrywa z recepturą.
+  Pole „Waga (g)” wyrobu pokazuje się w kolumnie „Waga”.
 
 ## Numer partii
 

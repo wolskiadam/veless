@@ -127,7 +127,7 @@ final class ProductPages
                 . '<dt>Stan</dt><dd>' . self::crmStock($crm) . '</dd>'
                 . ($w['min_stock'] !== null ? '<dt>Trzymaj co najmniej</dt><dd>' . (int) $w['min_stock'] . ' szt.</dd>' : '') . '</dl>';
         }
-        $html .= '<dl class="pr-dl" style="margin-top:10px"><dt>Ważność</dt><dd>' . ((int) $w['shelf_life_months'] > 0 ? (int) $w['shelf_life_months'] . ' mies. od produkcji' : 'bez daty') . '</dd>'
+        $html .= '<dl class="pr-dl" style="margin-top:10px">' . (($w['weight_g'] ?? null) !== null ? '<dt>Waga</dt><dd>' . U::n($w['weight_g']) . ' g</dd>' : '') . '<dt>Ważność</dt><dd>' . ((int) $w['shelf_life_months'] > 0 ? (int) $w['shelf_life_months'] . ' mies. od produkcji' : 'bez daty') . '</dd>'
             . ($w['notes'] !== '' ? '<dt>Uwagi</dt><dd style="white-space:pre-line">' . U::h($w['notes']) . '</dd>' : '') . '</dl></div></div>';
 
         $batches = $s->batches(['product' => $w['id']], 20);
@@ -198,6 +198,7 @@ final class ProductPages
             . U::input('min_stock', $v('min_stock'), 'Trzymaj co najmniej (szt.)', 'type="number" min="0"', 'poniżej trafia na listę „Do zrobienia”')
             . U::input('extra_cost', $v('extra_cost') !== '' ? U::n($v('extra_cost')) : '', 'Inne koszty na sztukę (zł)', 'inputmode="decimal"', 'czego nie ma w materiałach, np. prąd')
             . U::input('labor_minutes', $v('labor_minutes') !== '' ? U::n($v('labor_minutes')) : '', 'Czas pracy na sztukę (min)', 'inputmode="decimal"')
+            . U::input('weight_g', $v('weight_g') !== '' ? U::n($v('weight_g')) : '', 'Waga (g)', 'inputmode="decimal"', 'pokazywana na liście produkcji')
             . '</div>'
             . '<div><b>Receptura na 1 sztukę</b><p class="pr-small" style="margin:2px 0 8px">Np. wosk 180 g, zapach 14 g, knot 1 szt., słoik 1 szt., etykieta 1 szt. Ilość w jednostce materiału (g, ml albo sztuki).</p>'
             . ($mats === [] ? '<p class="pr-warn">Najpierw dodaj materiały w zakładce Materiały i magazyn.</p>' : '')

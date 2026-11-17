@@ -409,6 +409,10 @@ final class ProdukcjaExtension extends AbstractExtension
         Hooks::addFilter('production_list.details', static function (array $details, string $sku) use ($store): array {
             return array_merge($details, Production::listDetails($store(), $sku));
         });
+        // Bez receptury: knot, pojemnik, wosk i zapach z ostatniej partii tego zapachu (po wtyczce Zapachy, która dopisuje „Nr zapachu”).
+        Hooks::addFilter('production_list.details', static function (array $details, string $sku, int|float $qty = 0, array $row = []) use ($store): array {
+            return array_merge($details, Production::historyDetails($store(), $row, $details));
+        }, 30);
     }
 
     // ---------------------------------------------------------------- pulpit

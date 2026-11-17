@@ -46,6 +46,119 @@ final class Production
             'value' => (string) $l['name'], 'per' => (float) $l['qty'], 'unit' => (string) $l['unit']], $lines));
     }
 
+    /** @var array<string,list<array>>|null partie do podpowiedzi z historii (na czas jednego żądania) */
+    private static ?array $history = null;
+
+    /**
+     * Gdy wyrób o tym SKU nie ma receptury: knot, pojemnik, wosk i zapach z ostatniej partii tego samego zapachu
+     * (partie z Rejestru Partii i partie bez wyrobu) albo o tej samej nazwie wyrobu. Zapach pozycji bierzemy z „Nr zapachu”
+     * (wtyczka Zapachy), z wariantu („Zapach: Wanilia”) albo z nazwy produktu. Gdy pozycja i partia mają rozmiar
+     * („100 g”), musi się zgadzać - knot do 100 g nie pasuje do 250 g.
+     * @param array{name?:string,attrs?:list<array{0:string,1:string}>} $row pozycja listy produkcji
+     * @param list<array{label:string,value:string}> $details to, co dopisały wcześniejsze filtry
+     * @return list<array{label:string,value:string}>
+     */
+    public static function historyDetails(Store $s, array $row, array $details): array
+    {
+        foreach ($details as $d) {
+            if (in_array(mb_strtolower((string) ($d['label'] ?? '')), ['knot', 'z partii'], true)) {
+                return [];
+            }
+        }
+        $texts = [(string) ($row['name'] ?? '')];
+        foreach ((array) ($row['attrs'] ?? []) as $a) {
+            $texts[] = (string) ($a[1] ?? '');
+        }
+        foreach ($details as $d) {
+            if (mb_strtolower((string) ($d['label'] ?? '')) === 'nr zapachu') {
+                $texts[] = (string) preg_replace('/^.*?·\s*/u', '', (string) $d['value']);
+            }
+        }
+        $hay = ' ' . self::norm(implode(' ', $texts)) . ' ';
+        $size = self::size(implode(' ', $texts));
+        if (trim($hay) === '') {
+            return [];
+        }
+        self::$history ??= self::loadHistory($s);
+        $best = null;
+        foreach (self::$history as $b) {
+            $key = $b['scent'] !== '' ? $b['scent'] : $b['product'];
+            if ($key === '' || !str_contains($hay, ' ' . $key . ' ')) {
+                continue;
+            }
+            if ($size !== '' && $b['size'] !== '' && $size !== $b['size']) {
+                continue;
+            }
+            // Pasujący rozmiar przed partią bez rozmiaru; potem najnowsza (lista jest od najnowszej).
+            $rank = $size !== '' && $b['size'] === $size ? 1 : 0;
+            if ($best === null || $rank > $best[0]) {
+                $best = [$rank, $b];
+            }
+        }
+        if ($best === null) {
+            return [];
+        }
+        $b = $best[1];
+        $out = [];
+        foreach (['Knot' => 'wick', 'Pojemnik' => 'container', 'Wosk' => 'wax', 'Zapach' => 'scent_text'] as $label => $k) {
+            if ($b[$k] !== '') {
+                $out[] = ['label' => $label, 'value' => $b[$k]];
+            }
+        }
+        if ($out === []) {
+            return [];
+        }
+        $out[] = ['label' => 'Z partii', 'value' => $b['code'] . ' z ' . date('d.m.Y', (int) strtotime($b['date']))];
+        return $out;
+    }
+
+    /** Partie (od najnowszej) z tym, czego potrzeba do podpowiedzi: z uwag partii z Rejestru albo z materiałów partii. */
+    private static function loadHistory(Store $s): array
+    {
+        $out = [];
+        foreach ($s->all('SELECT code, product_name, product_id, produced_at, notes, lines_json FROM ext_prod_batches
+            WHERE deleted_at IS NULL AND is_draft = 0 ORDER BY produced_at DESC, created_at DESC LIMIT 5000') as $b) {
+            $f = ['wick' => '', 'container' => '', 'wax' => '', 'scent_text' => ''];
+            foreach (preg_split('/\R/u', (string) $b['notes']) ?: [] as $line) {
+                if (preg_match('/^(Knot|Pojemnik|Wosk|Zapach):\s*(.+)$/u', trim($line), $m)) {
+                    $f[['Knot' => 'wick', 'Pojemnik' => 'container', 'Wosk' => 'wax', 'Zapach' => 'scent_text'][$m[1]]] = trim($m[2]);
+                }
+            }
+            // „Pojemnik: Wosk” / „Brak” w Rejestrze znaczy: bez pojemnika (świeca z formy, sam wosk).
+            $f['container'] = in_array(mb_strtolower($f['container']), ['wosk', 'brak', '-'], true) ? '' : $f['container'];
+            $f['wick'] = in_array(mb_strtolower($f['wick']), ['brak', '-'], true) ? '' : $f['wick'];
+            foreach (json_decode((string) $b['lines_json'], true) ?: [] as $l) {
+                $k = ['knot' => 'wick', 'pojemnik' => 'container', 'wosk' => 'wax', 'zapach' => 'scent_text'][(string) ($l['category'] ?? '')] ?? null;
+                if ($k !== null && $f[$k] === '' && (string) ($l['name'] ?? '') !== '') {
+                    $f[$k] = (string) $l['name'];
+                }
+            }
+            if ($f['wick'] === '' && $f['container'] === '') {
+                continue;
+            }
+            $scent = self::norm((string) preg_replace('/\s*\([^)]*\)\s*$/u', '', $f['scent_text']));
+            // Partia z wyrobu: nazwa wyrobu jest pewniejsza niż zapach (ten sam olejek w różnych świecach).
+            $product = (string) ($b['product_id'] ?? '') !== '' || !str_contains((string) $b['product_name'], '·') ? self::norm((string) $b['product_name']) : '';
+            $out[] = $f + ['code' => (string) $b['code'], 'date' => (string) $b['produced_at'],
+                'scent' => (string) ($b['product_id'] ?? '') !== '' ? '' : $scent, 'product' => $product,
+                'size' => self::size($f['container'] . ' ' . $b['product_name'])];
+        }
+        return $out;
+    }
+
+    /** Małe litery bez polskich znaków, tylko litery i cyfry rozdzielone spacją. */
+    private static function norm(string $s): string
+    {
+        $s = strtr(mb_strtolower($s), ['ą' => 'a', 'ć' => 'c', 'ę' => 'e', 'ł' => 'l', 'ń' => 'n', 'ó' => 'o', 'ś' => 's', 'ź' => 'z', 'ż' => 'z']);
+        return trim((string) preg_replace('/[^a-z0-9]+/', ' ', $s));
+    }
+
+    /** Rozmiar z tekstu: „100 g”, „250ml” → „100g”. */
+    private static function size(string $s): string
+    {
+        return preg_match('/(\d+(?:[.,]\d+)?)\s*(g|ml|kg)\b/iu', $s, $m) ? str_replace(',', '.', $m[1]) . mb_strtolower($m[2]) : '';
+    }
+
     public function pattern(): string
     {
         $p = trim((string) ($this->settings['pattern'] ?? ''));

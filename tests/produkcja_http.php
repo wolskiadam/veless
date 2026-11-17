@@ -329,6 +329,23 @@ try {
         && str_contains($got[1]['notes'], 'numer AM001GW02AABZ (powtórzony)'), 'Repeated Rejestr numbers get -2, -3 and nameless batches a name from scent and container');
     $post($ola, 'import', ['kind' => 'bne', 'text' => $dup]);
     ok((int) $pdo->query("SELECT COUNT(*) FROM ext_prod_batches WHERE code LIKE 'AM001GW02AABZ%'")->fetchColumn() === 3, 'Importing repeated numbers again adds nothing');
+    // Lista produkcji bez receptury: knot, pojemnik, wosk z ostatniej partii tego zapachu i rozmiaru.
+    $hw = static fn(string $id, string $code, string $date, string $wick, string $cont): array => ['id' => $id, 'batch_code' => $code, 'production_date' => $date,
+        'wax_type' => 'Goldenwax Y50', 'scent' => 'Hot wine', 'quantity' => '1', 'product_name' => '', 'concentration' => '8', 'container' => $cont, 'wick_type' => $wick,
+        'party' => 'Seria 1', 'employee' => 'Adam Wolski', 'shelf_life_months' => '12'];
+    $post($ola, 'import', ['kind' => 'bne', 'text' => json_encode(['batch_waxes' => [], 'batch_records' => [
+        $hw('700', 'HW100OLD', '2026-01-10', 'Bawełniany N24', 'Szklany brązowy 100 g'), $hw('701', 'HW100NEW', '2026-11-15', 'Drewniany 12 mm 1.0', 'Szklany brązowy 100 g'),
+        $hw('702', 'HW250', '2026-11-16', 'Drewniany 15 mm 1.0', 'Szklany przezroczysty 250 g')]])]);
+    $oins->execute([601, 61, '601', 'processing', 'new', 'PLN', 30, 'Anna Kowalska', 'anna@example.com', '2026-11-17 10:00:00', '2026-11-17 10:01:00',
+        $order('Lipowa 1', [['product_id' => 61, 'sku' => '', 'name' => 'Świeca sojowa Hot Wine 100 g', 'quantity' => 2, 'price' => 15, 'total' => '30.00'],
+            ['product_id' => 62, 'sku' => '', 'name' => 'Świeca sojowa Hot Wine 250 g', 'quantity' => 1, 'price' => 25, 'total' => '25.00'],
+            ['product_id' => 63, 'sku' => '', 'name' => 'Świeca sojowa Kokos 100 g', 'quantity' => 1, 'price' => 15, 'total' => '15.00']], 30)]);
+    $pl = request($boss, 'admin/production_list.php?ids=601&grp=0')['body'];
+    $at = static fn(string $from, string $to): string => (string) substr($pl, (int) strpos($pl, $from), max(0, (int) strpos($pl, $to, (int) strpos($pl, $from)) - (int) strpos($pl, $from)));
+    $row100 = $at('Hot Wine 100 g', 'Hot Wine 250 g');
+    $row250 = $at('Hot Wine 250 g', 'Kokos 100 g');
+    ok(str_contains($row100, 'Drewniany 12 mm 1.0') && str_contains($row100, 'HW100NEW') && !str_contains($row100, 'N24') && str_contains($row100, 'Goldenwax Y50')
+        && str_contains($row250, 'Drewniany 15 mm 1.0') && !str_contains($at('Kokos 100 g', '</table>'), 'Knot'), 'Production list shows the wick from the latest batch of the same scent and size');
     $r = $post($ola, 'import', ['kind' => 'bne', 'text' => '{"foo":1}']);
     ok(str_contains($r['body'], 'To nie jest kopia z Rejestru Partii'), 'Wrong JSON is refused');
 

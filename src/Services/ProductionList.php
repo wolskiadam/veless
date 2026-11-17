@@ -76,7 +76,8 @@ final class ProductionList
                 $attrs = self::lineAttributes($it);
                 $key = mb_strtolower(($sku !== '' ? $sku : $name) . '|' . implode('|', array_map(static fn($a) => $a[0] . '=' . $a[1], $attrs)));
                 if (!isset($rows[$key])) {
-                    $rows[$key] = ['name' => $name, 'sku' => $sku, 'attrs' => $attrs, 'qty' => 0, 'orders' => [], 'details' => []];
+                    $rows[$key] = ['name' => $name, 'sku' => $sku, 'attrs' => $attrs, 'qty' => 0, 'orders' => [], 'details' => [],
+                        'pid' => (int) ($it['product_id'] ?? 0), 'vid' => (int) ($it['variation_id'] ?? 0)];
                 }
                 $rows[$key]['qty'] += $qty;
                 $rows[$key]['orders'][$label] = ($rows[$key]['orders'][$label] ?? 0) + $qty;
@@ -86,10 +87,14 @@ final class ProductionList
 
         // Parametry z magazynu (po SKU) i z rozszerzeń.
         $products = $this->productsBySku(array_column($rows, 'sku'));
+        $byWoo = $this->productsByWooId($rows, $products);
         $fields = $this->fieldLabels();
         $materials = [];
         foreach ($rows as &$r) {
             $p = $r['sku'] !== '' ? ($products[mb_strtolower($r['sku'])] ?? null) : null;
+            // Bez SKU (albo SKU spoza magazynu): produkt po ID wariantu / produktu ze sklepu.
+            $p ??= $byWoo['v' . $r['vid']] ?? ($r['vid'] === 0 ? ($byWoo['p' . $r['pid']] ?? null) : null);
+            unset($r['pid'], $r['vid']);
             if ($p !== null) {
                 $have = array_map(static fn($a) => mb_strtolower($a[0]), $r['attrs']);
                 foreach (self::productParams($p, $fields) as [$k, $v]) {
@@ -125,7 +130,8 @@ final class ProductionList
                     $materials[$mk]['total'] += $line['total'];
                 }
             }
-            // Waga osobno (kolumna „Waga”): pole „Waga” wyrobu z Produkcji, potem atrybut „Waga”/„Gramatura”, potem nazwa („... 200 g”).
+            // Waga osobno (kolumna „Waga”): pole „Waga” wyrobu z Produkcji, potem waga produktu w magazynie (karta produktu, z Woo),
+            // potem atrybut „Waga”/„Gramatura”, potem nazwa („... 200 g”).
             $r['weight'] = '';
             foreach ($r['details'] as $i => $d) {
                 if ($d['total'] === null && mb_strtolower($d['label']) === 'waga') {
@@ -134,6 +140,9 @@ final class ProductionList
                 }
             }
             $r['details'] = array_values($r['details']);
+            if ($r['weight'] === '' && $p !== null && is_numeric($p['weight'] ?? null) && (float) $p['weight'] > 0) {
+                $r['weight'] = self::amount(round((float) $p['weight'] * 1000, 1), 'g');
+            }
             foreach ($r['attrs'] as $i => [$k, $v]) {
                 if (self::isWeight($k)) {
                     $r['weight'] = $r['weight'] === '' ? $v : $r['weight'];
@@ -143,6 +152,23 @@ final class ProductionList
             $r['attrs'] = array_values($r['attrs']);
             if ($r['weight'] === '') {
                 $r['weight'] = self::weightIn($r['name']);
+            }
+            // Zapach do grupowania: numer i nazwa z wtyczki Zapachy, potem wariant („Zapach: Wanilia”), potem olejek z receptury.
+            $r['scent'] = '';
+            foreach ($r['details'] as $d) {
+                if ($r['scent'] === '' && mb_strtolower($d['label']) === 'nr zapachu') {
+                    $r['scent'] = $d['value'];
+                }
+            }
+            foreach ($r['attrs'] as [$k, $v]) {
+                if ($r['scent'] === '' && self::isScent($k)) {
+                    $r['scent'] = $v;
+                }
+            }
+            foreach ($r['details'] as $d) {
+                if ($r['scent'] === '' && mb_strtolower($d['label']) === 'zapach') {
+                    $r['scent'] = $d['value'];
+                }
             }
         }
         unset($r);
@@ -178,6 +204,34 @@ final class ProductionList
     public static function isScentNote(string $name): bool
     {
         return (bool) preg_match('/aroma|\bnut[aąeyo]\w*|\bnotes?\b|akord/iu', $name);
+    }
+
+    /** Nazwa parametru to zapach wariantu (Zapach, pa_zapach, Scent, Aromat). */
+    public static function isScent(string $name): bool
+    {
+        return (bool) preg_match('/^(pa_)?(zapach|scent|fragrance|aromat\b)/iu', trim($name));
+    }
+
+    /**
+     * Pozycje pogrupowane po zapachu (różne produkty i knoty z tym samym zapachem razem). Grupy po nazwie zapachu,
+     * pozycje bez zapachu na końcu (scent = ''). W pozycjach grupy pomijamy zapach z wariantu i „Nr zapachu” - jest w nagłówku.
+     * @return list<array{scent:string,qty:int,rows:list<array>}>
+     */
+    public static function groups(array $rows): array
+    {
+        $groups = [];
+        foreach ($rows as $r) {
+            $key = mb_strtolower(trim((string) ($r['scent'] ?? '')));
+            $groups[$key] ??= ['scent' => trim((string) ($r['scent'] ?? '')), 'qty' => 0, 'rows' => []];
+            $groups[$key]['qty'] += (int) $r['qty'];
+            if ($key !== '') {
+                $r['attrs'] = array_values(array_filter($r['attrs'], static fn(array $a) => !self::isScent($a[0])));
+                $r['details'] = array_values(array_filter($r['details'], static fn(array $d) => mb_strtolower($d['label']) !== 'nr zapachu'));
+            }
+            $groups[$key]['rows'][] = $r;
+        }
+        uksort($groups, static fn($a, $b) => ((string) $a === '') <=> ((string) $b === '') ?: strnatcasecmp((string) $a, (string) $b));
+        return array_values($groups);
     }
 
     /** Nazwa parametru oznacza wagę świecy (Waga, Waga netto, Gramatura, Weight). */
@@ -249,6 +303,47 @@ final class ProductionList
             $st->execute($skus);
             foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $p) {
                 $out[mb_strtolower((string) $p['sku'])] = $p;
+            }
+        } catch (\PDOException) {
+        }
+        return $out;
+    }
+
+    /**
+     * Produkty z magazynu po ID ze sklepu dla pozycji bez dopasowanego SKU: klucz „v<id wariantu>” i „p<id produktu>” (produkt bez wariantu).
+     * @return array<string,array>
+     */
+    private function productsByWooId(array $rows, array $bySku): array
+    {
+        $vids = $pids = [];
+        foreach ($rows as $r) {
+            if ($r['sku'] !== '' && isset($bySku[mb_strtolower($r['sku'])])) {
+                continue;
+            }
+            if ($r['vid'] > 0) {
+                $vids[$r['vid']] = true;
+            } elseif ($r['pid'] > 0) {
+                $pids[$r['pid']] = true;
+            }
+        }
+        $out = [];
+        try {
+            if ($vids !== []) {
+                $ids = array_keys($vids);
+                $st = $this->pdo->prepare('SELECT * FROM products WHERE woo_variation_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+                $st->execute($ids);
+                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $p) {
+                    $out['v' . (int) $p['woo_variation_id']] ??= $p;
+                }
+            }
+            if ($pids !== []) {
+                $ids = array_keys($pids);
+                $st = $this->pdo->prepare('SELECT * FROM products WHERE woo_product_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ')'
+                    . ' AND (woo_variation_id IS NULL OR woo_variation_id = 0)');
+                $st->execute($ids);
+                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $p) {
+                    $out['p' . (int) $p['woo_product_id']] ??= $p;
+                }
             }
         } catch (\PDOException) {
         }

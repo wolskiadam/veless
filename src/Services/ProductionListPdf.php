@@ -20,8 +20,11 @@ final class ProductionListPdf
     private float $y = 0.0;
     private bool $numbers = true;
 
-    /** @param array{rows:list<array>,orders:list<array>,materials:list<array>,total:int} $list */
-    public function render(array $list, bool $numbers = true, ?string $when = null): string
+    /**
+     * @param array{rows:list<array>,orders:list<array>,materials:list<array>,total:int} $list
+     * @param list<array{scent:string,qty:int,rows:list<array>}>|null $groups pozycje po zapachu (ProductionList::groups), null = bez grup
+     */
+    public function render(array $list, bool $numbers = true, ?string $when = null, ?array $groups = null): string
     {
         $this->pdf = new Pdf();
         $this->numbers = $numbers;
@@ -45,7 +48,13 @@ final class ProductionListPdf
         $this->itemsHeader();
         // Gęsto, żeby na stronie zmieściło się dużo pozycji: nazwa (pogrubiona) + jedna linia parametrów, waga w kolumnie.
         $nameW = $numbers ? 119.0 : 149.0;
-        foreach ($list['rows'] as $r) {
+        $rows = [];
+        foreach ($groups ?? [['scent' => null, 'qty' => 0, 'rows' => $list['rows']]] as $g) {
+            foreach ($g['rows'] as $i => $r) {
+                $rows[] = [$i === 0 && $groups !== null ? $g : null, $r];
+            }
+        }
+        foreach ($rows as [$g, $r]) {
             $name = $p->wrap($r["name"], $nameW, 9, true);
             $params = array_merge(array_map(static fn(array $a) => $a[0] . ': ' . $a[1], $r['attrs']),
                 array_map(static fn(array $d) => $d['label'] . ': ' . $d['value']
@@ -55,9 +64,18 @@ final class ProductionListPdf
             $orders = $numbers ? $p->wrap(implode(', ', array_map(static fn($label, $q) => $label . ($q > 1 ? ' ×' . (int) $q : ''),
                 array_keys($r['orders']), $r['orders'])), self::R - 170, 7) : [];
             $h = max(1.6 + count($name) * 3.6 + count($params) * 3.2, 1.6 + count($orders) * 3, 6.5) + 1.2;
-            if ($this->y + $h > self::BOTTOM) {
+            if ($this->y + $h + ($g !== null ? 7 : 0) > self::BOTTOM) {
                 $this->newPage();
                 $this->itemsHeader();
+            }
+            if ($g !== null) {
+                // Nagłówek grupy: zapach i suma sztuk, różne produkty / knoty pod spodem.
+                $p->rect(self::L, $this->y + 0.4, self::R - self::L, 6.2, 'EFEDE8');
+                $p->text(26, $this->y + 4.9, (string) (int) $g['qty'], 9.5, true, '555555', 'R');
+                $label = $g['scent'] !== '' ? 'Zapach: ' . $g['scent'] : 'Bez zapachu';
+                $p->text(29, $this->y + 4.9, mb_strimwidth($label, 0, 90, '…'), 9.5, true);
+                $this->y += 7;
+                $p->line(self::L, $this->y, self::R, $this->y, '111111', 0.3);
             }
             $top = $this->y;
             $p->rect(self::L + 0.8, $top + 1.6, 3.4, 3.4, null, '111111', 0.3);

@@ -316,6 +316,19 @@ try {
     ok(str_contains($imp, 'AL001BW02AAB') && str_contains($imp, 'import'), 'Imported batch is in the history');
     $dec = request($vi, $url('partie', ['dekoduj' => 'AL001BW07AABZ']))['body'];
     ok(str_contains($dec, 'Kerasoy Pillar') && str_contains($dec, 'Seria 1'), 'Decoder uses imported codes and shifts');
+    // Ten sam numer kilka razy w Rejestrze i partia bez nazwy wyrobu (tylko zapach i pojemnik).
+    $rec = static fn(string $id, string $name, string $scent = '-Brak zapachu-'): array => ['id' => $id, 'batch_code' => 'AM001GW02AABZ', 'production_date' => '2025-07-12',
+        'wax_type' => 'Goldenwax Y50', 'scent' => $scent, 'quantity' => '1', 'product_name' => $name, 'concentration' => '8', 'container' => 'Szklany', 'wick_type' => 'Bawełniany N39',
+        'party' => 'Seria 1', 'employee' => 'Adam Wolski', 'shelf_life_months' => '12'];
+    $dup = json_encode(['batch_waxes' => [], 'batch_records' => [$rec('144', 'Dziewczynka'), $rec('143', 'Dziewczynka w Opasce'), $rec('150', '', 'Wanilia')]]);
+    $post($ola, 'import', ['kind' => 'bne', 'text' => $dup]);
+    $got = $pdo->query("SELECT code, product_name, product_id, notes FROM ext_prod_batches WHERE code LIKE 'AM001GW02AABZ%' ORDER BY code")->fetchAll(PDO::FETCH_ASSOC);
+    ok(str_contains($flash($ola), 'dostały końcówkę -2, -3') && array_column($got, 'code') === ['AM001GW02AABZ', 'AM001GW02AABZ-2', 'AM001GW02AABZ-3']
+        && $got[0]['product_name'] === 'Dziewczynka w Opasce' && $got[1]['product_name'] === 'Dziewczynka'
+        && $got[2]['product_name'] === 'Wanilia · Szklany' && $got[2]['product_id'] === null && str_contains($got[2]['notes'], 'Zapach: Wanilia (8%)')
+        && str_contains($got[1]['notes'], 'numer AM001GW02AABZ (powtórzony)'), 'Repeated Rejestr numbers get -2, -3 and nameless batches a name from scent and container');
+    $post($ola, 'import', ['kind' => 'bne', 'text' => $dup]);
+    ok((int) $pdo->query("SELECT COUNT(*) FROM ext_prod_batches WHERE code LIKE 'AM001GW02AABZ%'")->fetchColumn() === 3, 'Importing repeated numbers again adds nothing');
     $r = $post($ola, 'import', ['kind' => 'bne', 'text' => '{"foo":1}']);
     ok(str_contains($r['body'], 'To nie jest kopia z Rejestru Partii'), 'Wrong JSON is refused');
 

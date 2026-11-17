@@ -56,6 +56,9 @@ i sztuki. Sprzedaż zdejmuje stan jak dotąd, wtyczka niczego przy sprzedaży ni
 **Konfiguracja → Wtyczki → Produkcja → ⚙ → Import i eksport danych**: plik kopii zapasowej JSON z Rejestru Partii. Woski, zapachy, knoty i pojemniki
 stają się materiałami (z kodami do numeru partii), pracownicy i zmiany słownikami, dostawy historią dostaw
 (bez stanu), a rekordy partiami z wyrobami. Ponowny import tego samego pliku niczego nie dubluje.
+Rejestr pozwalał na ten sam numer kilka razy: kolejne partie o tym samym numerze dostają końcówkę -2, -3 (w kolejności
+z kopii, stary numer zostaje w uwagach). Partia bez nazwy wyrobu dostaje nazwę z zapachu i pojemnika (np. „Wanilia · Szklany 100 g”)
+i wchodzi jako partia bez wyrobu.
 
 ## Eksport i import CSV
 

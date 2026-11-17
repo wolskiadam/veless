@@ -8,6 +8,10 @@ declare(strict_types=1);
  *   require __DIR__ . '/header.php';
  */
 
+// Cała strona przez bufor: style wypisane w <body> (strony, wtyczki, stopka) trafiają do <head>, zanim strona
+// dotrze do przeglądarki - nic nie mignie bez wyglądu przy ładowaniu (Support\StyleHoist).
+\Pase\Support\StyleHoist::start();
+
 $pageTitle = $PAGE_TITLE ?? 'Veless';
 $pageKey   = $PAGE_KEY ?? '';
 // Skala interfejsu (Aa w pasku nawigacji) - per konto, jak powiększenie strony w przeglądarce.

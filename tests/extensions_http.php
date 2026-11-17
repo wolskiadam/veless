@@ -139,6 +139,8 @@ try {
     // ---- Karta zamówienia i zapis przez stronę rozszerzenia
     $card = request($boss, 'admin/order_view.php?id=501');
     ok($card['status'] === 200 && str_contains($card['body'], 'data-section="x_przyklad_note"') && str_contains($card['body'], 'Notatka wewnętrzna'), 'Order card has the extension section');
+    ok(\Pase\Support\StyleHoist::hoist($card['body']) === $card['body'],
+        'Order card sends all its styles in <head> (no flash of the unstyled print menu)');
     $r = request($vi, 'admin/ext.php?page=przyklad.zapisz', ['csrf' => csrfOf(request($vi, 'admin/index.php')['body']), 'id' => 501, 'note' => 'x']);
     ok($r['status'] === 403, 'Viewer cannot use an editor page');
     $r = request($boss, 'admin/ext.php?page=przyklad.zapisz', ['csrf' => 'zly', 'id' => 501, 'note' => 'x']);

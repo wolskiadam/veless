@@ -191,12 +191,13 @@ try {
     ok(str_contains($list, 'Wosk sojowy Golden 464') && str_contains($list, '21,43') && str_contains($list, '/kg'), 'List shows the weighted price per kg');
 
     // ---- Wyrób z recepturą i kosztem
-    $r = $post($ola, 'wyrob_zapisz', ['name' => 'Świeca Piernik 180', 'sku' => 'GB-1L', 'price' => '49,90', 'vat' => '23', 'shelf_life_months' => '24', 'min_stock' => '10',
+    $r = $post($ola, 'wyrob_zapisz', ['name' => 'Świeca Piernik 180', 'sku' => 'GB-1L', 'price' => '49,90', 'vat' => '23', 'shelf_life_months' => '24', 'min_stock' => '10', 'weight_g' => '210,5',
         'recipe' => [['material_id' => $wax, 'qty' => '180'], ['material_id' => $scent, 'qty' => '14'], ['material_id' => $wick, 'qty' => '1'], ['material_id' => $jar, 'qty' => '1'], ['material_id' => '', 'qty' => '']]]);
     $prod = $locId($r);
     ok($r['status'] === 302 && strlen($prod) === 16 && (int) $pdo->query("SELECT COUNT(*) FROM ext_prod_recipe WHERE product_id = '$prod'")->fetchColumn() === 4, 'Product with a 4-line recipe');
     $w = request($vi, $url('wyrob', ['id' => $prod]))['body'];
     ok(str_contains($w, '10,16') && str_contains($w, 'GINGERBREAD 1l') && str_contains($w, '20 szt.') && str_contains($w, 'Próg opłacalności'), 'Product card: unit cost 10,16 zł, CRM product, can make 20, break-even');
+    ok(str_contains($w, '<dt>Waga</dt><dd>210,5 g</dd>') && str_contains(request($ola, $url('wyrob', ['id' => $prod, 'edytuj' => 1]))['body'], 'name="weight_g" value="210,5"'), 'Product weight saved, shown and editable');
     $r = $post($ola, 'wyrob_zapisz', ['name' => 'Inna świeca', 'sku' => 'GB-1L']);
     ok(str_contains($r['body'], 'ma już wyrób'), 'SKU used by another product is refused');
 

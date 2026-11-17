@@ -130,7 +130,7 @@ header('Content-Type: text/html; charset=utf-8');
         <p class="empty">Brak produktów do zrobienia. Zaznacz zamówienia na liście i wybierz „Lista produkcji”.</p>
     <?php else: ?>
     <table class="items">
-        <thead><tr><th class="chk"></th><th class="qty">Szt.</th><th>Produkt</th><th class="cap">Poj.</th><th class="ord">Zamówienia</th></tr></thead>
+        <thead><tr><th class="chk"></th><th class="qty">Szt.</th><th>Produkt</th><th class="cap">Waga</th><th class="ord">Zamówienia</th></tr></thead>
         <tbody>
         <?php foreach ($list['rows'] as $r): ?>
             <?php
@@ -148,7 +148,7 @@ header('Content-Type: text/html; charset=utf-8');
                     <div class="name"><?= $h($r['name']) ?></div>
                     <div class="params"><?= implode(' · ', $params) ?><?php if ($r['sku'] !== ''): ?><span class="sku"><?= $h($r['sku']) ?></span><?php endif; ?></div>
                 </td>
-                <td class="cap"><?= $r['capacity'] !== '' ? $h($r['capacity']) : '—' ?></td>
+                <td class="cap"><?= $r['weight'] !== '' ? $h($r['weight']) : '—' ?></td>
                 <td class="ord"><?= implode(', ', array_map(static fn($label, $q) => $h($label) . ($q > 1 ? ' ×' . (int) $q : ''),
                     array_keys($r['orders']), $r['orders'])) ?></td>
             </tr>

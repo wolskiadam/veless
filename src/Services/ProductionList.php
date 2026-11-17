@@ -125,29 +125,24 @@ final class ProductionList
                     $materials[$mk]['total'] += $line['total'];
                 }
             }
-            // Pojemność osobno (kolumna „Poj.”): atrybut/pole „Pojemność”, potem nazwa („... 180 ml”), potem pojemnik z receptury.
-            $r['capacity'] = '';
+            // Waga osobno (kolumna „Waga”): pole „Waga” wyrobu z Produkcji, potem atrybut „Waga”/„Gramatura”, potem nazwa („... 200 g”).
+            $r['weight'] = '';
+            foreach ($r['details'] as $i => $d) {
+                if ($d['total'] === null && mb_strtolower($d['label']) === 'waga') {
+                    $r['weight'] = $r['weight'] === '' ? $d['value'] : $r['weight'];
+                    unset($r['details'][$i]);
+                }
+            }
+            $r['details'] = array_values($r['details']);
             foreach ($r['attrs'] as $i => [$k, $v]) {
-                if (self::isCapacity($k)) {
-                    $r['capacity'] = $r['capacity'] === '' ? $v : $r['capacity'];
+                if (self::isWeight($k)) {
+                    $r['weight'] = $r['weight'] === '' ? $v : $r['weight'];
                     unset($r['attrs'][$i]);
                 }
             }
             $r['attrs'] = array_values($r['attrs']);
-            if ($r['capacity'] === '') {
-                $r['capacity'] = self::capacityIn($r['name']);
-            }
-            // Opis produktu w sklepie: „Pojemność: 100 ml”, „pojemność 200ml”.
-            foreach (['short_description', 'description'] as $col) {
-                if ($r['capacity'] === '' && $p !== null && preg_match('/pojemno\w*\W{0,12}?(\d+(?:[.,]\d+)?\s?(?:ml|l|g)\b)/iu',
-                    html_entity_decode(strip_tags((string) ($p[$col] ?? '')), ENT_QUOTES, 'UTF-8'), $m)) {
-                    $r['capacity'] = self::capacityIn($m[1]);
-                }
-            }
-            foreach ($r['details'] as $d) {
-                if ($r['capacity'] === '' && mb_strtolower($d['label']) === 'pojemnik') {
-                    $r['capacity'] = self::capacityIn($d['value']);
-                }
+            if ($r['weight'] === '') {
+                $r['weight'] = self::weightIn($r['name']);
             }
         }
         unset($r);
@@ -185,16 +180,16 @@ final class ProductionList
         return (bool) preg_match('/aroma|\bnut[aąeyo]\w*|\bnotes?\b|akord/iu', $name);
     }
 
-    /** Nazwa parametru oznacza pojemność / rozmiar świecy. */
-    public static function isCapacity(string $name): bool
+    /** Nazwa parametru oznacza wagę świecy (Waga, Waga netto, Gramatura, Weight). */
+    public static function isWeight(string $name): bool
     {
-        return (bool) preg_match('/^(pa_)?(pojemno|objęto|rozmiar|wielko|gramatur|waga netto|size|capacity|volume)/iu', trim($name));
+        return (bool) preg_match('/^(pa_)?(waga|gramatur|weight)/iu', trim($name));
     }
 
-    /** Pojemność z tekstu: „Świeca 180 ml” → „180 ml”, „Słoik 0,5 l” → „0,5 l”. */
-    public static function capacityIn(string $text): string
+    /** Waga z tekstu: „Świeca 200 g” → „200 g”, „Wosk 1,5 kg” → „1,5 kg”. */
+    public static function weightIn(string $text): string
     {
-        return preg_match('/(?<![\w,.])(\d+(?:[.,]\d+)?)\s?(ml|l|g|kg|oz)(?![\w])/iu', $text, $m) ? $m[1] . ' ' . mb_strtolower($m[2]) : '';
+        return preg_match('/(?<![\w,.])(\d+(?:[.,]\d+)?)\s?(g|kg)(?![\w])/iu', $text, $m) ? $m[1] . ' ' . mb_strtolower($m[2]) : '';
     }
 
     /** Wariant pozycji (Woo meta_data bez pól technicznych). @return list<array{0:string,1:string}> */

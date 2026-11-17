@@ -15,7 +15,7 @@ use PDO;
  */
 final class Store
 {
-    public const SCHEMA = '2';
+    public const SCHEMA = '3';
     public const CATEGORIES = ['wosk' => 'Wosk', 'zapach' => 'Zapach', 'knot' => 'Knot', 'pojemnik' => 'Pojemnik', 'barwnik' => 'Barwnik',
         'dodatek' => 'Dodatek', 'opakowanie' => 'Opakowanie', 'etykieta' => 'Etykieta', 'inne' => 'Inne'];
     public const UNITS = ['g' => 'g', 'ml' => 'ml', 'szt' => 'szt.'];
@@ -52,7 +52,7 @@ final class Store
                 created_at DATETIME NOT NULL, deleted_at DATETIME NULL',
             'ext_prod_products' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, name VARCHAR(200) NOT NULL, sku VARCHAR(191) NOT NULL, code VARCHAR(4) NOT NULL DEFAULT \'\',
                 shelf_life_months INT NOT NULL DEFAULT 12, price DECIMAL(12,2) NULL, vat INT NOT NULL DEFAULT 23, min_stock INT NULL,
-                extra_cost DECIMAL(12,2) NULL, labor_minutes DECIMAL(8,2) NULL, notes TEXT NOT NULL, archived INT NOT NULL DEFAULT 0,
+                extra_cost DECIMAL(12,2) NULL, labor_minutes DECIMAL(8,2) NULL, weight_g DECIMAL(10,2) NULL, notes TEXT NOT NULL, archived INT NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
             'ext_prod_recipe' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, product_id VARCHAR(16) NOT NULL, material_id VARCHAR(16) NOT NULL,
                 qty DECIMAL(14,3) NOT NULL, position INT NOT NULL DEFAULT 0',
@@ -88,6 +88,12 @@ final class Store
         // Wersja 2: kod wyrobu do numeru partii.
         try {
             $this->pdo->exec("ALTER TABLE ext_prod_products ADD COLUMN code VARCHAR(4) NOT NULL DEFAULT ''");
+        } catch (\PDOException) {
+            // już jest (nowa instalacja)
+        }
+        // Wersja 3: waga wyrobu (g) do kolumny „Waga” na liście produkcji.
+        try {
+            $this->pdo->exec('ALTER TABLE ext_prod_products ADD COLUMN weight_g DECIMAL(10,2) NULL');
         } catch (\PDOException) {
             // już jest (nowa instalacja)
         }
@@ -465,6 +471,7 @@ final class Store
             'min_stock' => ($ms = self::num($in['min_stock'] ?? '')) === null ? null : max(0, (int) $ms),
             'extra_cost' => self::num($in['extra_cost'] ?? ''),
             'labor_minutes' => self::num($in['labor_minutes'] ?? ''),
+            'weight_g' => ($wg = self::num($in['weight_g'] ?? '')) === null || $wg <= 0 ? null : min($wg, 99999999.0),
             'notes' => mb_substr(trim((string) ($in['notes'] ?? '')), 0, 2000),
             'updated_at' => self::now(),
         ];

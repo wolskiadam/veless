@@ -204,17 +204,19 @@ try {
 
     // Ten sam zapach razem (domyślne): bez nagłówków, pozycje po zapachu, wspólny zapach oznaczony literą, bez zapachu na końcu.
     $g = request($boss, 'admin/production_list.php?ids=101,102,103')['body'];
-    preg_match_all('#<td class="qty">(\d+)</td>\s*<td class="mk">(?:<span class="mk-b"[^>]*>([A-Z]+)</span>)?</td>\s*<td>\s*<div class="name">([^<]+)</div>#', $g, $gm, PREG_SET_ORDER);
+    preg_match_all('#<td class="qty">(\d+)</td>\s*<td class="mk">(?:<svg class="mk-d"[^>]*data-scent="([A-Z]+)">.*?</svg>)?</td>\s*<td>\s*<div class="name">([^<]+)</div>#', $g, $gm, PREG_SET_ORDER);
     $seq = array_map(static fn($m) => $m[1] . ($m[2] !== '' ? ' [' . $m[2] . ']' : '') . ' ' . $m[3], $gm);
     ok($seq === ['1 Świeca sojowa 180 ml', '2 [A] Świeca kokosowa z drewnianym knotem', '3 [A] Świeca sojowa 180 ml', '8 GINGERBREAD 1l', '3 Wosk do kominka', '1 Zapałki'],
-        'Same scent side by side and marked with a letter (Cynamon alone unmarked), no scent last: ' . implode(' | ', $seq));
+        'Same scent side by side and marked with a drop icon (same letter = same scent) (Cynamon alone unmarked), no scent last: ' . implode(' | ', $seq));
     ok(!str_contains($g, 'class="grp"') && !str_contains($g, 'Bez zapachu') && str_contains($g, '<th class="mk">Zap.</th>') && substr_count($g, 'class="mk-first"') === 1
         && str_contains(rowWith($g, 'Świeca kokosowa'), 'Zapach: Wanilia') && str_contains($g, 'id="groupScent" checked'), 'No group headers; the scent stays a small parameter in each row; toggle on');
     $plain = request($boss, 'admin/production_list.php?ids=101,102,103&grp=0')['body'];
-    ok(!str_contains($plain, 'class="mk-b"') && !str_contains($plain, 'class="mk"') && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without letters too');
+    ok(!str_contains($plain, 'class="mk-d"') && !str_contains($plain, 'class="mk"') && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without drops too');
     ok(!str_contains(request($boss, 'admin/production_list.php?ids=104')['body'], 'class="mk"'), 'No shared scent: no letter column');
-    $gp = pdfText(request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1')['body']);
-    ok(str_contains($gp, "ZAP.") && !str_contains($gp, 'BEZ ZAPACHU') && strpos($gp, 'Świeca kokosowa') < strpos($gp, 'GINGERBREAD'), 'PDF: letter column, same order, no headers');
+    $gpRaw = request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1')['body'];
+    ok(substr_count($gpRaw, ' c f') === 2, 'PDF: a drop next to both positions with the shared scent');
+    $gp = pdfText($gpRaw);
+    ok(str_contains($gp, "ZAP.") && !str_contains($gp, 'BEZ ZAPACHU') && strpos($gp, 'Świeca kokosowa') < strpos($gp, 'GINGERBREAD'), 'PDF: scent column, same order, no headers');
 
     $r = request($boss, 'admin/production_list.php?ids=103,104');
     ok(str_starts_with(rowWith($r['body'], 'GINGERBREAD'), '7 GINGERBREAD'), 'Main and merged both selected: merged items not doubled');

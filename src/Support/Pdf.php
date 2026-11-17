@@ -145,6 +145,19 @@ final class Pdf
             . sprintf('%.2F %.2F %.2F %.2F re %s', $x * self::K, (self::H - $y - $h) * self::K, $w * self::K, $h * self::K, $op));
     }
 
+    /** Kropla (np. „ten sam zapach”): czubek u góry w (cx, top), wysokość h w mm, wypełniona. */
+    public function drop(float $cx, float $top, float $h, string $color = '111111'): void
+    {
+        $r = $h * 0.36;
+        $cy = $top + $h - $r;
+        $pt = fn(float $x, float $y): string => sprintf('%.2F %.2F', $x * self::K, (self::H - $y) * self::K);
+        $this->out($this->rgb($color) . ' rg ' . $pt($cx, $top) . ' m '
+            . $pt($cx + $r * 0.2, $top + $h * 0.3) . ' ' . $pt($cx + $r, $cy - $r * 0.6) . ' ' . $pt($cx + $r, $cy) . ' c '
+            . $pt($cx + $r, $cy + $r * 0.55) . ' ' . $pt($cx + $r * 0.55, $cy + $r) . ' ' . $pt($cx, $cy + $r) . ' c '
+            . $pt($cx - $r * 0.55, $cy + $r) . ' ' . $pt($cx - $r, $cy + $r * 0.55) . ' ' . $pt($cx - $r, $cy) . ' c '
+            . $pt($cx - $r, $cy - $r * 0.6) . ' ' . $pt($cx - $r * 0.2, $top + $h * 0.3) . ' ' . $pt($cx, $top) . ' c f');
+    }
+
     public function line(float $x1, float $y1, float $x2, float $y2, string $color = '000000', float $width = 0.2): void
     {
         $this->out(sprintf('%s RG %.2F w %.2F %.2F m %.2F %.2F l S', strtoupper($this->rgb($color)), $width * self::K,

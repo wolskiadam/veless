@@ -23,7 +23,7 @@ final class ProductionListPdf
 
     /**
      * @param array{rows:list<array>,orders:list<array>,materials:list<array>,total:int} $list
-     * @param bool $marked pozycje mają litery wspólnego zapachu (ProductionList::markScents) - kolumna „ZAP.”
+     * @param bool $marked pozycje oznaczone wspólnym zapachem (ProductionList::markScents) - kolumna z kroplą
      */
     public function render(array $list, bool $numbers = true, ?string $when = null, bool $marked = false): string
     {
@@ -76,9 +76,7 @@ final class ProductionListPdf
             $p->rect(self::L + 0.8, $top + 1.6, 3.4, 3.4, null, '111111', 0.3);
             $p->text(26, $top + 4.6, (string) (int) $r['qty'], 11, true, '111111', 'R');
             if ($mk !== '') {
-                $bw = max(5.0, $p->width($mk, 8.5, true) + 2);
-                $p->rect(31.5 - $bw / 2, $top + 1.4, $bw, 4.2, null, '111111', 0.45);
-                $p->text(31.5, $top + 4.5, $mk, 8.5, true, '111111', 'C');
+                $p->drop(31.5, $top + 1.3, 4.0);   // kropla = ten sam zapach co sąsiednie pozycje z kroplą
             }
             $ly = $top + 4.4;
             foreach ($name as $line) {

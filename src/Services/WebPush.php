@@ -500,6 +500,26 @@ final class WebPush
     }
 
     /**
+     * Push o zamówieniu jeszcze nie poszedł z powodu po stronie importu (np. sklep czeka na płatność online) -
+     * wpis w historii zamówienia, żeby było widać dlaczego. Ten sam powód drugi raz z rzędu nie jest dopisywany
+     * (kolejne aktualizacje zamówienia ze sklepu).
+     */
+    public function noteNotSent(int $wooOrderId, string $summary): void
+    {
+        try {
+            $st = $this->pdo->prepare("SELECT after_json FROM audit_events WHERE order_id = ? AND action = 'push.new_order' ORDER BY id DESC LIMIT 1");
+            $st->execute([$wooOrderId]);
+            $last = $st->fetchColumn();
+            if (is_string($last) && (json_decode($last, true)['push']['summary'] ?? null) === $summary) {
+                return;
+            }
+        } catch (\PDOException) {
+            // brak tabeli historii - recordOrder ją utworzy
+        }
+        $this->recordOrder($wooOrderId, $summary, []);
+    }
+
+    /**
      * Wpis „Powiadomienie push” w historii zamówienia (order_history.php): do kogo i na jakie urządzenie poszło,
      * a jeśli nie - dlaczego. Błąd zapisu nie wstrzymuje wysyłki ani importu.
      * @param list<array{user_id:int,device:string,result:string}> $devices

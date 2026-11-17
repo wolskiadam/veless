@@ -157,6 +157,12 @@ check(count($h503) === 1 && $h503[0]['summary'] === 'wysłano na 1 z 2 urządze�
 $h500 = $hist(500);
 check(count($h500) === 1 && $h500[0]['summary'] === 'wysłano na 2 z 2 urządzeń', 'order history: one entry per order (repeat event not logged)');
 check(($hist(501)[0]['summary'] ?? '') === 'nie wysłano: zamówienie złożone ponad 2 dni przed pobraniem', 'order history: old order says why no push');
+$push->noteNotSent(507, 'jeszcze nie wysłano: sklep czeka na płatność online');
+$push->noteNotSent(507, 'jeszcze nie wysłano: sklep czeka na płatność online');
+check(array_column($hist(507), 'summary') === ['jeszcze nie wysłano: sklep czeka na płatność online'],
+    'order waiting for online payment: one history entry, not repeated on every shop update');
+$push->noteNotSent(507, 'nie wysłano: płatność się nie udała albo zamówienie anulowano przed zapłatą');
+check(count($hist(507)) === 2, 'a new reason is added');
 $sent = [];
 $push->notifyNewOrder(504, []);
 check(count($sent) === 2, 'shop order reaches both devices');

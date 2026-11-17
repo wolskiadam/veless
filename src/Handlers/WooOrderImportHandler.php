@@ -112,6 +112,9 @@ final class WooOrderImportHandler
         if ($this->ruleEngine !== null && !$this->repo->automationsDone($wooOrderId)) {
             if (self::awaitingOnlinePayment($payload)) {
                 Logger::info("WooOrderImport: #{$wooOrderId} czeka na płatność - reguły „Pobrano zamówienie” po jej wyniku");
+                $this->notePush($wooOrderId, 'jeszcze nie wysłano: sklep czeka na płatność online (status „'
+                    . ($payload['status'] ?? '') . '”, metoda „' . ($payload['payment_method_title'] ?? ($payload['payment_method'] ?? '')) . '”) - '
+                    . 'push pójdzie, gdy sklep zgłosi wynik płatności');
             } else {
                 if (!$isNew) {
                     $this->adoptShopStatus($wooOrderId, (string) $fields['pase_status']);
@@ -119,12 +122,24 @@ final class WooOrderImportHandler
                 // Płatność się nie udała / zamówienie anulowano przed zapłatą: bez „Pobrano zamówienie” (np. podziękowań).
                 if ($isNew || !in_array((string) ($payload['status'] ?? ''), ['cancelled', 'failed'], true)) {
                     $this->ruleEngine->dispatch('order.imported', $wooOrderId, $payload);
+                } else {
+                    $this->notePush($wooOrderId, 'nie wysłano: płatność się nie udała albo zamówienie anulowano przed zapłatą');
                 }
                 $this->repo->markAutomationsDone($wooOrderId);
             }
         }
         if ($this->ruleEngine !== null) {
             \Pase\Automation\OrderEvents::paidTransition($this->repo->pdo(), $wooOrderId, $wasPaid, $this->ruleEngine);
+        }
+    }
+
+    /** Powód braku pushu w historii zamówienia (Services\WebPush::noteNotSent); błąd nie wstrzymuje importu. */
+    private function notePush(int $wooOrderId, string $summary): void
+    {
+        try {
+            (new \Pase\Services\WebPush($this->repo->pdo()))->noteNotSent($wooOrderId, $summary);
+        } catch (\Throwable $e) {
+            Logger::warn("WooOrderImport: #{$wooOrderId} - nie zapisano powodu braku pushu", ['error' => $e->getMessage()]);
         }
     }
 

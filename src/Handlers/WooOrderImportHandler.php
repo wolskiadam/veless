@@ -111,10 +111,13 @@ final class WooOrderImportHandler
         // przyszło już opłacone (status CRM ze sklepu + „Pobrano zamówienie”), a nie na stanie sprzed zapłaty.
         if ($this->ruleEngine !== null && !$this->repo->automationsDone($wooOrderId)) {
             if (self::awaitingOnlinePayment($payload)) {
-                Logger::info("WooOrderImport: #{$wooOrderId} czeka na płatność - reguły „Pobrano zamówienie” po jej wyniku");
-                $this->notePush($wooOrderId, 'jeszcze nie wysłano: sklep czeka na płatność online (status „'
-                    . ($payload['status'] ?? '') . '”, metoda „' . ($payload['payment_method_title'] ?? ($payload['payment_method'] ?? '')) . '”) - '
-                    . 'push pójdzie, gdy sklep zgłosi wynik płatności');
+                // CRM może już widzieć wpłatę (PayU przypisane w CRM, wpłata ręczna), choć sklep dalej wstrzymuje zamówienie.
+                if (!\Pase\Automation\OrderEvents::releaseAwaitingPayment($this->repo->pdo(), $wooOrderId, $this->ruleEngine)) {
+                    Logger::info("WooOrderImport: #{$wooOrderId} czeka na płatność - reguły „Pobrano zamówienie” po jej wyniku");
+                    $this->notePush($wooOrderId, 'jeszcze nie wysłano: sklep czeka na płatność online (status „'
+                        . ($payload['status'] ?? '') . '”, metoda „' . ($payload['payment_method_title'] ?? ($payload['payment_method'] ?? '')) . '”) - '
+                        . 'push pójdzie, gdy sklep albo PayU w CRM potwierdzi płatność');
+                }
             } else {
                 if (!$isNew) {
                     $this->adoptShopStatus($wooOrderId, (string) $fields['pase_status']);

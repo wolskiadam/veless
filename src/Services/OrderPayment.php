@@ -59,6 +59,8 @@ final class OrderPayment
         $saved = $this->save($orderId, $amount, $actor);
         if ($fireEvents && !$this->pdo->inTransaction()) {
             \Pase\Automation\OrderEvents::paidTransition($this->pdo, $orderId, $wasPaid ?? false);
+            // Wpłata potwierdzona w CRM, a sklep dalej wstrzymuje zamówienie - do realizacji + „Pobrano zamówienie” (push).
+            \Pase\Automation\OrderEvents::releaseAwaitingPayment($this->pdo, $orderId);
         }
         return $saved;
     }

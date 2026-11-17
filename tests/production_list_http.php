@@ -214,6 +214,14 @@ try {
         ['name' => 'a', 'qty' => 1, 'scent' => '7 · Pumpkin pie'], ['name' => 'b', 'qty' => 1, 'scent' => 'Wanilia'],
         ['name' => 'c', 'qty' => 1, 'scent' => '7 · Pumpkin pie'], ['name' => 'd', 'qty' => 1, 'scent' => 'Wanilia'], ['name' => 'e', 'qty' => 1, 'scent' => '8 · Hot Wine']]);
     ok(array_map(static fn($r) => $r['name'] . $r['mark'], $rows) === ['a7', 'c7', 'e', 'bA', 'dA'], 'Mark = scent number from Zapachy (7), letter when the scent has no number, none for a single position');
+    $nr = static fn(string $v) => ['label' => 'Nr zapachu', 'value' => $v, 'total' => null, 'unit' => ''];
+    $rows = \Pase\Services\ProductionList::markScents([
+        ['name' => 'a', 'qty' => 1, 'attrs' => [], 'scent' => '7 · Pumpkin pie', 'details' => [$nr('7 · Pumpkin pie'), ['label' => 'Knot', 'value' => 'ECO 8', 'total' => 1.0, 'unit' => 'szt']]],
+        ['name' => 'b', 'qty' => 1, 'attrs' => [], 'scent' => '7 · Pumpkin pie', 'details' => [$nr('7 · Pumpkin pie'), ['label' => 'Zapach', 'value' => 'Pumpkin pie (8%)', 'total' => null, 'unit' => '']]],
+        ['name' => 'c', 'qty' => 1, 'attrs' => [], 'scent' => '8 · Hot Wine', 'details' => [$nr('8 · Hot Wine')]]]);
+    $txt = array_map(static fn($r) => implode(' · ', array_map(static fn($d) => $d['label'] . ': ' . $d['value'], $r['details'])), $rows);
+    ok($txt === ['Zapach: Pumpkin pie · Knot: ECO 8', 'Zapach: Pumpkin pie (8%)', 'Nr zapachu: 8 · Hot Wine'],
+        'Number only in the circle: shared scent shows its name only (or the recipe line), a single scent keeps "Nr zapachu": ' . implode(' | ', $txt));
     $plain = request($boss, 'admin/production_list.php?ids=101,102,103&grp=0')['body'];
     ok(!str_contains($plain, 'class="mk-b"') && !str_contains($plain, 'class="mk"') && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without marks too');
     ok(!str_contains(request($boss, 'admin/production_list.php?ids=104')['body'], 'class="mk"'), 'No shared scent: no letter column');

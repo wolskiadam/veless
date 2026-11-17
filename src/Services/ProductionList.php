@@ -261,6 +261,29 @@ final class ProductionList
                 }
             }
             $r['mark'] = $letters[$k] ?? '';
+            // Numer jest w kółku - w parametrach zostaje sama nazwa („Nr zapachu: 7 · Pumpkin pie” → „Zapach: Pumpkin pie”),
+            // a gdy receptura już ją podaje („Zapach: Pumpkin pie (8%)”), wpis z numerem znika.
+            if ($r['mark'] !== '' && preg_match('/^\s*' . preg_quote($r['mark'], '/') . '\s*·\s*(.+)$/u', (string) $r['scent'], $m)) {
+                $name = trim($m[1]);
+                $named = false;
+                foreach ($r['details'] ?? [] as $d) {
+                    $named = $named || (mb_strtolower($d['label']) === 'zapach' && str_contains(mb_strtolower($d['value']), mb_strtolower($name)));
+                }
+                foreach ($r['attrs'] ?? [] as [$ak, $av]) {
+                    $named = $named || (self::isScent($ak) && mb_strtolower(trim($av)) === mb_strtolower($name));
+                }
+                $details = [];
+                foreach ($r['details'] ?? [] as $d) {
+                    if (mb_strtolower($d['label']) === 'nr zapachu') {
+                        if ($named) {
+                            continue;
+                        }
+                        $d = ['label' => 'Zapach', 'value' => $name] + $d;
+                    }
+                    $details[] = $d;
+                }
+                $r['details'] = $details;
+            }
             $out[] = $r;
         }
         return $out;

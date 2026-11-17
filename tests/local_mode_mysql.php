@@ -107,7 +107,9 @@ try {
     ];
     check($pull($shop, $acc, 'SHOP_CHANGES_CURSOR_7', true) === 1 && $jobs() === ['woo.order.import:7:92468:processing'],
         'Server mode: paid order already in CRM is re-imported, unknown order is left alone');
-    check($settings->get('SHOP_CHANGES_CURSOR_7') === gmdate('Y-m-d\TH:i:s', time() - 61) && $settings->get('LOCAL_ORDERS_CURSOR_7') !== $settings->get('SHOP_CHANGES_CURSOR_7'),
+    // Kursor = data ostatniej zmiany minus 1 s; liczony chwilę wcześniej, więc tolerancja na przejście sekundy w trakcie testu.
+    $cursorAge = time() - (int) strtotime((string) $settings->get('SHOP_CHANGES_CURSOR_7') . ' UTC');
+    check($cursorAge >= 61 && $cursorAge <= 63 && $settings->get('LOCAL_ORDERS_CURSOR_7') !== $settings->get('SHOP_CHANGES_CURSOR_7'),
         'Server mode keeps its own cursor (past the skipped order too)');
 } finally {
     @unlink($envFile);

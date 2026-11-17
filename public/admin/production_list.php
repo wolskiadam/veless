@@ -76,23 +76,24 @@ header('Content-Type: text/html; charset=utf-8');
     .meta { font-size: 12px; color: #444; text-align: right; }
     h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 6px; color: #333; }
     table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #555; font-weight: 600; padding: 4px 6px; border-bottom: 1px solid #111; }
-    td { padding: 7px 6px; border-bottom: 1px solid #cfccc5; vertical-align: top; }
+    th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #555; font-weight: 600; padding: 3px 5px; border-bottom: 1px solid #111; }
+    td { padding: 4px 5px; border-bottom: 1px solid #d9d6cf; vertical-align: top; }
     tr { break-inside: avoid; page-break-inside: avoid; }
     thead { display: table-header-group; }
-    .box { width: 16px; height: 16px; border: 1.5px solid #111; border-radius: 2px; margin-top: 2px; }
-    td.chk, th.chk { width: 26px; }
-    td.qty { width: 54px; font-size: 18px; font-weight: 700; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .box { width: 13px; height: 13px; border: 1.3px solid #111; border-radius: 2px; margin-top: 2px; }
+    td.chk, th.chk { width: 20px; padding-right: 0; }
+    td.qty { width: 34px; font-size: 15px; line-height: 1.1; font-weight: 700; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
     th.qty { text-align: right; }
-    .name { font-weight: 600; font-size: 14px; }
-    .sku { font-weight: 400; color: #666; font-size: 11px; margin-left: 6px; }
-    .attrs { margin-top: 2px; }
-    .attrs b, .details b { font-weight: 600; }
-    .details { margin-top: 2px; font-size: 12px; color: #333; }
-    td.ord { width: 30%; font-size: 11px; color: #444; }
+    .name { font-weight: 600; font-size: 12.5px; line-height: 1.25; }
+    .params { font-size: 11px; line-height: 1.3; color: #333; margin-top: 1px; }
+    .params b { font-weight: 600; color: #111; }
+    .sku { font-weight: 400; color: #777; font-size: 10px; margin-left: 6px; }
+    td.cap { width: 58px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+    th.cap { width: 58px; }
+    td.ord { width: 21%; font-size: 10px; line-height: 1.3; color: #444; }
     tfoot td { border-bottom: 0; font-weight: 700; }
     .small { font-size: 12px; color: #444; }
-    .notes td { font-size: 12px; }
+    .materials td, .notes td { font-size: 12px; padding: 3px 5px; }
     .empty { padding: 40px 0; text-align: center; color: #555; }
     body.no-orders td.ord, body.no-orders th.ord { display: none; }
     @media (max-width: 640px) {
@@ -129,28 +130,31 @@ header('Content-Type: text/html; charset=utf-8');
         <p class="empty">Brak produktów do zrobienia. Zaznacz zamówienia na liście i wybierz „Lista produkcji”.</p>
     <?php else: ?>
     <table class="items">
-        <thead><tr><th class="chk"></th><th class="qty">Szt.</th><th>Produkt</th><th class="ord">Zamówienia</th></tr></thead>
+        <thead><tr><th class="chk"></th><th class="qty">Szt.</th><th>Produkt</th><th class="cap">Poj.</th><th class="ord">Zamówienia</th></tr></thead>
         <tbody>
         <?php foreach ($list['rows'] as $r): ?>
+            <?php
+                // Jedna linia parametrów: wariant (knot, zapach), szczegóły z rozszerzeń (nr zapachu, receptura), SKU na końcu.
+                $params = array_merge(
+                    array_map(static fn(array $a) => $h($a[0]) . ': <b>' . $h($a[1]) . '</b>', $r['attrs']),
+                    array_map(static fn(array $d) => $h($d['label']) . ': <b>' . $h($d['value']) . '</b>'
+                        . ($d['total'] !== null ? ' (' . $h(ProductionList::amount($d['total'], $d['unit'])) . ')' : ''), $r['details'])
+                );
+            ?>
             <tr>
                 <td class="chk"><div class="box"></div></td>
                 <td class="qty"><?= (int) $r['qty'] ?></td>
                 <td>
-                    <div class="name"><?= $h($r['name']) ?><?php if ($r['sku'] !== ''): ?><span class="sku"><?= $h($r['sku']) ?></span><?php endif; ?></div>
-                    <?php if ($r['attrs'] !== []): ?>
-                        <div class="attrs"><?= implode(' · ', array_map(static fn(array $a) => $h($a[0]) . ': <b>' . $h($a[1]) . '</b>', $r['attrs'])) ?></div>
-                    <?php endif; ?>
-                    <?php if ($r['details'] !== []): ?>
-                        <div class="details"><?= implode(' · ', array_map(static fn(array $d) => $h($d['label']) . ': <b>' . $h($d['value']) . '</b>'
-                            . ($d['total'] !== null ? ' (' . $h(ProductionList::amount($d['total'], $d['unit'])) . ')' : ''), $r['details'])) ?></div>
-                    <?php endif; ?>
+                    <div class="name"><?= $h($r['name']) ?></div>
+                    <div class="params"><?= implode(' · ', $params) ?><?php if ($r['sku'] !== ''): ?><span class="sku"><?= $h($r['sku']) ?></span><?php endif; ?></div>
                 </td>
+                <td class="cap"><?= $r['capacity'] !== '' ? $h($r['capacity']) : '—' ?></td>
                 <td class="ord"><?= implode(', ', array_map(static fn($label, $q) => $h($label) . ($q > 1 ? ' ×' . (int) $q : ''),
                     array_keys($r['orders']), $r['orders'])) ?></td>
             </tr>
         <?php endforeach; ?>
         </tbody>
-        <tfoot><tr><td></td><td class="qty"><?= (int) $list['total'] ?></td><td>Razem sztuk</td><td class="ord"></td></tr></tfoot>
+        <tfoot><tr><td></td><td class="qty"><?= (int) $list['total'] ?></td><td>Razem sztuk</td><td class="cap"></td><td class="ord"></td></tr></tfoot>
     </table>
 
     <?php if ($list['materials'] !== []): ?>

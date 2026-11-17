@@ -43,55 +43,50 @@ final class ProductionListPdf
         }
 
         $this->itemsHeader();
-        $nameW = $numbers ? 104.0 : 160.0;
+        // Gęsto, żeby na stronie zmieściło się dużo pozycji: nazwa (pogrubiona) + jedna linia parametrów, pojemność w kolumnie.
+        $nameW = $numbers ? 119.0 : 149.0;
         foreach ($list['rows'] as $r) {
-            $name = $p->wrap($r['name'] . ($r['sku'] !== '' ? '  ' : ''), $nameW, 10.5, true);
-            $attrs = $r['attrs'] !== [] ? $p->wrap(ProductionList::attrText($r['attrs']), $nameW, 9) : [];
-            $details = $r['details'] !== [] ? $p->wrap(implode(' · ', array_map(static fn(array $d) => $d['label'] . ': ' . $d['value']
-                . ($d['total'] !== null ? ' (' . ProductionList::amount($d['total'], $d['unit']) . ')' : ''), $r['details'])), $nameW, 8.5) : [];
+            $name = $p->wrap($r["name"], $nameW, 9, true);
+            $params = array_merge(array_map(static fn(array $a) => $a[0] . ': ' . $a[1], $r['attrs']),
+                array_map(static fn(array $d) => $d['label'] . ': ' . $d['value']
+                    . ($d['total'] !== null ? ' (' . ProductionList::amount($d['total'], $d['unit']) . ')' : ''), $r['details']));
+            $paramText = implode(' · ', $params);
+            $params = $paramText !== '' || $r['sku'] !== '' ? $p->wrap(trim($paramText . ($r['sku'] !== '' ? '   ' . $r['sku'] : '')), $nameW, 7.8) : [];
             $orders = $numbers ? $p->wrap(implode(', ', array_map(static fn($label, $q) => $label . ($q > 1 ? ' ×' . (int) $q : ''),
-                array_keys($r['orders']), $r['orders'])), 194 - 152, 8) : [];
-            $h = 3 + count($name) * 4.6 + count($attrs) * 4.1 + count($details) * 3.8;
-            $h = max($h, 3 + count($orders) * 3.6, 10) + 1.5;
+                array_keys($r['orders']), $r['orders'])), self::R - 170, 7) : [];
+            $h = max(1.6 + count($name) * 3.6 + count($params) * 3.2, 1.6 + count($orders) * 3, 6.5) + 1.2;
             if ($this->y + $h > self::BOTTOM) {
                 $this->newPage();
                 $this->itemsHeader();
             }
             $top = $this->y;
-            $p->rect(self::L + 1, $top + 2.6, 4.2, 4.2, null, '111111', 0.35);
-            $p->text(34, $top + 6.6, (string) (int) $r['qty'], 13, true, '111111', 'R');
-            $ly = $top + 6.4;
-            foreach ($name as $i => $line) {
-                $p->text(38, $ly, $line, 10.5, true);
-                if ($i === count($name) - 1 && $r['sku'] !== '') {
-                    $sx = 38 + $p->width($line . '  ', 10.5, true);
-                    if ($sx + $p->width($r['sku'], 7.5) <= 38 + $nameW + 8) {
-                        $p->text($sx, $ly, $r['sku'], 7.5, false, '666666');
-                    }
-                }
-                $ly += 4.6;
+            $p->rect(self::L + 0.8, $top + 1.6, 3.4, 3.4, null, '111111', 0.3);
+            $p->text(26, $top + 4.6, (string) (int) $r['qty'], 11, true, '111111', 'R');
+            $ly = $top + 4.4;
+            foreach ($name as $line) {
+                $p->text(29, $ly, $line, 9, true);
+                $ly += 3.6;
             }
-            $ly -= 0.4;
-            foreach ($attrs as $line) {
-                $p->text(38, $ly, $line, 9);
-                $ly += 4.1;
+            $ly -= 0.3;
+            foreach ($params as $line) {
+                $p->text(29, $ly, $line, 7.8, false, '333333');
+                $ly += 3.2;
             }
-            foreach ($details as $line) {
-                $p->text(38, $ly - 0.2, $line, 8.5, false, '333333');
-                $ly += 3.8;
+            if ($r['capacity'] !== '') {
+                $p->text($numbers ? 151 : 181, $top + 4.4, $r['capacity'], 9.5, true);
             }
-            $oy = $top + 6;
+            $oy = $top + 4.2;
             foreach ($orders as $line) {
-                $p->text(152, $oy, $line, 8, false, '444444');
-                $oy += 3.6;
+                $p->text(170, $oy, $line, 7, false, '444444');
+                $oy += 3;
             }
             $this->y = $top + $h;
-            $p->line(self::L, $this->y, self::R, $this->y, 'CFCCC5', 0.2);
+            $p->line(self::L, $this->y, self::R, $this->y, 'D9D6CF', 0.2);
         }
-        $this->need(10);
-        $p->text(34, $this->y + 7, (string) (int) $list['total'], 13, true, '111111', 'R');
-        $p->text(38, $this->y + 7, 'Razem sztuk', 10, true);
-        $this->y += 10;
+        $this->need(8);
+        $p->text(26, $this->y + 5.5, (string) (int) $list['total'], 11, true, '111111', 'R');
+        $p->text(29, $this->y + 5.5, 'Razem sztuk', 9.5, true);
+        $this->y += 8;
 
         if ($list['materials'] !== []) {
             $this->section('Materiały razem');
@@ -134,12 +129,13 @@ final class ProductionListPdf
     private function itemsHeader(): void
     {
         $p = $this->pdf;
-        $p->text(34, $this->y + 5.5, 'SZT.', 7.5, true, '555555', 'R');
-        $p->text(38, $this->y + 5.5, 'PRODUKT', 7.5, true, '555555');
+        $p->text(26, $this->y + 4.5, 'SZT.', 6.5, true, '555555', 'R');
+        $p->text(29, $this->y + 4.5, 'PRODUKT', 6.5, true, '555555');
+        $p->text($this->numbers ? 151 : 181, $this->y + 4.5, 'POJ.', 6.5, true, '555555');
         if ($this->numbers) {
-            $p->text(152, $this->y + 5.5, 'ZAMÓWIENIA', 7.5, true, '555555');
+            $p->text(170, $this->y + 4.5, 'ZAMÓWIENIA', 6.5, true, '555555');
         }
-        $this->y += 7.5;
+        $this->y += 6;
         $p->line(self::L, $this->y, self::R, $this->y, '111111', 0.3);
     }
 

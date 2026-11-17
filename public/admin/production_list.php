@@ -97,10 +97,11 @@ header('Content-Type: text/html; charset=utf-8');
     .sku { font-weight: 400; color: #777; font-size: 10px; margin-left: 6px; }
     td.cap { width: 58px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
     th.cap { width: 58px; }
-    tr.grp td { background: #efede8; border-bottom: 1px solid #111; padding-top: 6px; font-size: 12.5px; break-after: avoid; page-break-after: avoid; }
-    tr.grp td.qty { font-size: 13px; color: #555; }
-    tr.grp .grp-n { color: #666; font-size: 10.5px; margin-left: 8px; }
-    @media print { tr.grp td { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    /* Nagłówek grupy bez tła (drukarki go nie drukują): pełna szerokość, gruba linia nad, wersaliki, bez kratki i liczby. */
+    tr.grp td { border-top: 2.5px solid #111; border-bottom: 1px solid #111; padding: 12px 5px 3px; break-after: avoid; page-break-after: avoid; }
+    tr.grp:first-child td { padding-top: 6px; }
+    tr.grp .grp-t { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+    tr.grp .grp-n { float: right; font-size: 11px; font-weight: 600; color: #333; margin-top: 2px; }
     td.ord { width: 21%; font-size: 10px; line-height: 1.3; color: #444; }
     tfoot td { border-bottom: 0; font-weight: 700; }
     .small { font-size: 12px; color: #444; }
@@ -146,17 +147,17 @@ header('Content-Type: text/html; charset=utf-8');
         <tbody>
         <?php foreach ($groups as $g): ?>
             <?php if ($grouped): ?>
-            <tr class="grp"><td class="chk"></td><td class="qty"><?= (int) $g['qty'] ?></td>
-                <td colspan="3"><?= $g['scent'] !== '' ? 'Zapach: <b>' . $h($g['scent']) . '</b>' : '<b>Bez zapachu</b>' ?>
-                    <span class="grp-n"><?= count($g['rows']) ?> <?= $plural(count($g['rows']), 'pozycja', 'pozycje', 'pozycji') ?></span></td></tr>
+            <tr class="grp"><td colspan="5"><span class="grp-t"><?= $g['scent'] !== '' ? 'Zapach: ' . $h($g['scent']) : 'Bez zapachu' ?></span>
+                <span class="grp-n"><?= (int) $g['qty'] ?> szt. · <?= count($g['rows']) ?> <?= $plural(count($g['rows']), 'pozycja', 'pozycje', 'pozycji') ?></span></td></tr>
             <?php endif; ?>
         <?php foreach ($g['rows'] as $r): ?>
             <?php
                 // Jedna linia parametrów: wariant (knot, zapach), szczegóły z rozszerzeń (nr zapachu, receptura), SKU na końcu.
                 $params = array_merge(
                     array_map(static fn(array $a) => $h($a[0]) . ': <b>' . $h($a[1]) . '</b>', $r['attrs']),
-                    array_map(static fn(array $d) => $h($d['label']) . ': <b>' . $h($d['value']) . '</b>'
-                        . ($d['total'] !== null ? ' (' . $h(ProductionList::amount($d['total'], $d['unit'])) . ')' : ''), $r['details'])
+                    array_map(static fn(array $d) => $h($d['label']) . ': ' . ($d['value'] === '' && $d['total'] !== null
+                        ? '<b>' . $h(ProductionList::amount($d['total'], $d['unit'])) . '</b>'
+                        : '<b>' . $h($d['value']) . '</b>' . ($d['total'] !== null ? ' (' . $h(ProductionList::amount($d['total'], $d['unit'])) . ')' : '')), $r['details'])
                 );
             ?>
             <tr>

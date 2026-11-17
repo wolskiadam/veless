@@ -92,7 +92,7 @@ try {
     $pdo->exec('CREATE TABLE integration_accounts (id INTEGER PRIMARY KEY, type TEXT, name TEXT, is_active INTEGER, config TEXT)');
     $pdo->exec("INSERT INTO integration_accounts (id, type, name, is_active, config) VALUES (1, 'woocommerce', 'Mój Sklep', 1, '{\"base_url\":\"https://sklep.example\"}')");
     $pdo->exec('CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, pase_stock INTEGER, pase_price REAL, images TEXT, ean TEXT, attributes TEXT, custom_fields TEXT, actual_stock INTEGER NULL,
-        weight REAL NULL, woo_product_id INTEGER NULL, woo_variation_id INTEGER NULL)');
+        weight REAL NULL, woo_product_id INTEGER NULL, woo_variation_id INTEGER NULL, length REAL NULL, width REAL NULL, height REAL NULL)');
     $pdo->exec('CREATE TABLE product_fields (id INTEGER PRIMARY KEY, field_key TEXT, label TEXT, type TEXT, options TEXT, categories TEXT, position INTEGER DEFAULT 100)');
     $pdo->exec("INSERT INTO product_fields (field_key, label, type, position) VALUES ('czas_palenia', 'Czas palenia', 'text', 1), ('opis_dlugi', 'Opis', 'image', 2)");
     $pins = $pdo->prepare('INSERT INTO products (sku, name, attributes, custom_fields) VALUES (?,?,?,?)');
@@ -107,6 +107,8 @@ try {
         ('SW-240', 'Świeca 240', 0.24, 11534, 18096), ('SW-INNY', 'Świeca inny wariant', 0.5, 11534, 18097)");
     $pdo->exec("ALTER TABLE products ADD COLUMN short_description TEXT");
     $pdo->exec("ALTER TABLE products ADD COLUMN description TEXT");
+    // Sklep podał gramy, magazyn zapisał „240 kg” przy słoiku 6×6×6 cm - na liście ma być 240 g.
+    $pdo->exec("UPDATE products SET weight = 240, length = 6.15, width = 6.15, height = 6.27 WHERE sku = 'PIER'");
     $pdo->exec("UPDATE products SET description = '<p>Świeca sojowa.</p><ul><li><strong>Pojemność:</strong> 100&nbsp;ml</li></ul>' WHERE sku = 'PIER'");
     $pdo->exec("CREATE TABLE woo_orders (id INTEGER PRIMARY KEY, woo_order_id INTEGER UNIQUE, integration_id INTEGER, pase_number INTEGER, order_number TEXT, status TEXT,
         pase_status TEXT, currency TEXT, total REAL, customer_name TEXT, customer_email TEXT, date_created TEXT, imported_at TEXT, updated_at TEXT,
@@ -131,6 +133,9 @@ try {
         ['material_id' => $wosk['id'], 'qty' => 150], ['material_id' => $wan['id'], 'qty' => 12],
         ['material_id' => $knot['id'], 'qty' => 1], ['material_id' => $sloik['id'], 'qty' => 1], ['material_id' => $etyk['id'], 'qty' => 1]]]);
 
+    $knot15 = $store->saveMaterial(null, ['name' => 'Drewniany 15 mm 0.6', 'category' => 'knot']);
+    $pump = $store->saveMaterial(null, ['name' => 'Pumpkin pie (8%)', 'category' => 'zapach', 'unit' => 'szt']);
+    $store->saveProduct(null, ['name' => 'Świeca Piernik', 'sku' => 'PIER', 'recipe' => [['material_id' => $knot15['id'], 'qty' => 1], ['material_id' => $pump['id'], 'qty' => 1]]]);
     $woo = static fn(string $name, int $q, string $sku, array $meta = []) => ['name' => $name, 'quantity' => $q, 'sku' => $sku,
         'meta_data' => array_map(static fn($k, $v) => ['key' => 'pa_' . $k, 'display_key' => $k, 'display_value' => $v], array_keys($meta), $meta)];
     $orders = [
@@ -148,7 +153,8 @@ try {
         $oi->execute([$id, $no, (string) (73900 + $id), $cust, '2026-11-1' . $i . ' 10:00:00', json_encode(['line_items' => $items, 'customer_note' => $note])]);
     }
     $pdo->exec('UPDATE woo_orders SET merged_into = 103 WHERE woo_order_id = 104');
-    $oi->execute([107, 1207, '74007', 'Ewa Opis', '2026-11-16 09:00:00', json_encode(['line_items' => [$woo('Świeca Piernik Drewniany Knot 120 g', 1, 'PIER', ['knot' => 'drewniany']),
+    $oi->execute([107, 1207, '74007', 'Ewa Opis', '2026-11-16 09:00:00', json_encode(['line_items' => [$woo('Świeca Piernik Drewniany Knot 120 g', 2, 'PIER', ['knot' => 'drewniany', 'Zapach' => 'Pumpkin pie']),
+        ['name' => 'Wosk zapachowy 50 g', 'quantity' => 1, 'sku' => ''],
         ['name' => 'Świeca z wariantem', 'quantity' => 1, 'sku' => 'STARE-SKU', 'product_id' => 11534, 'variation_id' => 18096]]])]);
 
     $socket = stream_socket_server('tcp://127.0.0.1:0');
@@ -175,7 +181,13 @@ try {
     ok(str_contains(rowWith($b, 'GINGERBREAD'), 'Knot: bawełniany GB-1L 900 g') && !str_contains(rowWith($b, 'GINGERBREAD'), 'Waga netto'), 'Weight from the attribute (Waga netto): ' . rowWith($b, 'GINGERBREAD'));
     ok(str_contains(rowWith($b, 'Wosk do kominka'), 'Wosk do kominka 80 g'), 'Weight from the product card, found by shop product ID (no SKU): ' . rowWith($b, 'Wosk do kominka'));
     ok(str_contains(rowWith($b, 'Zapałki'), 'Zapałki —'), 'No weight: dash');
-    ok(str_contains(rowWith(request($boss, 'admin/production_list.php?ids=107')['body'], 'Piernik'), 'knot: drewniany PIER 120 g'), 'Weight from the name (… 120 g)');
+    $p107 = request($boss, 'admin/production_list.php?ids=107')['body'];
+    ok(str_contains(rowWith($p107, 'Wosk zapachowy'), 'Wosk zapachowy 50 g 50 g'), 'Weight from the name (… 50 g)');
+    $pier = rowWith($p107, 'Piernik');
+    ok(str_contains($pier, 'PIER 240 g') && !str_contains($pier, 'kg'), 'Grams saved as kg on the product card (240 kg for a small jar) shown as 240 g: ' . $pier);
+    ok(!str_contains($pier, 'knot: drewniany') && str_contains($pier, 'Knot: Drewniany 15 mm 0.6 (2 szt.)'), 'Variant wick dropped when the recipe has the exact one: ' . $pier);
+    ok(str_contains($p107, '<span class="grp-t">Zapach: Pumpkin pie</span>') && str_contains($pier, 'Zapach: 8%') && !str_contains($pier, 'Pumpkin'),
+        'Inside the scent group the recipe oil shows only what the header does not (8%): ' . $pier);
     ok(str_contains(rowWith(request($boss, 'admin/production_list.php?ids=107')['body'], 'Świeca z wariantem'), 'STARE-SKU 240 g'), 'Weight from the product card of the variation (shop variation ID)');
     ok(str_contains($van, 'Knot: Knot drewniany 13 mm (3 szt.)') && str_contains($van, 'Zapach: Olejek Wanilia (36 g)') && str_contains($van, 'Wosk: Wosk sojowy Golden 464 (450 g)')
         && str_contains($van, 'Pojemnik: Słoik 180 ml bursztyn (3 szt.)') && !str_contains($van, 'Etykieta'), 'Recipe from Produkcja: wick, scent, wax, jar multiplied by pieces (labels skipped)');
@@ -195,15 +207,15 @@ try {
     $g = request($boss, 'admin/production_list.php?ids=101,102,103')['body'];
     preg_match_all('#<tr class="grp">(.*?)</tr>#s', $g, $gm);
     $heads = array_map(static fn($t) => trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(str_replace('<', ' <', $t)), ENT_QUOTES, 'UTF-8'))), $gm[1]);
-    ok($heads === ['1 Zapach: Cynamon 1 pozycja', '5 Zapach: Wanilia 2 pozycje', '12 Bez zapachu 3 pozycje'], 'Groups by scent with piece sums, no scent last: ' . implode(' | ', $heads));
+    ok($heads === ['Zapach: Cynamon 1 szt. · 1 pozycja', 'Zapach: Wanilia 5 szt. · 2 pozycje', 'Bez zapachu 12 szt. · 3 pozycje'], 'Groups by scent with piece sums, no scent last: ' . implode(' | ', $heads));
     $pos = static fn(string $n) => strpos($g, $n);
-    ok($pos('Zapach: <b>Wanilia') < $pos('Świeca kokosowa') && $pos('Świeca kokosowa') < $pos('Bez zapachu') && $pos('Zapach: <b>Wanilia') < strpos($g, '>Świeca sojowa 180 ml<', $pos('Zapach: <b>Wanilia')),
+    ok($pos('<span class="grp-t">Zapach: Wanilia') < $pos('Świeca kokosowa') && $pos('Świeca kokosowa') < $pos('Bez zapachu') && $pos('<span class="grp-t">Zapach: Wanilia') < strpos($g, '>Świeca sojowa 180 ml<', $pos('<span class="grp-t">Zapach: Wanilia')),
         'Different products with the same scent sit together under their scent');
     ok(str_starts_with(rowWith($g, 'Świeca kokosowa'), '2 Świeca kokosowa z drewnianym knotem KOK') && str_contains($g, 'id="groupScent" checked'), 'Scent left out of rows inside a group (it is in the header); toggle on');
     ok(!str_contains(request($boss, 'admin/production_list.php?ids=101,102,103&grp=0')['body'], 'class="grp"')
         && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without groups too');
     $gp = pdfText(request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1')['body']);
-    ok(str_contains($gp, 'Zapach: Wanilia') && str_contains($gp, 'Bez zapachu') && strpos($gp, 'Zapach: Cynamon') < strpos($gp, 'Bez zapachu'), 'PDF grouped by scent');
+    ok(str_contains($gp, 'ZAPACH: WANILIA') && str_contains($gp, '5 szt. · 2 pozycje') && strpos($gp, 'ZAPACH: CYNAMON') < strpos($gp, 'BEZ ZAPACHU'), 'PDF grouped by scent (header in capitals, sum as text)');
 
     $r = request($boss, 'admin/production_list.php?ids=103,104');
     ok(str_starts_with(rowWith($r['body'], 'GINGERBREAD'), '7 GINGERBREAD'), 'Main and merged both selected: merged items not doubled');
@@ -218,12 +230,12 @@ try {
     ok($r['status'] === 200 && str_starts_with($r['body'], '%PDF-1.4') && str_contains($r['headers'], 'Content-Type: application/pdf')
         && str_contains($r['headers'], 'Cache-Control: private, no-store'), 'PDF of the list');
     $txt = pdfText($r['body']);
-    ok(str_contains($txt, 'Lista produkcji') && str_contains($txt, 'Świeca sojowa 180 ml') && str_contains($txt, 'Zapach: Wanilia')
+    ok(str_contains($txt, 'Lista produkcji') && str_contains($txt, 'Świeca sojowa 180 ml') && str_contains($txt, 'ZAPACH: WANILIA')
         && str_contains($txt, 'Knot: Knot drewniany 13 mm (3 szt.)') && str_contains($txt, '74001 ×2, 74002') && str_contains($txt, 'Razem sztuk')
         && str_contains($txt, 'MATERIAŁY RAZEM') && str_contains($txt, 'Proszę zapakować na prezent') && str_contains($txt, '3 zamówienia · 18 szt. · 6 pozycji'),
         'PDF holds products, scents, wicks, orders, materials and notes (Polish letters intact)');
     $no = pdfText(request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1&nr=0')['body']);
-    ok(!str_contains($no, "\nZAMÓWIENIA\n") && !str_contains($no, '74001 ×2') && str_contains($no, 'Zapach: Wanilia'), 'PDF without order numbers');
+    ok(!str_contains($no, "\nZAMÓWIENIA\n") && !str_contains($no, '74001 ×2') && str_contains($no, 'ZAPACH: WANILIA'), 'PDF without order numbers');
     ok(request(client(), 'admin/production_list.php?ids=101&pdf=1')['status'] === 302, 'PDF needs login');
     $many = [];
     for ($i = 0; $i < 60; ++$i) { $many[] = $woo('Świeca testowa nr ' . $i . ' z bardzo długą nazwą, która zawija się w dwa wiersze na wydruku', 1, 'T-' . $i, ['Zapach' => 'Wanilia']); }

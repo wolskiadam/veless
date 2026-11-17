@@ -57,23 +57,25 @@ final class ProductionListPdf
         foreach ($rows as [$g, $r]) {
             $name = $p->wrap($r["name"], $nameW, 9, true);
             $params = array_merge(array_map(static fn(array $a) => $a[0] . ': ' . $a[1], $r['attrs']),
-                array_map(static fn(array $d) => $d['label'] . ': ' . $d['value']
-                    . ($d['total'] !== null ? ' (' . ProductionList::amount($d['total'], $d['unit']) . ')' : ''), $r['details']));
+                array_map(static fn(array $d) => $d['label'] . ': ' . ($d['value'] === '' && $d['total'] !== null ? ProductionList::amount($d['total'], $d['unit'])
+                    : $d['value'] . ($d['total'] !== null ? ' (' . ProductionList::amount($d['total'], $d['unit']) . ')' : '')), $r['details']));
             $paramText = implode(' · ', $params);
             $params = $paramText !== '' || $r['sku'] !== '' ? $p->wrap(trim($paramText . ($r['sku'] !== '' ? '   ' . $r['sku'] : '')), $nameW, 7.8) : [];
             $orders = $numbers ? $p->wrap(implode(', ', array_map(static fn($label, $q) => $label . ($q > 1 ? ' ×' . (int) $q : ''),
                 array_keys($r['orders']), $r['orders'])), self::R - 170, 7) : [];
             $h = max(1.6 + count($name) * 3.6 + count($params) * 3.2, 1.6 + count($orders) * 3, 6.5) + 1.2;
-            if ($this->y + $h + ($g !== null ? 7 : 0) > self::BOTTOM) {
+            if ($this->y + $h + ($g !== null ? 9.5 : 0) > self::BOTTOM) {
                 $this->newPage();
                 $this->itemsHeader();
             }
             if ($g !== null) {
-                // Nagłówek grupy: zapach i suma sztuk, różne produkty / knoty pod spodem.
-                $p->rect(self::L, $this->y + 0.4, self::R - self::L, 6.2, 'EFEDE8');
-                $p->text(26, $this->y + 4.9, (string) (int) $g['qty'], 9.5, true, '555555', 'R');
-                $label = $g['scent'] !== '' ? 'Zapach: ' . $g['scent'] : 'Bez zapachu';
-                $p->text(29, $this->y + 4.9, mb_strimwidth($label, 0, 90, '…'), 9.5, true);
+                // Nagłówek grupy bez tła (drukarki go nie drukują): gruba linia, wersaliki, suma tekstem - bez kratki i liczby.
+                $this->y += 2.5;
+                $p->line(self::L, $this->y, self::R, $this->y, '111111', 0.8);
+                $label = mb_strtoupper($g['scent'] !== '' ? 'Zapach: ' . $g['scent'] : 'Bez zapachu');
+                $p->text(self::L + 1, $this->y + 5, mb_strimwidth($label, 0, 70, '…'), 10, true);
+                $n = count($g['rows']);
+                $p->text(self::R - 1, $this->y + 5, (int) $g['qty'] . ' szt. · ' . $n . ' ' . self::plural($n, 'pozycja', 'pozycje', 'pozycji'), 8, true, '333333', 'R');
                 $this->y += 7;
                 $p->line(self::L, $this->y, self::R, $this->y, '111111', 0.3);
             }

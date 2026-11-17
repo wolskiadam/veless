@@ -95,9 +95,14 @@ try {
     $pdo->exec('CREATE TABLE product_fields (id INTEGER PRIMARY KEY, field_key TEXT, label TEXT, type TEXT, options TEXT, categories TEXT, position INTEGER DEFAULT 100)');
     $pdo->exec("INSERT INTO product_fields (field_key, label, type, position) VALUES ('czas_palenia', 'Czas palenia', 'text', 1), ('opis_dlugi', 'Opis', 'image', 2)");
     $pins = $pdo->prepare('INSERT INTO products (sku, name, attributes, custom_fields) VALUES (?,?,?,?)');
-    $pins->execute(['SOJ-180', 'Świeca sojowa 180 ml', json_encode([['name' => 'Pojemność', 'options' => ['180 ml']], ['name' => 'Zapach', 'options' => ['Wanilia', 'Cynamon', 'Las']]]),
+    $pins->execute(['SOJ-180', 'Świeca sojowa 180 ml', json_encode([['name' => 'Pojemność', 'options' => ['180 ml']], ['name' => 'Zapach', 'options' => ['Wanilia', 'Cynamon', 'Las']],
+        ['name' => 'Aroma head', 'options' => ['Zielone liście, kardamon']], ['name' => 'Nuta serca', 'options' => ['Jaśmin']]]),
         json_encode(['czas_palenia' => '40 h', 'opis_dlugi' => 'https://x'])]);
-    $pins->execute(['GB-1L', 'GINGERBREAD 1l', json_encode([['name' => 'Pojemność', 'options' => ['1 l']]]), null]);
+    $pins->execute(['GB-1L', 'GINGERBREAD 1l', json_encode([['name' => 'Knot', 'options' => ['bawełniany']]]), null]);
+    $pins->execute(['PIER', 'Świeca Piernik Drewniany Knot', null, null]);
+    $pdo->exec("ALTER TABLE products ADD COLUMN short_description TEXT");
+    $pdo->exec("ALTER TABLE products ADD COLUMN description TEXT");
+    $pdo->exec("UPDATE products SET description = '<p>Świeca sojowa.</p><ul><li><strong>Pojemność:</strong> 100&nbsp;ml</li></ul>' WHERE sku = 'PIER'");
     $pdo->exec("CREATE TABLE woo_orders (id INTEGER PRIMARY KEY, woo_order_id INTEGER UNIQUE, integration_id INTEGER, pase_number INTEGER, order_number TEXT, status TEXT,
         pase_status TEXT, currency TEXT, total REAL, customer_name TEXT, customer_email TEXT, date_created TEXT, imported_at TEXT, updated_at TEXT,
         lifecycle TEXT DEFAULT 'active', payload TEXT, local_items TEXT NULL, local_edited_at TEXT NULL, local_billing_email TEXT NULL,
@@ -137,6 +142,7 @@ try {
         $oi->execute([$id, $no, (string) (73900 + $id), $cust, '2026-11-1' . $i . ' 10:00:00', json_encode(['line_items' => $items, 'customer_note' => $note])]);
     }
     $pdo->exec('UPDATE woo_orders SET merged_into = 103 WHERE woo_order_id = 104');
+    $oi->execute([107, 1207, '74007', 'Ewa Opis', '2026-11-16 09:00:00', json_encode(['line_items' => [$woo('Świeca Piernik Drewniany Knot', 1, 'PIER', ['knot' => 'drewniany'])]])]);
 
     $socket = stream_socket_server('tcp://127.0.0.1:0');
     $address = stream_socket_get_name($socket, false); fclose($socket);
@@ -155,9 +161,13 @@ try {
     ok($r['status'] === 200 && str_contains($b, '<h1>Lista produkcji</h1>') && str_contains($b, '@page { size: A4'), 'Print page opens (A4)');
     ok(str_contains($r['headers'], "script-src 'nonce-"), 'Print page has a strict CSP');
     $van = rowWith($b, 'Zapach: Wanilia');
-    ok(str_starts_with($van, '3 Świeca sojowa 180 ml SOJ-180') && str_contains($van, '74001 ×2, 74002'), 'Same product and scent summed across orders, with order numbers: ' . $van);
-    ok(str_contains($van, 'Pojemność: 180 ml') && str_contains($van, 'Czas palenia: 40 h') && !str_contains($van, 'Las') && !str_contains($van, 'https://x'),
-        'Single-value attributes and short custom fields from the product');
+    ok(str_starts_with($van, '3 Świeca sojowa 180 ml Zapach: Wanilia') && str_ends_with($van, 'SOJ-180 180 ml 74001 ×2, 74002'), 'Same product and scent summed across orders, capacity column, order numbers: ' . $van);
+    ok(!str_contains($van, 'Pojemność:') && str_contains($van, 'Czas palenia: 40 h') && !str_contains($van, 'Las') && !str_contains($van, 'https://x'),
+        'Capacity in its own column; short custom fields from the product');
+    ok(!str_contains($b, 'Aroma head') && !str_contains($b, 'Zielone liście') && !str_contains($b, 'Nuta serca'), 'Scent notes left out');
+    ok(str_contains(rowWith($b, 'GINGERBREAD'), 'Knot: bawełniany GB-1L 1 l'), 'Capacity from the name when no attribute: ' . rowWith($b, 'GINGERBREAD'));
+    ok(str_contains(rowWith($b, 'Wosk do kominka'), 'Wosk do kominka —'), 'No capacity: dash');
+    ok(str_contains(rowWith(request($boss, 'admin/production_list.php?ids=107')['body'], 'Piernik'), 'knot: drewniany PIER 100 ml'), 'Capacity from the shop description (Pojemność: 100 ml)');
     ok(str_contains($van, 'Knot: Knot drewniany 13 mm (3 szt.)') && str_contains($van, 'Zapach: Olejek Wanilia (36 g)') && str_contains($van, 'Wosk: Wosk sojowy Golden 464 (450 g)')
         && str_contains($van, 'Pojemnik: Słoik 180 ml bursztyn (3 szt.)') && !str_contains($van, 'Etykieta'), 'Recipe from Produkcja: wick, scent, wax, jar multiplied by pieces (labels skipped)');
     $cyn = rowWith($b, 'Zapach: Cynamon');

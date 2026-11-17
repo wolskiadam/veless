@@ -538,7 +538,8 @@ final class ProdukcjaExtension extends AbstractExtension
                 } elseif (($_POST['kind'] ?? '') === 'bne') {
                     $r = $imp->bne($text, (string) $ctx['user']);
                     flash('Zaimportowano z Rejestru Partii: ' . $r['materials'] . ' materiałów, ' . $r['deliveries'] . ' dostaw, ' . $r['products'] . ' wyrobów, '
-                        . $r['batches'] . ' partii, ' . $r['people'] . ' osób, ' . $r['shifts'] . ' zmian.' . ($r['skipped'] > 0 ? ' Pominięto ' . $r['skipped'] . ' wpisów bez daty lub materiału.' : '')
+                        . $r['batches'] . ' partii, ' . $r['people'] . ' osób, ' . $r['shifts'] . ' zmian.'
+                        . ($r['renumbered'] > 0 ? ' ' . $r['renumbered'] . ' partii miało w Rejestrze powtórzony numer, dostały końcówkę -2, -3.' : '') . ($r['skipped'] > 0 ? ' Pominięto ' . $r['skipped'] . ' wpisów bez daty lub materiału.' : '')
                         . ' Stan materiałów wpisz teraz Inwentaryzacją.');
                     header('Location: ' . U::url('pulpit'));
                 } else {

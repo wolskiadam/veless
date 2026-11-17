@@ -26,7 +26,7 @@ final class Importer
         if (!is_array($d) || !isset($d['batch_records']) && !isset($d['batch_waxes'])) {
             throw new \RuntimeException('To nie jest kopia z Rejestru Partii (brak tabel batch_records / batch_waxes).');
         }
-        $stat = ['materials' => 0, 'deliveries' => 0, 'products' => 0, 'batches' => 0, 'people' => 0, 'shifts' => 0, 'skipped' => 0];
+        $stat = ['materials' => 0, 'deliveries' => 0, 'products' => 0, 'batches' => 0, 'renumbered' => 0, 'people' => 0, 'shifts' => 0, 'skipped' => 0];
         return $this->s->tx(function () use ($d, $user, &$stat): array {
             $map = [];
             $byName = [];
@@ -94,17 +94,38 @@ final class Importer
                 $products[mb_strtolower($p['name'])] = $p['id'];
             }
             $codes = array_flip(array_map(static fn(array $r): string => strtoupper($r['code']), $this->s->all('SELECT code FROM ext_prod_batches')));
-            foreach ((array) ($d['batch_records'] ?? []) as $r) {
-                $code = strtoupper(trim((string) ($r['batch_code'] ?? '')));
+            // Rejestr Partii pozwalał na ten sam numer kilka razy (ta sama data, wosk, knot). Kolejne partie o tym samym numerze
+            // dostają końcówkę -2, -3 w kolejności z kopii, tak jak nowe partie tutaj, więc ponowny import trafia w te same numery.
+            $records = array_values(array_filter((array) ($d['batch_records'] ?? []), 'is_array'));
+            usort($records, static fn(array $a, array $b): int => [(int) ($a['id'] ?? 0), (string) ($a['created_at'] ?? '')] <=> [(int) ($b['id'] ?? 0), (string) ($b['created_at'] ?? '')]);
+            $seen = [];
+            foreach ($records as $r) {
+                $base = strtoupper(trim((string) ($r['batch_code'] ?? '')));
                 $name = trim((string) ($r['product_name'] ?? ''));
                 $date = substr((string) ($r['production_date'] ?? ''), 0, 10);
-                if ($code === '' || isset($codes[$code]) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-                    $stat['skipped'] += $code !== '' && isset($codes[$code]) ? 0 : 1;
+                if ($base === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+                    $stat['skipped']++;
+                    continue;
+                }
+                $n = $seen[$base] = ($seen[$base] ?? 0) + 1;
+                $code = $n > 1 ? $base . '-' . $n : $base;
+                if (isset($codes[$code])) {
                     continue;
                 }
                 $codes[$code] = true;
+                $stat['renumbered'] += $n > 1 ? 1 : 0;
+                $scent = trim((string) ($r['scent'] ?? ''));
+                $scent = in_array(mb_strtolower($scent), ['brak', '-brak zapachu-'], true) ? '' : $scent;
+                $container = trim((string) ($r['container'] ?? ''));
+                if ($name === '') {
+                    // Partia bez wyrobu: nazwa z zapachu i pojemnika, żeby lista nie była pełna kresek.
+                    $name = implode(' · ', array_filter([$scent, $container], static fn(string $x): bool => $x !== ''));
+                    $free = true;
+                } else {
+                    $free = false;
+                }
                 $pid = null;
-                if ($name !== '') {
+                if ($name !== '' && !$free) {
                     $k = mb_strtolower($name);
                     if (!isset($products[$k])) {
                         $products[$k] = Store::id();
@@ -118,9 +139,10 @@ final class Importer
                 $months = (int) ($r['shelf_life_months'] ?? 12);
                 $parts = array_filter([
                     'Wosk: ' . trim((string) ($r['wax_type'] ?? '')),
-                    trim((string) ($r['scent'] ?? '')) !== '' ? 'Zapach: ' . $r['scent'] . (trim((string) ($r['concentration'] ?? '')) !== '' ? ' (' . $r['concentration'] . ')' : '') : '',
+                    $scent !== '' ? 'Zapach: ' . $scent . (($c = trim((string) ($r['concentration'] ?? ''))) !== '' ? ' (' . $c . (is_numeric(str_replace(',', '.', $c)) ? '%' : '') . ')' : '') : '',
                     trim((string) ($r['wick_type'] ?? '')) !== '' ? 'Knot: ' . $r['wick_type'] : '',
-                    trim((string) ($r['container'] ?? '')) !== '' ? 'Pojemnik: ' . $r['container'] : '',
+                    $container !== '' ? 'Pojemnik: ' . $container : '',
+                    $n > 1 ? 'W Rejestrze Partii numer ' . $base . ' (powtórzony)' : '',
                     trim((string) ($r['notes'] ?? '')),
                 ], static fn(string $x): bool => $x !== '' && $x !== 'Wosk: ');
                 $this->s->insert('ext_prod_batches', ['id' => Store::id(), 'code' => mb_substr($code, 0, 60), 'product_id' => $pid, 'product_name' => mb_substr($name !== '' ? $name : '-', 0, 200),

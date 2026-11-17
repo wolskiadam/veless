@@ -19,15 +19,17 @@ final class ProductionListPdf
     private Pdf $pdf;
     private float $y = 0.0;
     private bool $numbers = true;
+    private bool $marked = false;
 
     /**
      * @param array{rows:list<array>,orders:list<array>,materials:list<array>,total:int} $list
-     * @param list<array{scent:string,qty:int,rows:list<array>}>|null $groups pozycje po zapachu (ProductionList::groups), null = bez grup
+     * @param bool $marked pozycje mają litery wspólnego zapachu (ProductionList::markScents) - kolumna „ZAP.”
      */
-    public function render(array $list, bool $numbers = true, ?string $when = null, ?array $groups = null): string
+    public function render(array $list, bool $numbers = true, ?string $when = null, bool $marked = false): string
     {
         $this->pdf = new Pdf();
         $this->numbers = $numbers;
+        $this->marked = $marked;
         $this->pdf->setTitle('Lista produkcji ' . date('d.m.Y'));
         $this->pdf->addPage();
         $p = $this->pdf;
@@ -47,14 +49,10 @@ final class ProductionListPdf
 
         $this->itemsHeader();
         // Gęsto, żeby na stronie zmieściło się dużo pozycji: nazwa (pogrubiona) + jedna linia parametrów, waga w kolumnie.
-        $nameW = $numbers ? 119.0 : 149.0;
-        $rows = [];
-        foreach ($groups ?? [['scent' => null, 'qty' => 0, 'rows' => $list['rows']]] as $g) {
-            foreach ($g['rows'] as $i => $r) {
-                $rows[] = [$i === 0 && $groups !== null ? $g : null, $r];
-            }
-        }
-        foreach ($rows as [$g, $r]) {
+        $nameW = ($numbers ? 119.0 : 149.0) - ($marked ? 6 : 0);
+        $nx = $marked ? 35.0 : 29.0;   // początek nazwy (przy literach zapachu przesunięty)
+        $prevMark = '';
+        foreach ($list['rows'] as $r) {
             $name = $p->wrap($r["name"], $nameW, 9, true);
             $params = array_merge(array_map(static fn(array $a) => $a[0] . ': ' . $a[1], $r['attrs']),
                 array_map(static fn(array $d) => $d['label'] . ': ' . ($d['value'] === '' && $d['total'] !== null ? ProductionList::amount($d['total'], $d['unit'])
@@ -64,32 +62,32 @@ final class ProductionListPdf
             $orders = $numbers ? $p->wrap(implode(', ', array_map(static fn($label, $q) => $label . ($q > 1 ? ' ×' . (int) $q : ''),
                 array_keys($r['orders']), $r['orders'])), self::R - 170, 7) : [];
             $h = max(1.6 + count($name) * 3.6 + count($params) * 3.2, 1.6 + count($orders) * 3, 6.5) + 1.2;
-            if ($this->y + $h + ($g !== null ? 9.5 : 0) > self::BOTTOM) {
+            if ($this->y + $h > self::BOTTOM) {
                 $this->newPage();
                 $this->itemsHeader();
             }
-            if ($g !== null) {
-                // Nagłówek grupy bez tła (drukarki go nie drukują): gruba linia, wersaliki, suma tekstem - bez kratki i liczby.
-                $this->y += 2.5;
-                $p->line(self::L, $this->y, self::R, $this->y, '111111', 0.8);
-                $label = mb_strtoupper($g['scent'] !== '' ? 'Zapach: ' . $g['scent'] : 'Bez zapachu');
-                $p->text(self::L + 1, $this->y + 5, mb_strimwidth($label, 0, 70, '…'), 10, true);
-                $n = count($g['rows']);
-                $p->text(self::R - 1, $this->y + 5, (int) $g['qty'] . ' szt. · ' . $n . ' ' . self::plural($n, 'pozycja', 'pozycje', 'pozycji'), 8, true, '333333', 'R');
-                $this->y += 7;
-                $p->line(self::L, $this->y, self::R, $this->y, '111111', 0.3);
+            $mk = $marked ? (string) ($r['mark'] ?? '') : '';
+            if ($mk !== '' && $mk !== $prevMark) {
+                // Pierwsza pozycja z nową literą zapachu: grubsza linia nad nią.
+                $p->line(self::L, $this->y, self::R, $this->y, '111111', 0.5);
             }
+            $prevMark = $mk;
             $top = $this->y;
             $p->rect(self::L + 0.8, $top + 1.6, 3.4, 3.4, null, '111111', 0.3);
             $p->text(26, $top + 4.6, (string) (int) $r['qty'], 11, true, '111111', 'R');
+            if ($mk !== '') {
+                $bw = max(5.0, $p->width($mk, 8.5, true) + 2);
+                $p->rect(31.5 - $bw / 2, $top + 1.4, $bw, 4.2, null, '111111', 0.45);
+                $p->text(31.5, $top + 4.5, $mk, 8.5, true, '111111', 'C');
+            }
             $ly = $top + 4.4;
             foreach ($name as $line) {
-                $p->text(29, $ly, $line, 9, true);
+                $p->text($nx, $ly, $line, 9, true);
                 $ly += 3.6;
             }
             $ly -= 0.3;
             foreach ($params as $line) {
-                $p->text(29, $ly, $line, 7.8, false, '333333');
+                $p->text($nx, $ly, $line, 7.8, false, '333333');
                 $ly += 3.2;
             }
             if ($r['weight'] !== '') {
@@ -150,7 +148,10 @@ final class ProductionListPdf
     {
         $p = $this->pdf;
         $p->text(26, $this->y + 4.5, 'SZT.', 6.5, true, '555555', 'R');
-        $p->text(29, $this->y + 4.5, 'PRODUKT', 6.5, true, '555555');
+        if ($this->marked) {
+            $p->text(31.5, $this->y + 4.5, 'ZAP.', 6.5, true, '555555', 'C');
+        }
+        $p->text($this->marked ? 35 : 29, $this->y + 4.5, 'PRODUKT', 6.5, true, '555555');
         $p->text($this->numbers ? 151 : 181, $this->y + 4.5, 'WAGA', 6.5, true, '555555');
         if ($this->numbers) {
             $p->text(170, $this->y + 4.5, 'ZAMÓWIENIA', 6.5, true, '555555');

@@ -5,7 +5,6 @@ namespace Pase\Services;
 
 use Pase\Plugin\Hooks;
 use PDO;
-use Pase\Support\Units;
 
 /**
  * Lista produkcji: produkty z zaznaczonych zamówień zsumowane po produkcie i wariancie - do wydrukowania
@@ -172,13 +171,8 @@ final class ProductionList
             }
             $r['details'] = array_values($r['details']);
             if ($r['weight'] === '' && $p !== null && is_numeric($p['weight'] ?? null) && (float) $p['weight'] > 0) {
-                $kg = (float) $p['weight'];
-                // Sklep podał gramy, a magazyn zapisał je jako kg (240 „kg” przy słoiku 6×6×6 cm) - to są gramy.
-                if (Units::implausibleWeight($kg, $p['length'] ?? null, $p['width'] ?? null, $p['height'] ?? null)
-                    || ($kg >= 50 && !((float) ($p['length'] ?? 0) > 0))) {
-                    $kg /= 1000;
-                }
-                $r['weight'] = self::amount(round($kg * 1000, 1), 'g');
+                // Waga dokładnie jak na karcie produktu (kg) - bez poprawiania; błędną wagę poprawia się w produkcie.
+                $r['weight'] = self::amount(round((float) $p['weight'] * 1000, 1), 'g');
             }
             foreach ($r['attrs'] as $i => [$k, $v]) {
                 if (self::isWeight($k)) {

@@ -107,7 +107,7 @@ try {
         ('SW-240', 'Świeca 240', 0.24, 11534, 18096), ('SW-INNY', 'Świeca inny wariant', 0.5, 11534, 18097)");
     $pdo->exec("ALTER TABLE products ADD COLUMN short_description TEXT");
     $pdo->exec("ALTER TABLE products ADD COLUMN description TEXT");
-    // Sklep podał gramy, magazyn zapisał „240 kg” przy słoiku 6×6×6 cm - na liście ma być 240 g.
+    // Błędna waga na karcie („240 kg” przy słoiku 6×6×6 cm) - lista pokazuje ją jak jest, poprawia się ją w produkcie.
     $pdo->exec("UPDATE products SET weight = 240, length = 6.15, width = 6.15, height = 6.27 WHERE sku = 'PIER'");
     $pdo->exec("UPDATE products SET description = '<p>Świeca sojowa.</p><ul><li><strong>Pojemność:</strong> 100&nbsp;ml</li></ul>' WHERE sku = 'PIER'");
     $pdo->exec("CREATE TABLE woo_orders (id INTEGER PRIMARY KEY, woo_order_id INTEGER UNIQUE, integration_id INTEGER, pase_number INTEGER, order_number TEXT, status TEXT,
@@ -184,7 +184,7 @@ try {
     $p107 = request($boss, 'admin/production_list.php?ids=107')['body'];
     ok(str_contains(rowWith($p107, 'Wosk zapachowy'), 'Wosk zapachowy 50 g 50 g'), 'Weight from the name (… 50 g)');
     $pier = rowWith($p107, 'Piernik');
-    ok(str_contains($pier, 'PIER 240 g') && !str_contains($pier, 'kg'), 'Grams saved as kg on the product card (240 kg for a small jar) shown as 240 g: ' . $pier);
+    ok(str_contains($pier, 'PIER 240 kg'), 'Weight exactly as on the product card, no correction (240 kg stays 240 kg - fixed in the product): ' . $pier);
     ok(!str_contains($pier, 'knot: drewniany') && str_contains($pier, 'Knot: Drewniany 15 mm 0.6 (2 szt.)'), 'Variant wick dropped when the recipe has the exact one: ' . $pier);
     ok(str_contains($pier, 'Zapach: Pumpkin pie (8%) (2 szt.)') && substr_count($pier, 'Pumpkin') === 1, 'Variant scent dropped when the recipe oil names it more exactly: ' . $pier);
     ok(str_contains(rowWith(request($boss, 'admin/production_list.php?ids=107')['body'], 'Świeca z wariantem'), 'STARE-SKU 240 g'), 'Weight from the product card of the variation (shop variation ID)');

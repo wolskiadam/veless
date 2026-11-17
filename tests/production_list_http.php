@@ -137,7 +137,8 @@ try {
         // id, numer CRM, klient, pozycje, uwaga
         [101, 1201, 'Paula Testowa', [$woo('Świeca sojowa 180 ml', 2, 'SOJ-180', ['Zapach' => 'Wanilia']), $woo('GINGERBREAD 1l', 1, 'GB-1L')], 'Proszę zapakować na prezent'],
         [102, 1202, 'Marek Zieliński', [$woo('Świeca sojowa 180 ml', 1, 'SOJ-180', ['Zapach' => 'Wanilia']), $woo('Świeca sojowa 180 ml', 1, 'SOJ-180', ['Zapach' => 'Cynamon'])], ''],
-        [103, 1203, 'Anna Kowalska', [$woo('GINGERBREAD 1l', 2, 'GB-1L'), ['name' => 'Wosk do kominka', 'quantity' => 3, 'sku' => '', 'product_id' => 555], ['name' => 'Zapałki', 'quantity' => 1, 'sku' => '']], ''],
+        [103, 1203, 'Anna Kowalska', [$woo('GINGERBREAD 1l', 2, 'GB-1L'), ['name' => 'Wosk do kominka', 'quantity' => 3, 'sku' => '', 'product_id' => 555], ['name' => 'Zapałki', 'quantity' => 1, 'sku' => ''],
+            $woo('Świeca kokosowa z drewnianym knotem', 2, 'KOK', ['Zapach' => 'Wanilia'])], ''],
         [104, 1204, 'Anna Kowalska', [$woo('GINGERBREAD 1l', 5, 'GB-1L')], ''],   // dołączone do 103
         [105, 1205, 'Tomasz Nowak', [$woo('GINGERBREAD 1l', 9, 'GB-1L')], ''],   // nie zaznaczone
     ];
@@ -162,11 +163,11 @@ try {
     $list = request($boss, 'admin/index.php');
     ok($list['status'] === 200 && str_contains($list['body'], "production_list.php?ids='") && str_contains($list['body'], 'Lista produkcji'), 'Orders list offers "Lista produkcji" for selected orders');
 
-    $r = request($boss, 'admin/production_list.php?ids=101,102,103');
+    $r = request($boss, 'admin/production_list.php?ids=101,102,103&grp=0');
     $b = $r['body'];
     ok($r['status'] === 200 && str_contains($b, '<h1>Lista produkcji</h1>') && str_contains($b, '@page { size: A4'), 'Print page opens (A4)');
     ok(str_contains($r['headers'], "script-src 'nonce-"), 'Print page has a strict CSP');
-    $van = rowWith($b, 'Zapach: Wanilia');
+    $van = rowWith($b, 'Świeca sojowa 180 ml Zapach: Wanilia');
     ok(str_starts_with($van, '3 Świeca sojowa 180 ml Zapach: Wanilia') && str_ends_with($van, 'SOJ-180 200 g 74001 ×2, 74002'), 'Same product and scent summed across orders, weight column from Produkcja, order numbers: ' . $van);
     ok(!str_contains($van, 'Waga:') && str_contains($van, 'Czas palenia: 40 h') && !str_contains($van, 'Las') && !str_contains($van, 'https://x'),
         'Weight in its own column, not among parameters; short custom fields from the product');
@@ -183,12 +184,26 @@ try {
         'Other scent is a separate line; recipe scent that contradicts the variant is left out');
     ok(str_starts_with(rowWith($b, 'GINGERBREAD'), '8 GINGERBREAD 1l') && str_contains(rowWith($b, 'GINGERBREAD'), '74003 ×7'), 'Merged order counted with its main order: ' . rowWith($b, 'GINGERBREAD'));
     ok(str_starts_with(rowWith($b, 'Wosk do kominka'), '3 Wosk do kominka'), 'Item without SKU listed by name');
-    ok(str_contains(rowWith($b, 'Razem sztuk'), '16'), 'Total pieces');
+    ok(str_contains(rowWith($b, 'Razem sztuk'), '18'), 'Total pieces');
     $mat = (string) strstr($b, 'Materiały razem');
     ok($mat !== '' && rowWith($mat, 'Olejek Wanilia') === 'Zapach: Olejek Wanilia 36 g' && rowWith($mat, 'Knot drewniany') === 'Knot: Knot drewniany 13 mm 4 szt.'
         && rowWith($mat, 'Golden 464') === 'Wosk: Wosk sojowy Golden 464 600 g', 'Materials summed for the whole list');
     ok(str_contains($b, 'Uwagi klientów') && str_contains($b, 'Proszę zapakować na prezent'), 'Customer notes listed');
     ok(str_contains($b, '3 zamówienia') && !str_contains($b, 'Tomasz Nowak'), 'Only selected orders');
+
+    // Grupowanie po zapachu (domyślne): różne produkty z tym samym zapachem pod jednym nagłówkiem, bez zapachu na końcu.
+    $g = request($boss, 'admin/production_list.php?ids=101,102,103')['body'];
+    preg_match_all('#<tr class="grp">(.*?)</tr>#s', $g, $gm);
+    $heads = array_map(static fn($t) => trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags(str_replace('<', ' <', $t)), ENT_QUOTES, 'UTF-8'))), $gm[1]);
+    ok($heads === ['1 Zapach: Cynamon 1 pozycja', '5 Zapach: Wanilia 2 pozycje', '12 Bez zapachu 3 pozycje'], 'Groups by scent with piece sums, no scent last: ' . implode(' | ', $heads));
+    $pos = static fn(string $n) => strpos($g, $n);
+    ok($pos('Zapach: <b>Wanilia') < $pos('Świeca kokosowa') && $pos('Świeca kokosowa') < $pos('Bez zapachu') && $pos('Zapach: <b>Wanilia') < strpos($g, '>Świeca sojowa 180 ml<', $pos('Zapach: <b>Wanilia')),
+        'Different products with the same scent sit together under their scent');
+    ok(str_starts_with(rowWith($g, 'Świeca kokosowa'), '2 Świeca kokosowa z drewnianym knotem KOK') && str_contains($g, 'id="groupScent" checked'), 'Scent left out of rows inside a group (it is in the header); toggle on');
+    ok(!str_contains(request($boss, 'admin/production_list.php?ids=101,102,103&grp=0')['body'], 'class="grp"')
+        && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without groups too');
+    $gp = pdfText(request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1')['body']);
+    ok(str_contains($gp, 'Zapach: Wanilia') && str_contains($gp, 'Bez zapachu') && strpos($gp, 'Zapach: Cynamon') < strpos($gp, 'Bez zapachu'), 'PDF grouped by scent');
 
     $r = request($boss, 'admin/production_list.php?ids=103,104');
     ok(str_starts_with(rowWith($r['body'], 'GINGERBREAD'), '7 GINGERBREAD'), 'Main and merged both selected: merged items not doubled');
@@ -205,7 +220,7 @@ try {
     $txt = pdfText($r['body']);
     ok(str_contains($txt, 'Lista produkcji') && str_contains($txt, 'Świeca sojowa 180 ml') && str_contains($txt, 'Zapach: Wanilia')
         && str_contains($txt, 'Knot: Knot drewniany 13 mm (3 szt.)') && str_contains($txt, '74001 ×2, 74002') && str_contains($txt, 'Razem sztuk')
-        && str_contains($txt, 'MATERIAŁY RAZEM') && str_contains($txt, 'Proszę zapakować na prezent') && str_contains($txt, '3 zamówienia · 16 szt. · 5 pozycji'),
+        && str_contains($txt, 'MATERIAŁY RAZEM') && str_contains($txt, 'Proszę zapakować na prezent') && str_contains($txt, '3 zamówienia · 18 szt. · 6 pozycji'),
         'PDF holds products, scents, wicks, orders, materials and notes (Polish letters intact)');
     $no = pdfText(request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1&nr=0')['body']);
     ok(!str_contains($no, "\nZAMÓWIENIA\n") && !str_contains($no, '74001 ×2') && str_contains($no, 'Zapach: Wanilia'), 'PDF without order numbers');

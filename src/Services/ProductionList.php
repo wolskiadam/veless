@@ -153,6 +153,23 @@ final class ProductionList
             if ($r['weight'] === '') {
                 $r['weight'] = self::weightIn($r['name']);
             }
+            // Zapach do grupowania: numer i nazwa z wtyczki Zapachy, potem wariant („Zapach: Wanilia”), potem olejek z receptury.
+            $r['scent'] = '';
+            foreach ($r['details'] as $d) {
+                if ($r['scent'] === '' && mb_strtolower($d['label']) === 'nr zapachu') {
+                    $r['scent'] = $d['value'];
+                }
+            }
+            foreach ($r['attrs'] as [$k, $v]) {
+                if ($r['scent'] === '' && self::isScent($k)) {
+                    $r['scent'] = $v;
+                }
+            }
+            foreach ($r['details'] as $d) {
+                if ($r['scent'] === '' && mb_strtolower($d['label']) === 'zapach') {
+                    $r['scent'] = $d['value'];
+                }
+            }
         }
         unset($r);
 
@@ -187,6 +204,34 @@ final class ProductionList
     public static function isScentNote(string $name): bool
     {
         return (bool) preg_match('/aroma|\bnut[aąeyo]\w*|\bnotes?\b|akord/iu', $name);
+    }
+
+    /** Nazwa parametru to zapach wariantu (Zapach, pa_zapach, Scent, Aromat). */
+    public static function isScent(string $name): bool
+    {
+        return (bool) preg_match('/^(pa_)?(zapach|scent|fragrance|aromat\b)/iu', trim($name));
+    }
+
+    /**
+     * Pozycje pogrupowane po zapachu (różne produkty i knoty z tym samym zapachem razem). Grupy po nazwie zapachu,
+     * pozycje bez zapachu na końcu (scent = ''). W pozycjach grupy pomijamy zapach z wariantu i „Nr zapachu” - jest w nagłówku.
+     * @return list<array{scent:string,qty:int,rows:list<array>}>
+     */
+    public static function groups(array $rows): array
+    {
+        $groups = [];
+        foreach ($rows as $r) {
+            $key = mb_strtolower(trim((string) ($r['scent'] ?? '')));
+            $groups[$key] ??= ['scent' => trim((string) ($r['scent'] ?? '')), 'qty' => 0, 'rows' => []];
+            $groups[$key]['qty'] += (int) $r['qty'];
+            if ($key !== '') {
+                $r['attrs'] = array_values(array_filter($r['attrs'], static fn(array $a) => !self::isScent($a[0])));
+                $r['details'] = array_values(array_filter($r['details'], static fn(array $d) => mb_strtolower($d['label']) !== 'nr zapachu'));
+            }
+            $groups[$key]['rows'][] = $r;
+        }
+        uksort($groups, static fn($a, $b) => ((string) $a === '') <=> ((string) $b === '') ?: strnatcasecmp((string) $a, (string) $b));
+        return array_values($groups);
     }
 
     /** Nazwa parametru oznacza wagę świecy (Waga, Waga netto, Gramatura, Weight). */

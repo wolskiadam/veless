@@ -18,11 +18,18 @@ $ids = array_values(array_unique(array_filter(array_map('intval',
 $ids = array_slice($ids, 0, 500);
 
 $list = (new ProductionList($pdo))->build($ids);
+// Grupowanie po zapachu (domyślnie włączone, ?grp=0 wyłącza). Bez żadnego zapachu na liście - zwykła lista.
+$groupBy = ($_GET['grp'] ?? '') !== '0';
+$groups = $groupBy ? ProductionList::groups($list['rows']) : [];
+$grouped = $groups !== [] && $groups[0]['scent'] !== '';
+if (!$grouped) {
+    $groups = [['scent' => '', 'qty' => (int) $list['total'], 'rows' => $list['rows']]];
+}
 
 // ?pdf=1 - ta sama lista jako plik PDF. Aplikacja na iPhonie (ekran początkowy) nie drukuje stron (window.print()
 // nic nie robi), więc tam „Drukuj” udostępnia ten plik (navigator.share) - iOS pokazuje arkusz z „Drukuj”.
 if (($_GET['pdf'] ?? '') === '1') {
-    $pdfData = (new \Pase\Services\ProductionListPdf())->render($list, ($_GET['nr'] ?? '') !== '0');
+    $pdfData = (new \Pase\Services\ProductionListPdf())->render($list, ($_GET['nr'] ?? '') !== '0', null, $grouped ? $groups : null);
     header('Content-Type: application/pdf');
     header('Content-Disposition: inline; filename="lista-produkcji-' . date('Y-m-d') . '.pdf"');
     header('Content-Length: ' . strlen($pdfData));
@@ -46,7 +53,7 @@ if ($ref !== '' && parse_url($ref, PHP_URL_HOST) === ($_SERVER['HTTP_HOST'] ?? '
     $back = $ref;
 }
 
-$pdfUrl = $list['rows'] !== [] ? 'production_list.php?' . http_build_query(['ids' => implode(',', $ids), 'pdf' => 1]) : '';
+$pdfUrl = $list['rows'] !== [] ? 'production_list.php?' . http_build_query(['ids' => implode(',', $ids), 'pdf' => 1] + ($groupBy ? [] : ['grp' => 0])) : '';
 
 $nonce = base64_encode(random_bytes(18));
 header("Content-Security-Policy: default-src 'none'; script-src 'nonce-{$nonce}'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; connect-src 'self'; frame-ancestors 'self'");
@@ -90,6 +97,10 @@ header('Content-Type: text/html; charset=utf-8');
     .sku { font-weight: 400; color: #777; font-size: 10px; margin-left: 6px; }
     td.cap { width: 58px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
     th.cap { width: 58px; }
+    tr.grp td { background: #efede8; border-bottom: 1px solid #111; padding-top: 6px; font-size: 12.5px; break-after: avoid; page-break-after: avoid; }
+    tr.grp td.qty { font-size: 13px; color: #555; }
+    tr.grp .grp-n { color: #666; font-size: 10.5px; margin-left: 8px; }
+    @media print { tr.grp td { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     td.ord { width: 21%; font-size: 10px; line-height: 1.3; color: #444; }
     tfoot td { border-bottom: 0; font-weight: 700; }
     .small { font-size: 12px; color: #444; }
@@ -112,6 +123,7 @@ header('Content-Type: text/html; charset=utf-8');
 <div class="toolbar">
     <a href="<?= $h($back) ?>">← Wróć</a>
     <span class="sp"></span>
+    <label><input type="checkbox" id="groupScent"<?= $groupBy ? ' checked' : '' ?>> Grupuj po zapachu</label>
     <label><input type="checkbox" id="showOrders" checked> Numery zamówień</label>
     <button type="button" class="primary" id="printBtn">Drukuj</button>
     <span class="hint" id="printHint" hidden></span>
@@ -132,7 +144,13 @@ header('Content-Type: text/html; charset=utf-8');
     <table class="items">
         <thead><tr><th class="chk"></th><th class="qty">Szt.</th><th>Produkt</th><th class="cap">Waga</th><th class="ord">Zamówienia</th></tr></thead>
         <tbody>
-        <?php foreach ($list['rows'] as $r): ?>
+        <?php foreach ($groups as $g): ?>
+            <?php if ($grouped): ?>
+            <tr class="grp"><td class="chk"></td><td class="qty"><?= (int) $g['qty'] ?></td>
+                <td colspan="3"><?= $g['scent'] !== '' ? 'Zapach: <b>' . $h($g['scent']) . '</b>' : '<b>Bez zapachu</b>' ?>
+                    <span class="grp-n"><?= count($g['rows']) ?> <?= $plural(count($g['rows']), 'pozycja', 'pozycje', 'pozycji') ?></span></td></tr>
+            <?php endif; ?>
+        <?php foreach ($g['rows'] as $r): ?>
             <?php
                 // Jedna linia parametrów: wariant (knot, zapach), szczegóły z rozszerzeń (nr zapachu, receptura), SKU na końcu.
                 $params = array_merge(
@@ -152,6 +170,7 @@ header('Content-Type: text/html; charset=utf-8');
                 <td class="ord"><?= implode(', ', array_map(static fn($label, $q) => $h($label) . ($q > 1 ? ' ×' . (int) $q : ''),
                     array_keys($r['orders']), $r['orders'])) ?></td>
             </tr>
+        <?php endforeach; ?>
         <?php endforeach; ?>
         </tbody>
         <tfoot><tr><td></td><td class="qty"><?= (int) $list['total'] ?></td><td>Razem sztuk</td><td class="cap"></td><td class="ord"></td></tr></tfoot>
@@ -215,6 +234,11 @@ header('Content-Type: text/html; charset=utf-8');
         var data = { files: [file], title: 'Lista produkcji' };
         if (navigator.canShare && !navigator.canShare(data)) { say('Ten iPhone nie udostępnia plików z aplikacji. Otwórz CRM w Safari i drukuj stamtąd.'); return; }
         navigator.share(data).catch(function (e) { if (!e || e.name !== 'AbortError') { say('Nie udało się otworzyć drukowania: ' + (e && e.message ? e.message : 'błąd')); } });
+    });
+    document.getElementById('groupScent').addEventListener('change', function () {
+        var u = new URL(location.href);
+        if (this.checked) { u.searchParams.delete('grp'); } else { u.searchParams.set('grp', '0'); }
+        location.replace(u.toString());
     });
     so.addEventListener('change', function () {
         document.body.classList.toggle('no-orders', !so.checked);

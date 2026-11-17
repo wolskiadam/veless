@@ -67,19 +67,20 @@ final class ProductionListPdf
                 $this->itemsHeader();
             }
             $mk = $marked ? (string) ($r['mark'] ?? '') : '';
-            if ($mk !== '' && $mk !== $prevMark) {
-                // Pierwsza pozycja z nową literą zapachu: grubsza linia nad nią.
+            $shared = $mk !== '' && !empty($r['shared']);
+            if ($shared && $mk !== $prevMark) {
+                // Pierwsza pozycja ze wspólnym zapachem: grubsza linia nad nią.
                 $p->line(self::L, $this->y, self::R, $this->y, '111111', 0.5);
             }
-            $prevMark = $mk;
+            $prevMark = $shared ? $mk : '';
             $top = $this->y;
             $p->rect(self::L + 0.8, $top + 1.6, 3.4, 3.4, null, '111111', 0.3);
             $p->text(26, $top + 4.6, (string) (int) $r['qty'], 11, true, '111111', 'R');
             if ($mk !== '') {
-                // Numer zapachu w kółku = ten sam zapach co sąsiednie pozycje z tym numerem.
+                // Numer zapachu w kółku; wspólny zapach (kilka pozycji) - kółko wypełnione na czarno, biały numer.
                 $fs = strlen($mk) > 2 ? 6.5 : 8;
-                $p->circle(31.5, $top + 3.4, max(2.3, $p->width($mk, $fs, true) / 2 + 0.7), '111111', 0.4);
-                $p->text(31.5, $top + 3.4 + $fs * 0.125, $mk, $fs, true, '111111', 'C');
+                $p->circle(31.5, $top + 3.4, max(2.3, $p->width($mk, $fs, true) / 2 + 0.7), '111111', 0.4, $shared ? '111111' : null);
+                $p->text(31.5, $top + 3.4 + $fs * 0.125, $mk, $fs, true, $shared ? 'FFFFFF' : '111111', 'C');
             }
             $ly = $top + 4.4;
             foreach ($name as $line) {
@@ -105,6 +106,10 @@ final class ProductionListPdf
         $this->need(8);
         $p->text(26, $this->y + 5.5, (string) (int) $list['total'], 11, true, '111111', 'R');
         $p->text(29, $this->y + 5.5, 'Razem sztuk', 9.5, true);
+        if ($marked && array_filter(array_column($list['rows'], 'shared')) !== []) {
+            $p->circle(self::R - 62, $this->y + 4.5, 1.6, '111111', 0.3, '111111');
+            $p->text(self::R - 59.5, $this->y + 5.5, 'czarne kółko = ten sam zapach w kilku pozycjach', 7.5, false, '444444');
+        }
         $this->y += 8;
 
         if ($list['materials'] !== []) {

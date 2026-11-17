@@ -204,29 +204,34 @@ try {
 
     // Ten sam zapach razem (domyślne): bez nagłówków, pozycje po zapachu, wspólny zapach oznaczony literą, bez zapachu na końcu.
     $g = request($boss, 'admin/production_list.php?ids=101,102,103')['body'];
-    preg_match_all('#<td class="qty">(\d+)</td>\s*<td class="mk">(?:<span class="mk-b"[^>]*>([\w-]+)</span>)?</td>\s*<td>\s*<div class="name">([^<]+)</div>#', $g, $gm, PREG_SET_ORDER);
-    $seq = array_map(static fn($m) => $m[1] . ($m[2] !== '' ? ' [' . $m[2] . ']' : '') . ' ' . $m[3], $gm);
-    ok($seq === ['1 Świeca sojowa 180 ml', '2 [A] Świeca kokosowa z drewnianym knotem', '3 [A] Świeca sojowa 180 ml', '8 GINGERBREAD 1l', '3 Wosk do kominka', '1 Zapałki'],
+    preg_match_all('#<td class="qty">(\d+)</td>\s*<td class="mk">(?:<span class="mk-b( on)?"[^>]*>.*?<text[^>]*>([\w-]+)</text></svg></span>)?</td>\s*<td>\s*<div class="name">([^<]+)</div>#', $g, $gm, PREG_SET_ORDER);
+    $seq = array_map(static fn($m) => $m[1] . ($m[3] !== '' ? ($m[2] !== '' ? ' [●' : ' [') . $m[3] . ']' : '') . ' ' . $m[4], $gm);
+    ok($seq === ['1 Świeca sojowa 180 ml', '2 [●A] Świeca kokosowa z drewnianym knotem', '3 [●A] Świeca sojowa 180 ml', '8 GINGERBREAD 1l', '3 Wosk do kominka', '1 Zapałki'],
         'Same scent side by side and marked in a circle (scent number, here a letter - the test scent has no number) (Cynamon alone unmarked), no scent last: ' . implode(' | ', $seq));
     ok(!str_contains($g, 'class="grp"') && !str_contains($g, 'Bez zapachu') && str_contains($g, '<th class="mk">Zap.</th>') && substr_count($g, 'class="mk-first"') === 1
         && str_contains(rowWith($g, 'Świeca kokosowa'), 'Zapach: Wanilia') && str_contains($g, 'id="groupScent" checked'), 'No group headers; the scent stays a small parameter in each row; toggle on');
     $rows = \Pase\Services\ProductionList::markScents([
         ['name' => 'a', 'qty' => 1, 'scent' => '7 · Pumpkin pie'], ['name' => 'b', 'qty' => 1, 'scent' => 'Wanilia'],
         ['name' => 'c', 'qty' => 1, 'scent' => '7 · Pumpkin pie'], ['name' => 'd', 'qty' => 1, 'scent' => 'Wanilia'], ['name' => 'e', 'qty' => 1, 'scent' => '8 · Hot Wine']]);
-    ok(array_map(static fn($r) => $r['name'] . $r['mark'], $rows) === ['a7', 'c7', 'e', 'bA', 'dA'], 'Mark = scent number from Zapachy (7), letter when the scent has no number, none for a single position');
+    ok(array_map(static fn($r) => $r['name'] . $r['mark'] . ($r['shared'] ? '*' : ''), $rows) === ['a7*', 'c7*', 'e8', 'bA*', 'dA*'],
+        'Mark = scent number from Zapachy at every position (shared = filled), letter only for a shared scent without number');
+    $one = \Pase\Services\ProductionList::markScents([['name' => 'x', 'qty' => 1, 'scent' => 'Cynamon']]);
+    ok($one[0]['mark'] === '' && $one[0]['shared'] === false, 'Single scent without number: no mark');
     $nr = static fn(string $v) => ['label' => 'Nr zapachu', 'value' => $v, 'total' => null, 'unit' => ''];
     $rows = \Pase\Services\ProductionList::markScents([
         ['name' => 'a', 'qty' => 1, 'attrs' => [], 'scent' => '7 · Pumpkin pie', 'details' => [$nr('7 · Pumpkin pie'), ['label' => 'Knot', 'value' => 'ECO 8', 'total' => 1.0, 'unit' => 'szt']]],
         ['name' => 'b', 'qty' => 1, 'attrs' => [], 'scent' => '7 · Pumpkin pie', 'details' => [$nr('7 · Pumpkin pie'), ['label' => 'Zapach', 'value' => 'Pumpkin pie (8%)', 'total' => null, 'unit' => '']]],
         ['name' => 'c', 'qty' => 1, 'attrs' => [], 'scent' => '8 · Hot Wine', 'details' => [$nr('8 · Hot Wine')]]]);
     $txt = array_map(static fn($r) => implode(' · ', array_map(static fn($d) => $d['label'] . ': ' . $d['value'], $r['details'])), $rows);
-    ok($txt === ['Zapach: Pumpkin pie · Knot: ECO 8', 'Zapach: Pumpkin pie (8%)', 'Nr zapachu: 8 · Hot Wine'],
-        'Number only in the circle: shared scent shows its name only (or the recipe line), a single scent keeps "Nr zapachu": ' . implode(' | ', $txt));
+    ok($txt === ['Zapach: Pumpkin pie · Knot: ECO 8', 'Zapach: Pumpkin pie (8%)', 'Zapach: Hot Wine'],
+        'Number only in the circle: every numbered scent shows its name only (or the recipe line): ' . implode(' | ', $txt));
     $plain = request($boss, 'admin/production_list.php?ids=101,102,103&grp=0')['body'];
     ok(!str_contains($plain, 'class="mk-b"') && !str_contains($plain, 'class="mk"') && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without marks too');
     ok(!str_contains(request($boss, 'admin/production_list.php?ids=104')['body'], 'class="mk"'), 'No shared scent: no letter column');
     $gpRaw = request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1')['body'];
-    ok(substr_count($gpRaw, ' c S') === 2 && substr_count(pdfText($gpRaw), "\nA\n") === 2, 'PDF: the mark in a circle next to both positions with the shared scent');
+    ok(substr_count($gpRaw, ' c B') === 3 && substr_count($gpRaw, ' c S') === 0 && substr_count(pdfText($gpRaw), "\nA\n") === 2 && str_contains(pdfText($gpRaw), 'czarne kółko'),
+        'PDF: filled circle next to both positions with the shared scent, plus the legend');
+    ok(str_contains($g, 'class="mk-b on"') && str_contains($g, 'czarne kółko = ten sam zapach'), 'Page: shared scent is a filled circle (SVG, prints without backgrounds) + legend');
     $gp = pdfText($gpRaw);
     ok(str_contains($gp, "ZAP.") && !str_contains($gp, 'BEZ ZAPACHU') && strpos($gp, 'Świeca kokosowa') < strpos($gp, 'GINGERBREAD'), 'PDF: scent column, same order, no headers');
 

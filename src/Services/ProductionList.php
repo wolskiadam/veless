@@ -20,56 +20,7 @@ use PDO;
  */
 final class ProductionList
 {
-    /** Ile minut działa link do druku poza aplikacją. */
-    public const LINK_MINUTES = 30;
-
     public function __construct(private readonly PDO $pdo) {}
-
-    /**
-     * Krótki link do tej samej listy bez logowania - do druku z aplikacji na iPhonie: w aplikacji z ekranu
-     * początkowego window.print() nic nie robi, a przeglądarka otwarta z aplikacji nie ma sesji panelu.
-     * W bazie tylko skrót tokenu; link działa LINK_MINUTES minut i tylko dla tych zamówień.
-     * @param int[] $ids
-     */
-    public function createPrintLink(array $ids, int $userId, ?int $now = null): string
-    {
-        $now ??= time();
-        $this->migrateLinks();
-        $this->pdo->prepare('DELETE FROM production_print_links WHERE expires_at < ?')->execute([$now]);
-        $token = bin2hex(random_bytes(24));
-        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn(int $i) => $i > 0)));
-        $this->pdo->prepare('INSERT INTO production_print_links (token_hash, ids, user_id, expires_at) VALUES (?, ?, ?, ?)')
-            ->execute([hash('sha256', $token), implode(',', array_slice($ids, 0, 500)), $userId, $now + self::LINK_MINUTES * 60]);
-        return $token;
-    }
-
-    /** Zamówienia z ważnego linku (konto nadal aktywne) albo null. @return int[]|null */
-    public function printLinkIds(string $token, ?int $now = null): ?array
-    {
-        if (!preg_match('/^[a-f0-9]{48}$/', $token)) {
-            return null;
-        }
-        try {
-            $st = $this->pdo->prepare('SELECT l.ids FROM production_print_links l JOIN admin_users u ON u.id = l.user_id
-                WHERE l.token_hash = ? AND l.expires_at >= ? AND u.is_active = 1');
-            $st->execute([hash('sha256', $token), $now ?? time()]);
-            $ids = $st->fetchColumn();
-        } catch (\PDOException) {
-            return null;
-        }
-        return $ids === false ? null : array_values(array_filter(array_map('intval', explode(',', (string) $ids))));
-    }
-
-    private function migrateLinks(): void
-    {
-        $mysql = $this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'mysql';
-        $this->pdo->exec('CREATE TABLE IF NOT EXISTS production_print_links (
-            token_hash CHAR(64) NOT NULL PRIMARY KEY,
-            ids TEXT NOT NULL,
-            user_id INT NOT NULL,
-            expires_at INT NOT NULL
-        )' . ($mysql ? ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci' : ''));
-    }
 
     /**
      * @param int[] $ids woo_order_id zaznaczonych zamówień

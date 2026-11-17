@@ -49,6 +49,14 @@ function rowWith(string $html, string $needle): string {
     return '';
 }
 
+/** Tekst z PDF (Pase\Support\Pdf: nieskompresowane „(…) Tj”, polskie litery w kodowaniu z /Differences). */
+function pdfText(string $pdf): string {
+    $map = [];
+    foreach ((new ReflectionClass(\Pase\Support\Pdf::class))->getConstant('EXTRA') as $ch => [$code]) { $map[chr($code)] = $ch; }
+    preg_match_all('/\((.*?)(?<!\\\\)\) Tj/s', $pdf, $m);
+    return implode("\n", array_map(static fn($t) => strtr(stripcslashes($t), $map), $m[1]));
+}
+
 $temp = sys_get_temp_dir() . '/crm-prodlist-http-' . bin2hex(random_bytes(6));
 foreach (['public/admin/assets', 'config', 'storage/security', 'lang', 'extensions'] as $d) { mkdir("$temp/$d", 0700, true); }
 $process = null;
@@ -170,29 +178,25 @@ try {
     ok(str_starts_with(rowWith($r['body'], 'GINGERBREAD'), '5 GINGERBREAD'), 'Merged order alone: its own items');
     ok(str_contains(request($boss, 'admin/production_list.php')['body'], 'Brak produktów do zrobienia'), 'No selection: empty message');
 
-    // iPhone, aplikacja z ekranu początkowego: druk przez link otwierany w przeglądarce (bez sesji panelu).
-    ok(!str_contains(request($boss, 'admin/production_list.php')['body'], 'id="printOut"'), 'Empty list: no print link');
-    $b = request($boss, 'admin/production_list.php?ids=101,102')['body'];
-    ok(preg_match('#id="printOut" href="production_list\.php\?t=([a-f0-9]{48})" target="_blank"#', $b, $m) === 1, 'Page carries a print link for the app');
-    $token = $m[1];
-    ok((int) $pdo->query('SELECT COUNT(*) FROM production_print_links WHERE token_hash = ' . $pdo->quote(hash('sha256', $token)))->fetchColumn() === 1
-        && (int) $pdo->query('SELECT COUNT(*) FROM production_print_links WHERE token_hash = ' . $pdo->quote($token))->fetchColumn() === 0, 'Only the token hash is stored');
-    $anon = client();
-    $r = request($anon, 'admin/production_list.php?t=' . $token);
-    ok($r['status'] === 200 && str_contains(rowWith($r['body'], 'Zapach: Wanilia'), '74001 ×2, 74002') && !str_contains($r['body'], 'GINGERBREAD 1l GB-1L Pojemność: 1 l #1203'),
-        'Print link opens the same list without logging in');
-    ok(str_contains($r['body'], 'window.print(); }, 300)') && !str_contains($r['body'], '← Wróć') && str_contains($r['headers'], 'Referrer-Policy: no-referrer'), 'Print link prints on open, no back link, no referrer');
-    ok(!str_contains($r['body'], 'id="printOut"'), 'Print link page does not make further links');
-    ok(str_contains(request($anon, 'admin/production_list.php?t=' . $token . '&nr=0')['body'], '<body class="no-orders">'), 'Order numbers can be hidden on the printout');
-    ok(!str_contains(request($anon, 'admin/production_list.php?t=' . $token . '&ids=103')['body'], 'Wosk do kominka'), 'Link prints only its own orders');
-    ok(request($anon, 'admin/production_list.php?t=' . str_repeat('a', 48))['status'] === 410, 'Unknown token refused');
-    ok(request($anon, 'admin/production_list.php?t=..%2F')['status'] === 410, 'Malformed token refused');
-    $pdo->exec('UPDATE production_print_links SET expires_at = ' . (time() - 1));
-    ok(request($anon, 'admin/production_list.php?t=' . $token)['status'] === 410, 'Expired link refused');
-    $pdo->exec('UPDATE production_print_links SET expires_at = ' . (time() + 600));
-    $pdo->exec('UPDATE admin_users SET is_active = 0 WHERE id = 1');
-    ok(request($anon, 'admin/production_list.php?t=' . $token)['status'] === 410, 'Link of a disabled account refused');
-    $pdo->exec('UPDATE admin_users SET is_active = 1 WHERE id = 1');
+    // iPhone, aplikacja z ekranu początkowego: „Drukuj” udostępnia plik PDF (window.print() tam nic nie robi).
+    ok(str_contains(request($boss, 'admin/production_list.php?ids=101,102')['body'], '"production_list.php?ids=101%2C102&pdf=1"'), 'Page knows its PDF address');
+    ok(str_contains(request($boss, 'admin/production_list.php')['body'], 'var pdfUrl = "";'), 'Empty list: no PDF');
+    $r = request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1');
+    ok($r['status'] === 200 && str_starts_with($r['body'], '%PDF-1.4') && str_contains($r['headers'], 'Content-Type: application/pdf')
+        && str_contains($r['headers'], 'Cache-Control: private, no-store'), 'PDF of the list');
+    $txt = pdfText($r['body']);
+    ok(str_contains($txt, 'Lista produkcji') && str_contains($txt, 'Świeca sojowa 180 ml') && str_contains($txt, 'Zapach: Wanilia')
+        && str_contains($txt, 'Knot: Knot drewniany 13 mm (3 szt.)') && str_contains($txt, '74001 ×2, 74002') && str_contains($txt, 'Razem sztuk')
+        && str_contains($txt, 'MATERIAŁY RAZEM') && str_contains($txt, 'Proszę zapakować na prezent') && str_contains($txt, '3 zamówienia · 15 szt. · 4 pozycje'),
+        'PDF holds products, scents, wicks, orders, materials and notes (Polish letters intact)');
+    $no = pdfText(request($boss, 'admin/production_list.php?ids=101,102,103&pdf=1&nr=0')['body']);
+    ok(!str_contains($no, "\nZAMÓWIENIA\n") && !str_contains($no, '74001 ×2') && str_contains($no, 'Zapach: Wanilia'), 'PDF without order numbers');
+    ok(request(client(), 'admin/production_list.php?ids=101&pdf=1')['status'] === 302, 'PDF needs login');
+    $many = [];
+    for ($i = 0; $i < 60; ++$i) { $many[] = $woo('Świeca testowa nr ' . $i . ' z bardzo długą nazwą, która zawija się w dwa wiersze na wydruku', 1, 'T-' . $i, ['Zapach' => 'Wanilia']); }
+    $oi->execute([106, 1206, '74006', 'Duże Zamówienie', '2026-11-16 10:00:00', json_encode(['line_items' => $many])]);
+    $big = request($boss, 'admin/production_list.php?ids=106&pdf=1')['body'];
+    ok(substr_count($big, '/Type /Page ') >= 3 && str_contains(pdfText($big), 'Strona 1 z ') && str_contains(pdfText($big), 'nr 59 '), 'Long list continues on next pages with page numbers');
 
     // Uprawnienia: strona idzie za uprawnieniem „Zamówienia”.
     $perms = array_fill_keys(array_keys(PagePermissions::registry()), 'hidden');

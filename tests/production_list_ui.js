@@ -47,26 +47,37 @@ const [BASE, OUT] = process.argv.slice(2);
         await Promise.all([page.waitForNavigation(), page.click('.btn-prodlist')]);
         await page.screenshot({ path: OUT + '/lista-produkcji-telefon.png', fullPage: true });
 
-        // iPhone, aplikacja z ekranu początkowego (navigator.standalone): „Drukuj” otwiera listę w przeglądarce.
+        // iPhone, aplikacja z ekranu początkowego (navigator.standalone): „Drukuj” udostępnia plik PDF (arkusz iOS z „Drukuj”).
         const app = await browser.newContext({ ...require('playwright').devices['iPhone 13'] });
-        await app.addInitScript(() => { Object.defineProperty(Navigator.prototype, 'standalone', { get: () => true }); });
+        await app.addInitScript(() => {
+            Object.defineProperty(Navigator.prototype, 'standalone', { get: () => true });
+            window.__shared = [];
+            window.__printed = 0;
+            window.print = () => { window.__printed++; };
+            Navigator.prototype.canShare = () => true;
+            Navigator.prototype.share = (d) => { window.__shared.push({ name: d.files[0].name, type: d.files[0].type, size: d.files[0].size }); return Promise.resolve(); };
+        });
         page = await login(app);
         await page.goto(BASE + 'admin/production_list.php?ids=101,102,103');
-        if (await page.isVisible('#printBtn') || !(await page.isVisible('#printOut'))) { throw new Error('App mode: print link not shown instead of window.print'); }
-        await page.uncheck('#showOrders');
-        if (!(await page.getAttribute('#printOut', 'href')).endsWith('&nr=0')) { throw new Error('App mode: hidden numbers not passed to the link'); }
-        await page.check('#showOrders');
+        await page.waitForFunction(() => !document.getElementById('printBtn').disabled);
         await page.screenshot({ path: OUT + '/aplikacja-drukuj.png', clip: { x: 0, y: 0, width: 390, height: 300 } });
-        const [popup] = await Promise.all([page.waitForEvent('popup'), page.click('#printOut')]);
-        await popup.waitForLoadState();
-        if (!/production_list\.php\?t=[a-f0-9]{48}$/.test(popup.url())) { throw new Error('App mode: popup URL ' + popup.url()); }
-        if (!(await popup.textContent('body')).includes('Udostępnij')) { throw new Error('App mode: no share hint in the browser'); }
-        await popup.screenshot({ path: OUT + '/przegladarka-z-aplikacji.png', clip: { x: 0, y: 0, width: 390, height: 500 } });
+        await page.click('#printBtn');
+        let shared = await page.evaluate(() => ({ s: window.__shared, p: window.__printed }));
+        if (shared.p !== 0 || shared.s.length !== 1 || shared.s[0].type !== 'application/pdf' || shared.s[0].size < 1000) { throw new Error('App mode: PDF not shared ' + JSON.stringify(shared)); }
+        if (page.url().indexOf('production_list.php?ids=') < 0 || app.pages().length !== 1) { throw new Error('App mode: left the page or opened a new one'); }
+        await page.uncheck('#showOrders');
+        await page.waitForFunction(() => !document.getElementById('printBtn').disabled);
+        await page.click('#printBtn');
+        shared = await page.evaluate(() => window.__shared);
+        if (shared.length !== 2 || shared[1].size >= shared[0].size) { throw new Error('App mode: PDF without numbers not refreshed ' + JSON.stringify(shared)); }
+
         // Ta sama strona otwarta zwykle (nie z aplikacji): zwykły przycisk drukowania.
         const plain = await browser.newContext({ ...require('playwright').devices['iPhone 13'] });
         page = await login(plain);
         await page.goto(BASE + 'admin/production_list.php?ids=101');
-        if (!(await page.isVisible('#printBtn')) || await page.isVisible('#printOut')) { throw new Error('Safari: window.print button expected'); }
+        await page.evaluate(() => { window.__printed = 0; window.print = () => { window.__printed++; }; });
+        await page.click('#printBtn');
+        if (await page.evaluate(() => window.__printed) !== 1) { throw new Error('Safari: window.print expected'); }
 
         if (errors.length) { throw new Error('Page errors: ' + errors.join('; ')); }
         console.log('OK (browser): screenshots in ' + OUT);

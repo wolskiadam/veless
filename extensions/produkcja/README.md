@@ -90,3 +90,10 @@ trafi tam.
 ## Dane
 
 Tabele `ext_prod_*` (MySQL i SQLite), zdjęcia testów w `storage/uploads/produkcja/`. Test: `php tests/produkcja_http.php`.
+
+## Lista produkcji
+
+Lista produkcji (zamówienia → „Lista produkcji”) dopisuje do pozycji recepturę wyrobu o tym samym SKU (knot, zapach, pojemnik, wosk
+z ilościami). Gdy takiego wyrobu nie ma, podpowiada z historii: knot, pojemnik, wosk i zapach z ostatniej partii tego samego
+zapachu (z „Nr zapachu” wtyczki Zapachy, wariantu albo nazwy produktu) albo o tej samej nazwie wyrobu, z numerem tej partii.
+Gdy pozycja i partia mają rozmiar („100 g”), musi się zgadzać.

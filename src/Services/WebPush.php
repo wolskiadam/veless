@@ -331,9 +331,8 @@ final class WebPush
                     'Urgency'          => 'high',
                     'Authorization'    => 'vapid t=' . $jwt . ', k=' . $pub,
                 ];
-                if (!empty($message['tag'])) {
-                    $headers['Topic'] = substr(preg_replace('/[^A-Za-z0-9_-]/', '', (string) $message['tag']), 0, 32);
-                }
+                // Bez nagłówka Topic: Apple odrzucało „order-123…” (400 BadWebPushTopic), a podmianę powiadomienia
+                // na urządzeniu i tak robi „tag” w treści (push-sw.js).
                 if ($this->sender !== null) {
                     $status = (int) (($this->sender)($endpoint, $body, $headers)['status'] ?? 0);
                     $respBody = '';

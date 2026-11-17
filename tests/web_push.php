@@ -81,6 +81,11 @@ $push->withSender(function (string $url, string $body, array $headers) use (&$se
 check($push->send(['title' => 'Test', 'body' => 'zażółć'], 1) === 2 && count($sent) === 2
     && $sent[0]['msg'] === ['title' => 'Test', 'body' => 'zażółć'] && $sent[1]['msg'] === $sent[0]['msg'], 'test goes only to the user\'s devices and decrypts on the device');
 $h = $sent[0]['headers'];
+$saved = $sent; $sent = [];
+$push->send(['title' => 'T', 'tag' => 'order-10973707389'], 1);
+check($sent !== [] && !isset($sent[0]['headers']['Topic']) && $sent[0]['msg']['tag'] === 'order-10973707389',
+    'order tag goes in the payload, no Topic header (Apple rejected order-10973707389 with 400 BadWebPushTopic)');
+$sent = $saved;
 check($h['Content-Encoding'] === 'aes128gcm' && $h['TTL'] !== '' && str_ends_with($h['Authorization'], ', k=' . $pub), 'aes128gcm + VAPID headers');
 [$jh, $jp, $js] = explode('.', substr($h['Authorization'], strlen('vapid t='), strpos($h['Authorization'], ',') - strlen('vapid t=')));
 $claims = json_decode(WebPush::b64uDecode($jp), true);

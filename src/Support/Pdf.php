@@ -145,6 +145,19 @@ final class Pdf
             . sprintf('%.2F %.2F %.2F %.2F re %s', $x * self::K, (self::H - $y - $h) * self::K, $w * self::K, $h * self::K, $op));
     }
 
+    /** Okrąg (kontur) o środku (cx, cy) i promieniu r w mm - cztery łuki Béziera. */
+    /** Kółko: obrys w kolorze $color; z $fill - wypełnione (drukuje się zawsze, w przeciwieństwie do tła w CSS). */
+    public function circle(float $cx, float $cy, float $r, string $color = '111111', float $lineWidth = 0.35, ?string $fill = null): void
+    {
+        $k = 0.5523 * $r;
+        $pt = fn(float $x, float $y): string => sprintf('%.2F %.2F', $x * self::K, (self::H - $y) * self::K);
+        $this->out(($fill !== null ? strtolower($this->rgb($fill)) . ' rg ' : '') . strtoupper($this->rgb($color)) . ' RG ' . sprintf('%.2F w ', $lineWidth * self::K) . $pt($cx + $r, $cy) . ' m '
+            . $pt($cx + $r, $cy + $k) . ' ' . $pt($cx + $k, $cy + $r) . ' ' . $pt($cx, $cy + $r) . ' c '
+            . $pt($cx - $k, $cy + $r) . ' ' . $pt($cx - $r, $cy + $k) . ' ' . $pt($cx - $r, $cy) . ' c '
+            . $pt($cx - $r, $cy - $k) . ' ' . $pt($cx - $k, $cy - $r) . ' ' . $pt($cx, $cy - $r) . ' c '
+            . $pt($cx + $k, $cy - $r) . ' ' . $pt($cx + $r, $cy - $k) . ' ' . $pt($cx + $r, $cy) . ' c ' . ($fill !== null ? 'B' : 'S'));
+    }
+
     public function line(float $x1, float $y1, float $x2, float $y2, string $color = '000000', float $width = 0.2): void
     {
         $this->out(sprintf('%s RG %.2F w %.2F %.2F m %.2F %.2F l S', strtoupper($this->rgb($color)), $width * self::K,

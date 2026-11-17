@@ -18,7 +18,8 @@ $ids = array_values(array_unique(array_filter(array_map('intval',
 $ids = array_slice($ids, 0, 500);
 
 $list = (new ProductionList($pdo))->build($ids);
-// Ten sam zapach razem (domyślnie, ?grp=0 wyłącza): pozycje po zapachu, wspólny zapach oznaczony literą (A, B...).
+// Ten sam zapach razem (domyślnie, ?grp=0 wyłącza): pozycje po zapachu, przy każdej numer zapachu w kółku;
+// wspólny zapach (kilka pozycji) - kółko wypełnione na czarno (bez numeru - litera), plus grubsza linia na początku.
 $groupBy = ($_GET['grp'] ?? '') !== '0';
 if ($groupBy) {
     $list['rows'] = ProductionList::markScents($list['rows']);
@@ -96,10 +97,13 @@ header('Content-Type: text/html; charset=utf-8');
     .sku { font-weight: 400; color: #777; font-size: 10px; margin-left: 6px; }
     td.cap { width: 58px; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
     th.cap { width: 58px; }
-    /* Wspólny zapach: litera w obwódce (drukuje się bez tła), pierwsza pozycja z literą oddzielona grubszą linią. */
-    td.mk, th.mk { width: 26px; text-align: center; padding-left: 2px; padding-right: 2px; }
-    .mk-b { display: inline-block; min-width: 19px; padding: 0 3px; border: 1.6px solid #111; border-radius: 10px; font-size: 11.5px; font-weight: 800; line-height: 16px; margin-top: 1px; }
+    /* Wspólny zapach: numer zapachu w kółku (obwódka drukuje się bez tła), pierwsza pozycja zapachu oddzielona grubszą linią. */
+    td.mk, th.mk { width: 28px; text-align: center; padding-left: 2px; padding-right: 2px; }
+    .mk-b { display: inline-block; vertical-align: middle; line-height: 0; }
+    .mk-b svg { display: block; font-family: inherit; font-variant-numeric: tabular-nums; }
     tr.mk-first td { border-top: 1.6px solid #111; }
+    .mk-legend { float: right; font-size: 11px; font-weight: 400; color: #444; }
+    .mk-legend svg { vertical-align: -1px; }
     td.ord { width: 21%; font-size: 10px; line-height: 1.3; color: #444; }
     tfoot td { border-bottom: 0; font-weight: 700; }
     .small { font-size: 12px; color: #444; }
@@ -153,11 +157,12 @@ header('Content-Type: text/html; charset=utf-8');
                         : '<b>' . $h($d['value']) . '</b>' . ($d['total'] !== null ? ' (' . $h(ProductionList::amount($d['total'], $d['unit'])) . ')' : '')), $r['details'])
                 );
             ?>
-            <?php $mk = $marked ? (string) ($r['mark'] ?? '') : ''; $first = $mk !== '' && $mk !== $prevMark; $prevMark = $mk; ?>
+            <?php $mk = $marked ? (string) ($r['mark'] ?? '') : ''; $shared = $mk !== '' && !empty($r['shared']);
+                $first = $shared && $mk !== $prevMark; $prevMark = $shared ? $mk : ''; ?>
             <tr<?= $first ? ' class="mk-first"' : '' ?>>
                 <td class="chk"><div class="box"></div></td>
                 <td class="qty"><?= (int) $r['qty'] ?></td>
-                <?php if ($marked): ?><td class="mk"><?php if ($mk !== ''): ?><span class="mk-b" title="Ten sam zapach co pozycje z literą <?= $h($mk) ?>"><?= $h($mk) ?></span><?php endif; ?></td><?php endif; ?>
+                <?php if ($marked): ?><td class="mk"><?php if ($mk !== ''): $w = max(20, 8 + mb_strlen($mk) * 7); ?><span class="mk-b<?= $shared ? ' on' : '' ?>" title="<?= $shared ? 'Wspólny zapach: ' : 'Zapach: ' ?><?= $h($r['scent']) ?>"><svg width="<?= $w ?>" height="20" viewBox="0 0 <?= $w ?> 20" aria-hidden="true"><rect x="0.8" y="0.8" width="<?= $w - 1.6 ?>" height="18.4" rx="9.2" fill="<?= $shared ? '#111' : '#fff' ?>" stroke="#111" stroke-width="1.6"/><text x="<?= $w / 2 ?>" y="14" text-anchor="middle" font-size="11" font-weight="800" fill="<?= $shared ? '#fff' : '#111' ?>"><?= $h($mk) ?></text></svg></span><?php endif; ?></td><?php endif; ?>
                 <td>
                     <div class="name"><?= $h($r['name']) ?></div>
                     <div class="params"><?= implode(' · ', $params) ?><?php if ($r['sku'] !== ''): ?><span class="sku"><?= $h($r['sku']) ?></span><?php endif; ?></div>
@@ -168,7 +173,7 @@ header('Content-Type: text/html; charset=utf-8');
             </tr>
         <?php endforeach; ?>
         </tbody>
-        <tfoot><tr><td></td><td class="qty"><?= (int) $list['total'] ?></td><?php if ($marked): ?><td></td><?php endif; ?><td>Razem sztuk</td><td class="cap"></td><td class="ord"></td></tr></tfoot>
+        <tfoot><tr><td></td><td class="qty"><?= (int) $list['total'] ?></td><?php if ($marked): ?><td></td><?php endif; ?><td>Razem sztuk<?php if ($marked && array_filter(array_column($list['rows'], 'shared')) !== []): ?><span class="mk-legend"><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="4.2" fill="#111"/></svg> czarne kółko = ten sam zapach w kilku pozycjach</span><?php endif; ?></td><td class="cap"></td><td class="ord"></td></tr></tfoot>
     </table>
 
     <?php if ($list['materials'] !== []): ?>

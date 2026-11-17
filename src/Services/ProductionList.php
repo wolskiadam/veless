@@ -234,9 +234,10 @@ final class ProductionList
 
     /**
      * Pozycje ułożone po zapachu: ten sam zapach (różne produkty, knoty) obok siebie, bez zapachu na końcu.
-     * Zapach wspólny dla kilku pozycji dostaje literę (mark: „A”, „B”...), żeby na wydruku było widać, co robić razem.
-     * Pozycje zostają jak są (z „Nr zapachu” / „Zapach” w parametrach) - bez nagłówków grup.
-     * @return list<array> pozycje z kluczem mark ('' gdy zapach jest tylko w jednej pozycji albo go nie ma)
+     * Każda pozycja z numerem zapachu dostaje znak (mark) = numer („7”) - na wydruku w kółku; zapach bez numeru dostaje literę („A”),
+     * ale tylko gdy jest wspólny dla kilku pozycji. shared = zapach w kilku pozycjach (kółko wypełnione na czarno).
+     * Numer jest tylko w kółku - w parametrach zostaje sama nazwa zapachu. Bez nagłówków grup.
+     * @return list<array> pozycje z kluczami mark ('' gdy brak numeru i zapach jest w jednej pozycji albo go nie ma) i shared
      */
     public static function markScents(array $rows): array
     {
@@ -249,12 +250,42 @@ final class ProductionList
         usort($keyed, static fn(array $a, array $b) => ($a[0] === '') <=> ($b[0] === '') ?: strnatcasecmp($a[0], $b[0]) ?: $a[1] <=> $b[1]);
         $letters = [];
         $out = [];
+        $nextLetter = 0;
         foreach ($keyed as [$k, , $r]) {
-            if ($k !== '' && $count[$k] > 1 && !isset($letters[$k])) {
-                $n = count($letters);
-                $letters[$k] = ($n >= 26 ? chr(65 + intdiv($n, 26) - 1) : '') . chr(65 + $n % 26);
+            if ($k !== '' && !isset($letters[$k])) {
+                // Numer zapachu z wtyczki Zapachy („7 · Pumpkin pie” → 7) przy każdej pozycji; bez numeru litera A, B... tylko przy wspólnym.
+                if (preg_match('/^\s*([\w-]{1,6})\s*·/u', (string) $r['scent'], $m)) {
+                    $letters[$k] = $m[1];
+                } elseif ($count[$k] > 1) {
+                    $n = $nextLetter++;
+                    $letters[$k] = ($n >= 26 ? chr(65 + intdiv($n, 26) - 1) : '') . chr(65 + $n % 26);
+                }
             }
             $r['mark'] = $letters[$k] ?? '';
+            $r['shared'] = $r['mark'] !== '' && $count[$k] > 1;
+            // Numer jest w kółku - w parametrach zostaje sama nazwa („Nr zapachu: 7 · Pumpkin pie” → „Zapach: Pumpkin pie”),
+            // a gdy receptura już ją podaje („Zapach: Pumpkin pie (8%)”), wpis z numerem znika.
+            if ($r['mark'] !== '' && preg_match('/^\s*' . preg_quote($r['mark'], '/') . '\s*·\s*(.+)$/u', (string) $r['scent'], $m)) {
+                $name = trim($m[1]);
+                $named = false;
+                foreach ($r['details'] ?? [] as $d) {
+                    $named = $named || (mb_strtolower($d['label']) === 'zapach' && str_contains(mb_strtolower($d['value']), mb_strtolower($name)));
+                }
+                foreach ($r['attrs'] ?? [] as [$ak, $av]) {
+                    $named = $named || (self::isScent($ak) && mb_strtolower(trim($av)) === mb_strtolower($name));
+                }
+                $details = [];
+                foreach ($r['details'] ?? [] as $d) {
+                    if (mb_strtolower($d['label']) === 'nr zapachu') {
+                        if ($named) {
+                            continue;
+                        }
+                        $d = ['label' => 'Zapach', 'value' => $name] + $d;
+                    }
+                    $details[] = $d;
+                }
+                $r['details'] = $details;
+            }
             $out[] = $r;
         }
         return $out;

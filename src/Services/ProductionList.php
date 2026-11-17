@@ -260,6 +260,16 @@ final class ProductionList
         return $out;
     }
 
+    /** Numer litery wspólnego zapachu: A → 0, B → 1, ..., Z → 25, AA → 26. */
+    public static function markIndex(string $mark): int
+    {
+        $n = 0;
+        foreach (str_split(strtoupper($mark)) as $ch) {
+            $n = $n * 26 + (ord($ch) - 64);
+        }
+        return max(0, $n - 1);
+    }
+
     /** Nazwa parametru oznacza wagę świecy (Waga, Waga netto, Gramatura, Weight). */
     public static function isWeight(string $name): bool
     {

@@ -76,7 +76,8 @@ final class ProductionListPdf
             $p->rect(self::L + 0.8, $top + 1.6, 3.4, 3.4, null, '111111', 0.3);
             $p->text(26, $top + 4.6, (string) (int) $r['qty'], 11, true, '111111', 'R');
             if ($mk !== '') {
-                $p->drop(31.5, $top + 1.3, 4.0);   // kropla = ten sam zapach co sąsiednie pozycje z kroplą
+                // Kropla = ten sam zapach co sąsiednie pozycje; kolejne zapachy na zmianę pełna / sam kontur.
+                $p->drop(31.5, $top + 1.3, 4.0, '111111', ProductionList::markIndex($mk) % 2 === 0);
             }
             $ly = $top + 4.4;
             foreach ($name as $line) {

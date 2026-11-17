@@ -210,6 +210,8 @@ try {
         'Same scent side by side and marked with a drop icon (same letter = same scent) (Cynamon alone unmarked), no scent last: ' . implode(' | ', $seq));
     ok(!str_contains($g, 'class="grp"') && !str_contains($g, 'Bez zapachu') && str_contains($g, '<th class="mk">Zap.</th>') && substr_count($g, 'class="mk-first"') === 1
         && str_contains(rowWith($g, 'Świeca kokosowa'), 'Zapach: Wanilia') && str_contains($g, 'id="groupScent" checked'), 'No group headers; the scent stays a small parameter in each row; toggle on');
+    ok(\Pase\Services\ProductionList::markIndex('A') === 0 && \Pase\Services\ProductionList::markIndex('B') === 1 && \Pase\Services\ProductionList::markIndex('AA') === 26
+        && str_contains($g, 'class="mk-d"') && !str_contains($g, 'class="mk-d alt"'), 'First shared scent: filled drop (the next one would be an outline)');
     $plain = request($boss, 'admin/production_list.php?ids=101,102,103&grp=0')['body'];
     ok(!str_contains($plain, 'class="mk-d"') && !str_contains($plain, 'class="mk"') && str_contains(request($boss, 'admin/production_list.php?ids=101&grp=0')['body'], '&grp=0'), 'grp=0: plain list, PDF without drops too');
     ok(!str_contains(request($boss, 'admin/production_list.php?ids=104')['body'], 'class="mk"'), 'No shared scent: no letter column');

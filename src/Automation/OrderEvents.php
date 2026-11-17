@@ -121,7 +121,7 @@ final class OrderEvents
     public static function isPaidNow(PDO $pdo, int $wooOrderId): ?bool
     {
         try {
-            $st = $pdo->prepare('SELECT * FROM woo_orders WHERE woo_order_id = ?');
+            $st = $pdo->prepare('SELECT ' . self::payuPaidSql($pdo) . ' wo.* FROM woo_orders wo WHERE wo.woo_order_id = ?');
             $st->execute([$wooOrderId]);
             $row = $st->fetch(PDO::FETCH_ASSOC);
         } catch (\Throwable) {
@@ -131,6 +131,78 @@ final class OrderEvents
             return null;
         }
         return self::paymentState($row, json_decode((string) ($row['payload'] ?? ''), true) ?: []) === 'paid';
+    }
+
+    /** Opłacona płatność PayU przypisana w CRM (jak ikona płatności na liście); '' bez tabel PayU. */
+    private static function payuPaidSql(PDO $pdo): string
+    {
+        try {
+            return \Pase\Services\PayuPayments::paidSql($pdo, 'wo');
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    /**
+     * Zamówienie ze sklepu czekające na płatność online („oczekujące”/„wstrzymane”, bez „Pobrano zamówienie”), które
+     * CRM widzi już jako opłacone (płatność PayU przypisana w CRM, wpłata potwierdzona ręcznie), choć sklep dalej je
+     * wstrzymuje: przechodzi od razu do realizacji (tylko ze statusu Nowe, którego nikt nie zmieniał) i dostaje
+     * „Pobrano zamówienie” (reguły + push) - tak jak przy wyniku płatności zgłoszonym przez sklep. Raz na zamówienie.
+     * @return bool true = zamówienie zwolnione teraz
+     */
+    public static function releaseAwaitingPayment(PDO $pdo, int $wooOrderId, ?RuleEngine $engine = null): bool
+    {
+        if ($pdo->inTransaction()) {
+            return false;   // reguły mogą wystawiać dokumenty wFirma - nie w otwartej transakcji
+        }
+        try {
+            $st = $pdo->prepare('SELECT automations_done, pase_status, payload FROM woo_orders WHERE woo_order_id = ?');
+            $st->execute([$wooOrderId]);
+            $row = $st->fetch(PDO::FETCH_ASSOC);
+        } catch (\Throwable) {
+            return false;
+        }
+        if (!$row || (int) $row['automations_done'] === 1) {
+            return false;
+        }
+        $payload = json_decode((string) ($row['payload'] ?? ''), true) ?: [];
+        if (!\Pase\Handlers\WooOrderImportHandler::awaitingOnlinePayment($payload) || self::isPaidNow($pdo, $wooOrderId) !== true) {
+            return false;
+        }
+        // Zajęcie zamówienia jednym UPDATE - dwa równoległe wywołania (strona zamówienia + worker) nie zwolnią go dwa razy.
+        $claim = $pdo->prepare('UPDATE woo_orders SET automations_done = 1 WHERE woo_order_id = ? AND (automations_done = 0 OR automations_done IS NULL)');
+        $claim->execute([$wooOrderId]);
+        if ($claim->rowCount() !== 1) {
+            return false;
+        }
+        $target = \Pase\Domain\OrderStatus::fromWoo('processing');
+        if ((string) $row['pase_status'] === \Pase\Domain\OrderStatus::NEW && $target !== \Pase\Domain\OrderStatus::NEW && !self::statusChangedBefore($pdo, $wooOrderId)) {
+            $upd = $pdo->prepare('UPDATE woo_orders SET pase_status = ? WHERE woo_order_id = ? AND pase_status = ?');
+            $upd->execute([$target, $wooOrderId, \Pase\Domain\OrderStatus::NEW]);
+            if ($upd->rowCount() === 1) {
+                try {
+                    (new \Pase\Services\AuditTrail($pdo))->record($wooOrderId, 'order.status_changed',
+                        ['pase_status' => \Pase\Domain\OrderStatus::NEW], ['pase_status' => $target]);
+                } catch (\Throwable) {
+                    // historia zmian niedostępna - status i tak zmieniony
+                }
+            }
+        }
+        Logger::info("Zamówienie {$wooOrderId}: opłacone wg CRM, sklep dalej je wstrzymuje - do realizacji i „Pobrano zamówienie”");
+        // Reguły i push widzą zamówienie jak opłacone przez sklep (status „processing”).
+        self::fire($pdo, 'order.imported', $wooOrderId, ['status' => 'processing'], $engine);
+        return true;
+    }
+
+    private static function statusChangedBefore(PDO $pdo, int $wooOrderId): bool
+    {
+        try {
+            $st = $pdo->prepare("SELECT 1 FROM audit_events WHERE order_id = ? AND action = 'order.status_changed' LIMIT 1");
+            $st->execute([$wooOrderId]);
+            return $st->fetchColumn() !== false;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

@@ -86,6 +86,10 @@ final class RuleEngine
                     (new \Pase\Services\WebPush($this->pdo))->notifyNewOrder($wooOrderId, $payload);
                 } catch (\Throwable $e) {
                     Logger::warn("Push: powiadomienie o zamówieniu {$wooOrderId} nie wysłane", ['error' => $e->getMessage()]);
+                    try {
+                        (new \Pase\Services\WebPush($this->pdo))->noteNotSent($wooOrderId, 'nie wysłano: błąd - ' . mb_substr($e->getMessage(), 0, 150));
+                    } catch (\Throwable) {
+                    }
                 }
             }
             $applied = 0;

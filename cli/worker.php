@@ -194,6 +194,17 @@ try {
     Logger::warn('PayU: sprawdzenie linków do płatności nie powiodło się: ' . $e->getMessage());
 }
 
+// --- PayU: zamówienia ze sklepu „wstrzymane” mimo wpłaty - co 2 min sprawdź płatność, opłacone idzie do realizacji + push ---
+try {
+    if (\Pase\Services\PayuPayouts::available() && time() - (int) $settings->get('PAYU_AWAITING_AT', '0') >= 120) {
+        $settings->setMany(['PAYU_AWAITING_AT' => (string) time()]);
+        \Pase\Services\PayuPayments::migrate($pdo);
+        (new \Pase\Services\PayuPayments($pdo, new \Pase\Services\PayuPayouts($pdo)))->checkAwaiting();
+    }
+} catch (\Throwable $e) {
+    Logger::warn('PayU: sprawdzenie wstrzymanych zamówień nie powiodło się: ' . $e->getMessage());
+}
+
 // --- TikTok Shop: co kilka minut zamówienia, stany CRM do TikTok i numery przesyłek (Services\TiktokShop) ---
 try {
     if (\Pase\Services\TiktokShop::available() && !$control->isPaused('tiktokshop')

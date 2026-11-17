@@ -316,7 +316,76 @@ final class PayuPayments
         ]);
         if ((string) ($order['status'] ?? '') === self::PAID) {
             $this->recordLinkPaid($payuOrderId, (int) ($order['totalAmount'] ?? 0));
+            // Sklep może dalej trzymać zamówienie jako „wstrzymane” - opłacone w PayU idzie do realizacji (+ push).
+            try {
+                $ids = $this->pdo->prepare('SELECT woo_order_id FROM payu_order_payments WHERE payu_order_id = ?');
+                $ids->execute([$payuOrderId]);
+                foreach ($ids->fetchAll(PDO::FETCH_COLUMN) as $wooId) {
+                    \Pase\Automation\OrderEvents::releaseAwaitingPayment($this->pdo, (int) $wooId);
+                }
+            } catch (\Throwable $e) {
+                \Pase\Support\Logger::warn('PayU: zwolnienie opłaconego zamówienia nie powiodło się: ' . $e->getMessage());
+            }
         }
+    }
+
+    /**
+     * Worker: zamówienia ze sklepu czekające na płatność PayU (bez „Pobrano zamówienie”, z ostatnich 3 dni) - przypisuje
+     * płatność po numerze ze sklepu albo odświeża nieopłaconą, żeby opłacone przeszło do realizacji, choć sklep dalej je
+     * wstrzymuje (store() → OrderEvents::releaseAwaitingPayment). Limit zapytań do PayU na jedno uruchomienie.
+     * @return int ile zamówień sprawdzono w PayU
+     */
+    public function checkAwaiting(int $limit = 10): int
+    {
+        if ($this->payu->accounts() === []) {
+            return 0;
+        }
+        $st = $this->pdo->prepare("SELECT * FROM woo_orders WHERE (automations_done = 0 OR automations_done IS NULL)
+            AND status IN ('pending', 'on-hold') AND woo_order_id < 9000000000 AND date_created >= ? ORDER BY woo_order_id DESC LIMIT 100");
+        $st->execute([gmdate('Y-m-d H:i:s', time() - 3 * 86400)]);
+        $n = 0;
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $order) {
+            if ($n >= $limit) {
+                break;
+            }
+            $payload = json_decode((string) ($order['payload'] ?? ''), true) ?: [];
+            if (!self::eligible($order) || !\Pase\Handlers\WooOrderImportHandler::awaitingOnlinePayment($payload)) {
+                continue;
+            }
+            $wooId = (int) $order['woo_order_id'];
+            try {
+                $payments = $this->payments($wooId);
+                if ($payments === []) {
+                    $cand = self::candidateId($payload);
+                    if ($cand === null || $this->linkedElsewhere($cand, $wooId)) {
+                        continue;
+                    }
+                    $n++;
+                    $this->link($wooId, $cand, 'auto');
+                    continue;
+                }
+                $paid = false;
+                foreach ($payments as $p) {
+                    if ($p['status'] === self::PAID) {
+                        $paid = true;
+                    }
+                }
+                if ($paid) {
+                    // Już opłacone (np. przypisane wcześniej) - samo zwolnienie, bez zapytania do PayU.
+                    \Pase\Automation\OrderEvents::releaseAwaitingPayment($this->pdo, $wooId);
+                    continue;
+                }
+                foreach ($payments as $p) {
+                    if ($p['status'] !== 'CANCELED' && ($p['fetched_at'] === null || strtotime((string) $p['fetched_at']) < time() - 60)) {
+                        $n++;
+                        $this->refresh((int) $p['id']);
+                    }
+                }
+            } catch (\Throwable $e) {
+                \Pase\Support\Logger::warn("PayU: sprawdzenie płatności zamówienia {$wooId} nie powiodło się: " . $e->getMessage());
+            }
+        }
+        return $n;
     }
 
     /**

@@ -76,6 +76,7 @@ final class Production
         }
         $hay = ' ' . self::norm(implode(' ', $texts)) . ' ';
         $size = self::size(implode(' ', $texts));
+        $wick = self::wickType($hay);
         if (trim($hay) === '') {
             return [];
         }
@@ -89,8 +90,14 @@ final class Production
             if ($size !== '' && $b['size'] !== '' && $size !== $b['size']) {
                 continue;
             }
-            // Pasujący rozmiar przed partią bez rozmiaru; potem najnowsza (lista jest od najnowszej).
-            $rank = $size !== '' && $b['size'] === $size ? 1 : 0;
+            // Inny rodzaj knota (pozycja „Drewniany Knot”, partia z bawełnianym) nie pasuje.
+            $bw = self::wickType(self::norm($b['wick']));
+            if ($wick !== '' && $bw !== '' && $bw !== $wick) {
+                continue;
+            }
+            // Partia z tym samym rodzajem knota, potem partia z jakimkolwiek knotem (nowsza partia bez zapisanego knota
+            // nie zasłania starszej z knotem), pasujący rozmiar przed partią bez rozmiaru; potem najnowsza (lista jest od najnowszej).
+            $rank = ($wick !== '' && $bw === $wick ? 4 : 0) + ($b['wick'] !== '' ? 2 : 0) + ($size !== '' && $b['size'] === $size ? 1 : 0);
             if ($best === null || $rank > $best[0]) {
                 $best = [$rank, $b];
             }
@@ -144,6 +151,12 @@ final class Production
                 'size' => self::size($f['container'] . ' ' . $b['product_name'])];
         }
         return $out;
+    }
+
+    /** Rodzaj knota z tekstu (po norm): drewniany / bawelniany / '' gdy nie wiadomo. */
+    private static function wickType(string $norm): string
+    {
+        return preg_match('/\bdrewn/', $norm) ? 'drewniany' : (preg_match('/\b(bawelnian|cotton|eco)/', $norm) ? 'bawelniany' : '');
     }
 
     /** Małe litery bez polskich znaków, tylko litery i cyfry rozdzielone spacją. */

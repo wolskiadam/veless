@@ -97,3 +97,5 @@ Lista produkcji (zamówienia → „Lista produkcji”) dopisuje do pozycji rece
 z ilościami). Gdy takiego wyrobu nie ma, podpowiada z historii: knot, pojemnik, wosk i zapach z ostatniej partii tego samego
 zapachu (z „Nr zapachu” wtyczki Zapachy, wariantu albo nazwy produktu) albo o tej samej nazwie wyrobu, z numerem tej partii.
 Gdy pozycja i partia mają rozmiar („100 g”), musi się zgadzać.
+Rodzaj knota z nazwy lub wariantu („Drewniany Knot”, „knot: bawełniany”) też musi się zgadzać, a partia z zapisanym knotem
+wygrywa z nowszą partią bez knota.

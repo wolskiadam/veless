@@ -335,17 +335,20 @@ try {
         'party' => 'Seria 1', 'employee' => 'Adam Wolski', 'shelf_life_months' => '12'];
     $post($ola, 'import', ['kind' => 'bne', 'text' => json_encode(['batch_waxes' => [], 'batch_records' => [
         $hw('700', 'HW100OLD', '2026-01-10', 'Bawełniany N24', 'Szklany brązowy 100 g'), $hw('701', 'HW100NEW', '2026-11-15', 'Drewniany 12 mm 1.0', 'Szklany brązowy 100 g'),
-        $hw('702', 'HW250', '2026-11-16', 'Drewniany 15 mm 1.0', 'Szklany przezroczysty 250 g')]])]);
+        $hw('702', 'HW250', '2026-11-16', 'Drewniany 15 mm 1.0', 'Szklany przezroczysty 250 g'), $hw('703', 'HW100NOWICK', '2026-11-17', '', 'Szklany brązowy 100 g')]])]);
     $oins->execute([601, 61, '601', 'processing', 'new', 'PLN', 30, 'Anna Kowalska', 'anna@example.com', '2026-11-17 10:00:00', '2026-11-17 10:01:00',
         $order('Lipowa 1', [['product_id' => 61, 'sku' => '', 'name' => 'Świeca sojowa Hot Wine 100 g', 'quantity' => 2, 'price' => 15, 'total' => '30.00'],
             ['product_id' => 62, 'sku' => '', 'name' => 'Świeca sojowa Hot Wine 250 g', 'quantity' => 1, 'price' => 25, 'total' => '25.00'],
-            ['product_id' => 63, 'sku' => '', 'name' => 'Świeca sojowa Kokos 100 g', 'quantity' => 1, 'price' => 15, 'total' => '15.00']], 30)]);
+            ['product_id' => 63, 'sku' => '', 'name' => 'Świeca sojowa Kokos 100 g', 'quantity' => 1, 'price' => 15, 'total' => '15.00'],
+            ['product_id' => 64, 'sku' => '', 'name' => 'Świeca Hot Wine Bawełniany Knot 100 g', 'quantity' => 1, 'price' => 15, 'total' => '15.00']], 30)]);
     $pl = request($boss, 'admin/production_list.php?ids=601&grp=0')['body'];
     $at = static fn(string $from, string $to): string => (string) substr($pl, (int) strpos($pl, $from), max(0, (int) strpos($pl, $to, (int) strpos($pl, $from)) - (int) strpos($pl, $from)));
     $row100 = $at('Hot Wine 100 g', 'Hot Wine 250 g');
     $row250 = $at('Hot Wine 250 g', 'Kokos 100 g');
     ok(str_contains($row100, 'Drewniany 12 mm 1.0') && str_contains($row100, 'HW100NEW') && !str_contains($row100, 'N24') && str_contains($row100, 'Goldenwax Y50')
-        && str_contains($row250, 'Drewniany 15 mm 1.0') && !str_contains($at('Kokos 100 g', '</table>'), 'Knot'), 'Production list shows the wick from the latest batch of the same scent and size');
+        && str_contains($row250, 'Drewniany 15 mm 1.0') && !str_contains($at('Kokos 100 g', '</table>'), 'Knot:'), 'Production list shows the wick from the latest batch of the same scent and size (a newer batch without a wick does not hide it)');
+    $rowCotton = $at('Bawełniany Knot 100 g', 'Świeca sojowa Hot Wine 100 g');
+    ok(str_contains($rowCotton, 'Bawełniany N24') && str_contains($rowCotton, 'HW100OLD') && !str_contains($rowCotton, 'Drewniany 12'), 'Wick type from the product name: batch with the same kind of wick: ' . strip_tags($rowCotton));
     $r = $post($ola, 'import', ['kind' => 'bne', 'text' => '{"foo":1}']);
     ok(str_contains($r['body'], 'To nie jest kopia z Rejestru Partii'), 'Wrong JSON is refused');
 

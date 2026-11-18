@@ -290,6 +290,12 @@ Najprostsza droga, bez SSH i bez ręcznej edycji `.env`:
    i klucz szyfrowania, zakłada tabele, sprawdza, czy `.env` nie jest widoczny z internetu, podaje
    linijkę crona z testem, a na końcu usuwa paczkę i samego siebie.
 
+**Aktualizacja:** System → Aktualizacja. Wgrywasz nowszą paczkę `veless-<wersja>.zip` (albo kładziesz ją
+przez FTP w `storage/updates/`), widzisz listę zmian i klikasz „Aktualizuj”. System zapisuje kopię zmienianych
+plików (do przycisku „Cofnij”), wstrzymuje zadania w tle, podmienia pliki i usuwa te, których nowa wersja nie ma
+(tylko niezmienione lokalnie). `.env`, `storage/` i własne wtyczki spoza paczki zostają nietknięte, a migracje bazy
+uruchamia pierwsze kolejne żądanie. Instalacje wdrażane z GitHuba (build.json bez wersji) mają tę stronę wyłączoną.
+
 Paczkę buduje `php cli/build_release.php` (albo workflow „Paczka wydania” w GitHub Actions).
 Zawiera to samo co wdrożenie FTP, bez testów, Dockera i danych. Test całej ścieżki:
 `CRM_TEST_MYSQL=1 php tests/release_installer_http.php`.

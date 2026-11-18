@@ -552,6 +552,11 @@ try {
         $upsert->execute(['INSTALLED_AT', (string) time()]);
         $upsert->execute(['INSTALLED_VERSION', (string) $state['version']]);
         @unlink($dir . '/storage/ADMIN_PASSWORD.txt');
+        // Manifest tej wersji: System → Aktualizacja wie z niego, które pliki usunąć przy następnej wersji.
+        [$zip] = vi_open_package($package);
+        $raw = $zip->getFromName('package.json');
+        $zip->close();
+        if ($raw !== false && file_put_contents($dir . '/storage/release.json', $raw) !== false) { @chmod($dir . '/storage/release.json', 0600); }
         unset($_SESSION['admin'], $_SESSION['admin_form']);
         $state['phase'] = 'check';
         $state['configured_at'] = time();

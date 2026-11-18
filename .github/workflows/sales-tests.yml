@@ -176,6 +176,12 @@ jobs:
           CRM_TEST_MYSQL: '1'
           CRM_TEST_MYSQL_USER: root
           CRM_TEST_MYSQL_PASSWORD: isolated-test-only
+      - name: Aktualizacja z panelu (paczka wydania, cofnięcie)
+        run: php tests/app_update_http.php
+        env:
+          CRM_TEST_MYSQL: '1'
+          CRM_TEST_MYSQL_USER: root
+          CRM_TEST_MYSQL_PASSWORD: isolated-test-only
       - name: Księgowość na MySQL
         run: php tests/ksiegowosc.php
         env:

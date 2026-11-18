@@ -143,6 +143,7 @@ try {
     check(count($admins) === 1 && $admins[0]['username'] === 'wlasciciel' && $admins[0]['role'] === 'admin' && password_verify('Mocne-haslo-123', $admins[0]['password_hash']),
         'Exactly one admin, with the login and password from the wizard');
     check(!is_file($web . '/storage/ADMIN_PASSWORD.txt'), 'No default password file');
+    check((json_decode((string) @file_get_contents($web . '/storage/release.json'), true)['version'] ?? '') === '1.0.999', 'Release manifest kept for future updates (storage/release.json)');
     $settings = $pdo->query('SELECT setting_key, setting_value FROM settings')->fetchAll(PDO::FETCH_KEY_PAIR);
     check($settings['APP_BASE_URL'] === $panel && $settings['INSTALLED_VERSION'] === '1.0.999', 'Panel address and installed version stored');
 

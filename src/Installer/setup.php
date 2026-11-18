@@ -261,6 +261,8 @@ function vi_requirements(string $dir, ?string $package, ?string $packageError): 
         $ok = extension_loaded($name);
         $r[] = [$ok ? 'ok' : 'err', 'Rozszerzenie PHP ' . $name . ' (' . $why . ')', $ok ? '' : 'Włącz je w panelu hostingu w ustawieniach rozszerzeń PHP.'];
     }
+    $sodium = function_exists('sodium_crypto_sign_verify_detached');
+    $r[] = [$sodium ? 'ok' : 'warn', 'Rozszerzenie PHP sodium (podpis aktualizacji)', $sodium ? '' : 'Bez niego nowe wersje nie zainstalują się same - trzeba je będzie wgrywać ręcznie.'];
     $gd = extension_loaded('gd');
     $r[] = [$gd ? 'ok' : 'warn', 'Rozszerzenie PHP gd (zdjęcia, logo, etykiety)', $gd ? '' : 'Bez niego system działa, ale nie przetworzy obrazków. Warto je włączyć.'];
     $w = is_writable($dir);

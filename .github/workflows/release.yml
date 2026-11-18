@@ -2,7 +2,14 @@ name: Paczka wydania (instalacja przez kreator)
 
 # Buduje paczkę do instalacji jak WordPress: instaluj.php + veless-<wersja>.zip (cli/build_release.php).
 # Uruchamiane ręcznie (Actions → Run workflow) albo po wypchnięciu tagu v* (np. v1.0.170).
-# Wynik leży w artefaktach przebiegu; publikowanie dla subskrybentów to osobny etap.
+# Wynik leży w artefaktach przebiegu.
+#
+# Ustawienia (Settings → Secrets and variables → Actions):
+#   Secret   VELESS_SIGNING_KEY  - klucz prywatny podpisu paczek (Ed25519, base64). Bez niego paczka jest niepodpisana
+#                                  i zainstalowane systemy nie przyjmą jej jako aktualizacji.
+#   Variable VELESS_UPDATE_URL   - adres serwera aktualizacji (updates-server/index.php), np. https://aktualizacje.example.pl/
+#   Opcjonalnie wysyłka na serwer aktualizacji przez FTP (gdy „Opublikuj” zaznaczone):
+#   Secrets  UPDATES_FTP_SERVER, UPDATES_FTP_USERNAME, UPDATES_FTP_PASSWORD, UPDATES_FTP_DIR (katalog releases/, z ukośnikiem na końcu)
 on:
   workflow_dispatch:
     inputs:
@@ -10,6 +17,14 @@ on:
         description: "Numer wersji (puste = 1.0.<numer przebiegu>)"
         required: false
         default: ""
+      notes:
+        description: "Co nowego (pokaże się klientom w panelu)"
+        required: false
+        default: ""
+      publish:
+        description: "Opublikuj na serwerze aktualizacji (klienci dostaną ją w ciągu doby)"
+        type: boolean
+        default: false
   push:
     tags: ['v*']
 
@@ -24,15 +39,36 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
-          extensions: zip
+          extensions: zip, sodium
           coverage: none
-      - name: Zbuduj paczkę
+      - name: Zbuduj i podpisz paczkę
+        env:
+          VELESS_SIGNING_KEY: ${{ secrets.VELESS_SIGNING_KEY }}
+          VELESS_UPDATE_URL: ${{ vars.VELESS_UPDATE_URL }}
+          NOTES: ${{ github.event.inputs.notes }}
         run: |
           VERSION="${{ github.event.inputs.version }}"
           if [ -z "$VERSION" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then VERSION="${GITHUB_REF_NAME#v}"; fi
-          if [ -n "$VERSION" ]; then php cli/build_release.php --version="$VERSION" --out=dist; else php cli/build_release.php --out=dist; fi
+          ARGS=(--out=dist --notes="$NOTES")
+          if [ -n "$VERSION" ]; then ARGS+=(--version="$VERSION"); fi
+          php cli/build_release.php "${ARGS[@]}"
+      - name: Opublikuj na serwerze aktualizacji
+        if: github.event.inputs.publish == 'true'
+        env:
+          FTP_SERVER: ${{ secrets.UPDATES_FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.UPDATES_FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.UPDATES_FTP_PASSWORD }}
+          FTP_DIR: ${{ secrets.UPDATES_FTP_DIR }}
+        run: |
+          if [ -z "$FTP_SERVER" ]; then echo "::error::Brak sekretów UPDATES_FTP_* - wgraj paczkę z artefaktu ręcznie do releases/."; exit 1; fi
+          if ! unzip -l dist/veless-*[0-9].zip | grep -q package.sig; then echo "::error::Paczka nie jest podpisana (brak sekretu VELESS_SIGNING_KEY)."; exit 1; fi
+          for f in dist/veless-*[0-9].zip; do
+            curl -fsS --ssl-reqd --ftp-create-dirs -T "$f" --user "$FTP_USERNAME:$FTP_PASSWORD" "ftp://$FTP_SERVER/$FTP_DIR"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: veless-instalacja
-          path: dist/*-instalacja.zip
+          path: |
+            dist/*-instalacja.zip
+            dist/veless-*[0-9].zip
           retention-days: 30

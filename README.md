@@ -296,6 +296,11 @@ plików (do przycisku „Cofnij”), wstrzymuje zadania w tle, podmienia pliki i
 (tylko niezmienione lokalnie). `.env`, `storage/` i własne wtyczki spoza paczki zostają nietknięte, a migracje bazy
 uruchamia pierwsze kolejne żądanie. Instalacje wdrażane z GitHuba (build.json bez wersji) mają tę stronę wyłączoną.
 
+**Zdalne aktualizacje:** zainstalowany system raz dziennie pyta serwer aktualizacji (`updates-server/`, adres
+z paczki albo z System → Aktualizacja), pobiera nową wersję i sprawdza jej podpis (Ed25519, klucz publiczny
+w `src/Support/ReleaseSignature.php`). Poprawki w tej samej linii (1.0.x) instaluje sam w nocy, większe wersje
+czekają na kliknięcie. Opis serwera: [updates-server/README.md](updates-server/README.md).
+
 Paczkę buduje `php cli/build_release.php` (albo workflow „Paczka wydania” w GitHub Actions).
 Zawiera to samo co wdrożenie FTP, bez testów, Dockera i danych. Test całej ścieżki:
 `CRM_TEST_MYSQL=1 php tests/release_installer_http.php`.

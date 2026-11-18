@@ -4,7 +4,12 @@ declare(strict_types=1);
 /**
  * Paczka wydania Veless do instalacji przez kreator w przeglądarce (jak WordPress).
  *
- *   php cli/build_release.php [--version=1.0.170] [--out=dist] [--commit=<sha>]
+ *   php cli/build_release.php [--version=1.0.170] [--out=dist] [--commit=<sha>] [--update-url=https://…/] [--notes="…"]
+ *
+ * Podpis: klucz prywatny Ed25519 (base64) w zmiennej środowiskowej VELESS_SIGNING_KEY albo w pliku --key-file.
+ * Bez klucza paczka jest niepodpisana (da się ją wgrać ręcznie, ale aktualizacja z serwera jej nie przyjmie).
+ * --update-url: adres serwera aktualizacji (updates-server/), zapisany w config/build.json - zainstalowany
+ * system będzie tam raz dziennie sprawdzał nowe wersje.
  *
  * Wynik w katalogu --out (domyślnie dist/):
  *   veless-<wersja>.zip              - kod systemu (package.json z sumami SHA-256 + pliki w app/),
@@ -21,7 +26,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $root = dirname(__DIR__);
-$opts = getopt('', ['version:', 'out:', 'commit:']);
+$opts = getopt('', ['version:', 'out:', 'commit:', 'update-url:', 'key-file:', 'notes:']);
 
 function release_fail(string $msg): never
 {
@@ -45,13 +50,21 @@ if (!preg_match('/^\d+(\.\d+){1,3}$/D', $version)) {
     release_fail('Wersja musi mieć postać liczb rozdzielonych kropkami, np. 1.0.170.');
 }
 $commit = (string) ($opts['commit'] ?? (getenv('GITHUB_SHA') ?: trim((string) @shell_exec('git -C ' . escapeshellarg($root) . ' rev-parse HEAD 2>/dev/null'))));
+$updateUrl = trim((string) ($opts['update-url'] ?? (getenv('VELESS_UPDATE_URL') ?: '')));
+if ($updateUrl !== '' && !preg_match('#^https://[^\s"]+$#', $updateUrl)) {
+    release_fail('--update-url musi być adresem https://');
+}
+$signingKey = isset($opts['key-file']) ? trim((string) @file_get_contents((string) $opts['key-file'])) : trim((string) getenv('VELESS_SIGNING_KEY'));
+if ($signingKey !== '' && !function_exists('sodium_crypto_sign_detached')) {
+    release_fail('Do podpisu potrzebne jest rozszerzenie PHP sodium.');
+}
 $out = (string) ($opts['out'] ?? ($root . '/dist'));
 if (!str_starts_with($out, '/')) {
     $out = getcwd() . '/' . $out;
 }
 
 // --- Co pomijamy (jak w wdrożeniu FTP w veless-awien/.github/workflows/deploy.yml) ---
-const RELEASE_SKIP_TOP = ['.git', '.github', 'tests', 'mockup', 'agent-app', '_to_delete_tmp_stage', 'examples', 'docker', 'site',
+const RELEASE_SKIP_TOP = ['.git', '.github', 'tests', 'mockup', 'agent-app', '_to_delete_tmp_stage', 'examples', 'docker', 'site', 'updates-server',
     'dane', 'dist', 'storage', 'Dockerfile', 'docker-compose.yml', '.dockerignore', '.gitignore', '.gitattributes', '.push-request',
     '.push-result', 'pase.code-workspace', 'vendor', 'node_modules'];
 const RELEASE_SKIP_ANY = ['.git', '.DS_Store', '__pycache__', 'node_modules', 'Thumbs.db'];
@@ -112,10 +125,12 @@ if (!is_dir($out) && !mkdir($out, 0755, true)) {
 
 // --- Znacznik wersji w paczce: AppVersion pokaże w stopce dokładnie ten numer ---
 $builtAt = time();
-$buildJson = json_encode(['id' => 'release-' . $version, 'deployed_at' => $builtAt, 'commit' => $commit, 'version' => $version], JSON_UNESCAPED_SLASHES) . "\n";
+$stamp = ['id' => 'release-' . $version, 'deployed_at' => $builtAt, 'commit' => $commit, 'version' => $version];
+if ($updateUrl !== '') { $stamp['update_url'] = $updateUrl; }
+$buildJson = json_encode($stamp, JSON_UNESCAPED_SLASHES) . "\n";
 
 $manifest = ['format' => 'veless-release-v1', 'name' => 'Veless', 'version' => $version, 'commit' => $commit,
-    'created_at' => gmdate('c', $builtAt), 'php_min' => '8.1.0', 'files' => []];
+    'created_at' => gmdate('c', $builtAt), 'php_min' => '8.1.0', 'notes' => trim((string) ($opts['notes'] ?? '')), 'files' => []];
 foreach ($files as $rel) {
     $manifest['files']['app/' . $rel] = ['size' => filesize($root . '/' . $rel), 'sha256' => hash_file('sha256', $root . '/' . $rel)];
 }
@@ -129,7 +144,13 @@ $zip = new ZipArchive();
 if ($zip->open($pkgPath, ZipArchive::CREATE | ZipArchive::EXCL) !== true) {
     release_fail("Nie można utworzyć {$pkgPath}.");
 }
-$zip->addFromString('package.json', json_encode($manifest, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+$manifestRaw = json_encode($manifest, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+$zip->addFromString('package.json', $manifestRaw);
+if ($signingKey !== '') {
+    $sk = base64_decode($signingKey, true);
+    if ($sk === false || strlen($sk) !== 64) { release_fail('VELESS_SIGNING_KEY nie jest kluczem prywatnym Ed25519 (64 bajty w base64).'); }
+    $zip->addFromString('package.sig', base64_encode(sodium_crypto_sign_detached($manifestRaw, $sk)));
+}
 $stored = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'zip', 'gz', 'pdf', 'woff', 'woff2', 'ico'];
 foreach ($files as $rel) {
     $zip->addFile($root . '/' . $rel, 'app/' . $rel);
@@ -176,6 +197,7 @@ if (!$bundle->close()) {
     release_fail('Nie udało się zapisać paczki do pobrania.');
 }
 
-fwrite(STDOUT, sprintf("Veless %s: %d plików, paczka %s (%.1f MB)\n", $version, count($files) + 1, $pkgName, filesize($pkgPath) / 1048576));
+fwrite(STDOUT, sprintf("Veless %s: %d plików, paczka %s (%.1f MB), %s\n", $version, count($files) + 1, $pkgName, filesize($pkgPath) / 1048576,
+    $signingKey !== '' ? 'podpisana' : 'BEZ PODPISU'));
 fwrite(STDOUT, "Do pobrania: {$bundlePath}\n");
 exit(0);

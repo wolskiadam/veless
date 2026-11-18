@@ -97,7 +97,7 @@ final class AppUpdater
 
     /**
      * Co zmieni paczka.
-     * @return array{version:string,installed:?string,created_at:string,files:int,changed:list<string>,added:list<string>,removed:list<string>,unwritable:list<string>,downgrade:bool,same:bool}
+     * @return array{version:string,installed:?string,created_at:string,files:int,changed:list<string>,added:list<string>,removed:list<string>,unwritable:list<string>,downgrade:bool,same:bool,signature:string}
      */
     public function inspect(string $zipPath): array
     {
@@ -130,17 +130,25 @@ final class AppUpdater
             'files' => count($manifest['files']), 'changed' => $changed, 'added' => $added, 'removed' => $removed, 'unwritable' => $unwritable,
             'downgrade' => $installed !== null && version_compare((string) $manifest['version'], $installed, '<'),
             'same' => $installed !== null && version_compare((string) $manifest['version'], $installed, '=='),
+            'signature' => (string) $manifest['signature'],
         ];
     }
 
     /**
      * Aktualizacja. Zwraca podsumowanie (wersje, liczby plików, nazwa kopii do cofnięcia).
+     * $lockHeld - wywołanie z workera, który już trzyma storage/worker.lock (aktualizacja automatyczna).
+     * $requireSigned - paczka pobrana z serwera aktualizacji: bez poprawnego podpisu odmowa.
      * @return array{from:?string,to:string,changed:int,added:int,removed:int,backup:string}
      */
-    public function apply(string $zipPath): array
+    public function apply(string $zipPath, bool $lockHeld = false, bool $requireSigned = false): array
     {
         if (($why = $this->blockedReason()) !== null) { throw new \RuntimeException($why); }
         $plan = $this->inspect($zipPath);
+        if ($requireSigned && $plan['signature'] !== 'ok') {
+            throw new \RuntimeException($plan['signature'] === 'unknown'
+                ? 'Serwer nie ma rozszerzenia PHP sodium, więc nie da się sprawdzić podpisu paczki. Aktualizuj ręcznie albo włącz sodium.'
+                : 'Paczka z serwera aktualizacji nie ma podpisu - nie zostanie zainstalowana.');
+        }
         if ($plan['downgrade']) {
             throw new \RuntimeException('Paczka ma starszą wersję (' . $plan['version'] . ') niż zainstalowana (' . $plan['installed'] . '). Cofnięcie wersji nie jest obsługiwane - użyj kopii sprzed aktualizacji.');
         }
@@ -152,12 +160,15 @@ final class AppUpdater
 
         // Worker nie może działać w trakcie podmiany plików - bierzemy jego lock.
         $this->ensureDir($this->root . '/storage');
-        $lock = fopen($this->root . '/storage/worker.lock', 'c+');
-        if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
-            if ($lock) { fclose($lock); }
-            throw new \RuntimeException('Właśnie działa zadanie w tle (cron). Spróbuj ponownie za minutę.');
+        $lock = null;
+        if (!$lockHeld) {
+            $lock = fopen($this->root . '/storage/worker.lock', 'c+');
+            if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {
+                if ($lock) { fclose($lock); }
+                throw new \RuntimeException('Właśnie działa zadanie w tle (cron). Spróbuj ponownie za minutę.');
+            }
+            ftruncate($lock, 0); fwrite($lock, (string) time()); fflush($lock);
         }
-        ftruncate($lock, 0); fwrite($lock, (string) time()); fflush($lock);
         $zip = null; $backup = '';
         try {
             $backup = $this->backup(array_merge($plan['changed'], $plan['removed']), $plan['added'], $plan['installed'], $plan['version']);
@@ -177,7 +188,7 @@ final class AppUpdater
             }
             throw $e;
         } finally {
-            flock($lock, LOCK_UN); fclose($lock);
+            if ($lock) { flock($lock, LOCK_UN); fclose($lock); }
         }
         if (function_exists('opcache_reset')) { @opcache_reset(); }
         // Migracje: ten proces ma już wczytany stary Migrator, więc uruchomi je pierwsze kolejne żądanie
@@ -240,6 +251,17 @@ final class AppUpdater
             }
             foreach (['app/config/config.php', 'app/src/Support/Migrator.php', 'app/config/build.json'] as $must) {
                 if (!isset($m['files'][$must])) { throw new \RuntimeException('W paczce brakuje ' . substr($must, 4) . '.'); }
+            }
+            // Podpis: 'ok' = podpisana zaufanym kluczem, 'none' = bez podpisu, 'unknown' = brak libsodium na serwerze.
+            $sig = $zip->getFromName('package.sig');
+            if ($sig === false) {
+                $m['signature'] = 'none';
+            } elseif (!\Pase\Support\ReleaseSignature::available()) {
+                $m['signature'] = 'unknown';
+            } elseif (\Pase\Support\ReleaseSignature::verify((string) $raw, (string) $sig)) {
+                $m['signature'] = 'ok';
+            } else {
+                throw new \RuntimeException('Podpis paczki się nie zgadza - paczka nie pochodzi od Veless albo została zmieniona. Nie instaluj jej.');
             }
             return $m;
         } finally { $zip->close(); }

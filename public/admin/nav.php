@@ -548,13 +548,24 @@ document.addEventListener('click', function(e) {
             if (!el || !d.ok || !d.devices) { return; }
             el.innerHTML = '<div>Twoje urządzenia z powiadomieniami (' + d.devices.length + '):</div>' + d.devices.map(function (x) {
                 return '<div class="nav-push-devrow"><span><b>' + esc(x.device) + '</b>' + (x.current ? ' (tutaj)' : '')
+                    + (x.custom && x.auto ? ' <small>(rozpoznane: ' + esc(x.auto) + ')</small>' : '')
                     + ' · ' + (x.last_ok_at ? 'ostatnio ' + esc(when(x.last_ok_at)) : 'jeszcze nic nie doszło')
-                    + (x.last_error ? ' · błąd: ' + esc(x.last_error) : '') + '</span>'
-                    + (x.current ? '' : '<button type="button" data-push-remove="' + x.id + '" title="Usuń z powiadomień">Usuń</button>') + '</div>';
+                    + (x.last_error ? ' · błąd: ' + esc(x.last_error) : '') + '</span><span class="nav-push-devbtn">'
+                    + '<button type="button" data-push-rename="' + x.id + '" data-name="' + esc(x.device).replace(/"/g, '&quot;') + '" title="Ustaw własną nazwę">Zmień nazwę</button>'
+                    + (x.current ? '' : '<button type="button" data-push-remove="' + x.id + '" title="Usuń z powiadomień">Usuń</button>') + '</span></div>';
             }).join('');
         }).catch(function () {});
     }
     box.addEventListener('click', function (ev) {
+        var r = ev.target.closest('[data-push-rename]');
+        if (r) {
+            ev.stopPropagation();
+            var name = window.prompt('Nazwa urządzenia (pusta = nazwa rozpoznana automatycznie):', r.getAttribute('data-name') || '');
+            if (name === null) { return; }
+            r.disabled = true;
+            post({ action: 'rename_device', id: r.getAttribute('data-push-rename'), name: name }).then(loadDevices).catch(function () { r.disabled = false; });
+            return;
+        }
         var b = ev.target.closest('[data-push-remove]');
         if (!b) { return; }
         ev.stopPropagation();

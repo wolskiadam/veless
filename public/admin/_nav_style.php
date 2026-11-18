@@ -54,6 +54,7 @@ declare(strict_types=1);
     .nav-push-last { margin-top:4px; }
     .nav-push-dev { margin-top:8px; }
     .nav-push-devrow { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:3px 0; }
+    .nav-push-devbtn { display:flex; gap:4px; flex-shrink:0; }
     .nav-push-devrow button { font:inherit; border:1px solid var(--line); background:var(--surface); color:var(--ink); border-radius:7px; padding:2px 8px; cursor:pointer; }
     .nav-push-src { margin-top:8px; }
     .nav-push-src label { display:flex; align-items:center; gap:8px; padding:3px 0; cursor:pointer; font-weight:500; }

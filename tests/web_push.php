@@ -199,6 +199,15 @@ $push->send(['title' => 'X'], 1);
 check(($push->devices(1)[0]['device'] ?? '') === 'iPhone (aplikacja)script', 'devices list for the account');
 check(!$push->removeDevice(2, $devs[0]['id']) && count($push->devices(1)) === 1, 'cannot remove another account\'s device');
 
+// --- własna nazwa urządzenia ---
+$id = $devs[0]['id'];
+check(!$push->renameDevice(2, $id, 'Obcy') && $push->devices(1)[0]['device'] === 'iPhone (aplikacja)script', 'cannot rename another account\'s device');
+check($push->renameDevice(1, $id, '  Telefon   <b>Adama</b> ') && ($d = $push->devices(1)[0])['device'] === 'Telefon bAdamab' && $d['custom'] && $d['auto'] === 'iPhone (aplikacja)script',
+    'own name is sanitized, wins over the recognised name, recognised name still shown');
+$push->subscribe(1, 'https://web.push.apple.com/adam', $adam['p256dh'], $adam['auth'], 'UA', 'iPhone');
+check($push->devices(1)[0]['device'] === 'Telefon bAdamab', 'own name survives the device re-saving its subscription');
+check($push->renameDevice(1, $push->devices(1)[0]['id'], '   ') && ($d = $push->devices(1)[0])['device'] === 'iPhone' && !$d['custom'], 'empty name goes back to the recognised name');
+
 // --- zdarzenie „Pobrano zamówienie” w silniku reguł wysyła push ---
 $pdo->exec("INSERT INTO woo_orders VALUES (502, 'R7', 0, 'PLN', 'Anna', '" . gmdate('Y-m-d H:i:s') . "', NULL)");
 $pdo->exec('CREATE TABLE automation_rules (id INTEGER PRIMARY KEY, name TEXT, event TEXT, is_active INT, priority INT, conditions TEXT, actions TEXT, condition_match TEXT)');

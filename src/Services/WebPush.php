@@ -91,12 +91,15 @@ final class WebPush
     private static function ensureDeviceColumn(PDO $pdo): void
     {
         try {
-            $pdo->query('SELECT device_name FROM push_subscriptions LIMIT 1');
+            $pdo->query('SELECT device_name, device_custom FROM push_subscriptions LIMIT 1');
         } catch (\PDOException) {
-            try {
-                $pdo->exec('ALTER TABLE push_subscriptions ADD COLUMN device_name VARCHAR(80) NULL');
-            } catch (\PDOException) {
-                // kolumna już jest
+            // device_custom: nazwa nadana przez użytkownika w dzwoneczku - wygrywa z rozpoznaną automatycznie.
+            foreach (['device_name VARCHAR(80) NULL', 'device_custom VARCHAR(80) NULL'] as $col) {
+                try {
+                    $pdo->exec('ALTER TABLE push_subscriptions ADD COLUMN ' . $col);
+                } catch (\PDOException) {
+                    // kolumna już jest
+                }
             }
         }
     }
@@ -182,18 +185,19 @@ final class WebPush
         self::ensureDeviceColumn($this->pdo);
         $hash = hash('sha256', $endpoint);
         // Wybór sklepów i ostatnie dostarczenie zostają przy ponownym zapisie tego samego urządzenia (to samo konto).
-        $st = $this->pdo->prepare('SELECT user_id, sources, created_at, last_ok_at FROM push_subscriptions WHERE endpoint_hash = ?');
+        $st = $this->pdo->prepare('SELECT user_id, sources, created_at, last_ok_at, device_custom FROM push_subscriptions WHERE endpoint_hash = ?');
         $st->execute([$hash]);
         $old = $st->fetch(PDO::FETCH_ASSOC) ?: null;
         $same = $old !== null && (int) $old['user_id'] === $userId;
         $sources = $same ? $old['sources'] : null;
-        $device = mb_substr(trim(preg_replace('/[^\p{L}\p{N} ()·.,_-]/u', '', $device) ?? ''), 0, 80);
+        $device = self::cleanName($device);
         // DELETE + INSERT - działa też na SQLite; to samo urządzenie po zalogowaniu na inne konto przechodzi na nie.
         $this->pdo->prepare('DELETE FROM push_subscriptions WHERE endpoint_hash = ?')->execute([$hash]);
-        $this->pdo->prepare('INSERT INTO push_subscriptions (user_id, endpoint_hash, endpoint, p256dh, auth, user_agent, created_at, sources, last_ok_at, device_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        $this->pdo->prepare('INSERT INTO push_subscriptions (user_id, endpoint_hash, endpoint, p256dh, auth, user_agent, created_at, sources, last_ok_at, device_name, device_custom)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
             ->execute([$userId, $hash, $endpoint, $p256dh, $auth, mb_substr($userAgent, 0, 255), $same ? (int) $old['created_at'] : time(), $sources,
-                $same && $old['last_ok_at'] !== null ? (int) $old['last_ok_at'] : null, $device !== '' ? $device : null]);
+                $same && $old['last_ok_at'] !== null ? (int) $old['last_ok_at'] : null, $device !== '' ? $device : null,
+                $same && ($old['device_custom'] ?? '') !== '' ? $old['device_custom'] : null]);
     }
 
     /**
@@ -569,13 +573,17 @@ final class WebPush
     /** Nazwa urządzenia: podana przez panel przy zapisie, a dla starszych zapisów - z nagłówka przeglądarki. */
     private static function labelOf(array $s): string
     {
+        $custom = trim((string) ($s['device_custom'] ?? ''));
+        if ($custom !== '') {
+            return $custom;
+        }
         $name = trim((string) ($s['device_name'] ?? ''));
         return $name !== '' ? $name : self::deviceLabel((string) ($s['user_agent'] ?? ''));
     }
 
     /**
      * Urządzenia konta z powiadomieniami (dzwoneczek → „Urządzenia”): nazwa, od kiedy, ostatnie dostarczenie, ostatni błąd.
-     * @return list<array{id:int,device:string,created_at:int,last_ok_at:?int,last_error:?string,current:bool}>
+     * @return list<array{id:int,device:string,auto:string,custom:bool,created_at:int,last_ok_at:?int,last_error:?string,current:bool}>
      */
     public function devices(int $userId, string $currentEndpoint = ''): array
     {
@@ -583,12 +591,35 @@ final class WebPush
         self::ensureDeviceColumn($this->pdo);
         $out = [];
         foreach ($this->subscriptions($userId) as $s) {
-            $out[] = ['id' => (int) $s['id'], 'device' => self::labelOf($s), 'created_at' => (int) $s['created_at'],
+            $auto = trim((string) ($s['device_name'] ?? '')) ?: self::deviceLabel((string) ($s['user_agent'] ?? ''));
+            $out[] = ['id' => (int) $s['id'], 'device' => self::labelOf($s), 'auto' => $auto, 'custom' => trim((string) ($s['device_custom'] ?? '')) !== '',
+                'created_at' => (int) $s['created_at'],
                 'last_ok_at' => $s['last_ok_at'] !== null ? (int) $s['last_ok_at'] : null,
                 'last_error' => ($s['last_error'] ?? '') !== '' && ($s['last_try_at'] ?? 0) > ($s['last_ok_at'] ?? 0) ? (string) $s['last_error'] : null,
                 'current' => $currentEndpoint !== '' && hash_equals((string) $s['endpoint_hash'], hash('sha256', $currentEndpoint))];
         }
         return $out;
+    }
+
+    /** Nazwa urządzenia: litery, cyfry, spacje i proste znaki, do 80 znaków. */
+    public static function cleanName(string $name): string
+    {
+        return mb_substr(trim(preg_replace('/\s+/u', ' ', preg_replace('/[^\p{L}\p{N} ()·.,_\'-]/u', '', $name) ?? '') ?? ''), 0, 80);
+    }
+
+    /** Własna nazwa urządzenia (tylko własne); pusta = wróć do rozpoznanej automatycznie. */
+    public function renameDevice(int $userId, int $id, string $name): bool
+    {
+        self::ensureDeviceColumn($this->pdo);
+        $name = self::cleanName($name);
+        $st = $this->pdo->prepare('SELECT 1 FROM push_subscriptions WHERE id = ? AND user_id = ?');
+        $st->execute([$id, $userId]);
+        if ($st->fetchColumn() === false) {
+            return false;
+        }
+        $this->pdo->prepare('UPDATE push_subscriptions SET device_custom = ? WHERE id = ? AND user_id = ?')
+            ->execute([$name !== '' ? $name : null, $id, $userId]);
+        return true;
     }
 
     /** Usuwa urządzenie z powiadomień (tylko własne). */

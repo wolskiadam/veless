@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Powiadomienia push tego urządzenia (JSON, z dzwoneczka w nav.php - Services\WebPush).
  * GET - klucz publiczny VAPID; POST action=subscribe (endpoint, p256dh, auth) | unsubscribe (endpoint) | test
- *   | status (endpoint) | devices (endpoint) | remove_device (id) | sources (endpoint) | save_sources (endpoint, all=1 albo sources[]=id konta, 0 = ręczne).
+ *   | status (endpoint) | devices (endpoint) | rename_device (id, name) | remove_device (id) | sources (endpoint) | save_sources (endpoint, all=1 albo sources[]=id konta, 0 = ręczne).
  */
 
 use Pase\Services\WebPush;
@@ -71,6 +71,9 @@ try {
     } elseif ($action === 'devices') {
         // Lista urządzeń tego konta z powiadomieniami (z zaznaczeniem bieżącego).
         echo json_encode(['ok' => true, 'devices' => $push->devices($uid, (string) ($_POST['endpoint'] ?? ''))], JSON_UNESCAPED_UNICODE);
+    } elseif ($action === 'rename_device') {
+        $renamed = $push->renameDevice($uid, (int) ($_POST['id'] ?? 0), (string) ($_POST['name'] ?? ''));
+        echo json_encode(['ok' => $renamed, 'error' => $renamed ? null : 'Nie znaleziono urządzenia.'], JSON_UNESCAPED_UNICODE);
     } elseif ($action === 'remove_device') {
         $removed = $push->removeDevice($uid, (int) ($_POST['id'] ?? 0));
         echo json_encode(['ok' => $removed, 'error' => $removed ? null : 'Nie znaleziono urządzenia.'], JSON_UNESCAPED_UNICODE);

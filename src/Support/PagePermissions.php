@@ -125,6 +125,7 @@ final class PagePermissions
             'server_usage' => ['label' => 'Obciążenie serwera', 'group' => 'System', 'legacy' => 'admin', 'files' => ['server_usage.php']],
             'payu' => ['label' => 'PayU - saldo i wypłaty', 'group' => 'System', 'legacy' => 'admin', 'files' => ['payu.php']],
             'backup' => ['label' => 'Kopia zapasowa', 'group' => 'System', 'legacy' => 'admin', 'files' => ['backup.php']],
+            'update' => ['label' => 'Aktualizacja systemu', 'group' => 'System', 'legacy' => 'admin', 'files' => ['update.php']],
             'handover' => ['label' => 'Przeniesienie danych (online ⇄ komputer)', 'group' => 'System', 'legacy' => 'admin', 'files' => ['handover.php']],
         ];
     }

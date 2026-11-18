@@ -175,6 +175,7 @@ final class AdminMenu
             $groups['system']['items'][] = ['href' => 'users.php', 'label' => t('nav.users'), 'desc' => ''];
             $groups['system']['items'][] = ['href' => 'server_usage.php', 'label' => t('nav.server_usage'), 'desc' => ''];
             $groups['system']['items'][] = ['href' => 'backup.php', 'label' => t('nav.backup'), 'desc' => ''];
+            $groups['system']['items'][] = ['href' => 'update.php', 'label' => t('nav.update'), 'desc' => ''];
             $groups['system']['items'][] = ['href' => 'handover.php', 'label' => t('nav.handover'), 'desc' => ''];
         }
 
@@ -243,6 +244,7 @@ final class AdminMenu
         'users.php' => ['nav.sec.system_admin', 'nav.d.users'],
         'server_usage.php' => ['nav.sec.system_admin', 'nav.d.server_usage'],
         'backup.php' => ['nav.sec.system_admin', 'nav.d.backup'],
+        'update.php' => ['nav.sec.system_admin', 'nav.d.update'],
         'handover.php' => ['nav.sec.system_admin', 'nav.d.handover'],
         'help.php' => ['nav.sec.system_help', 'nav.d.help'],
         'allegro_dashboard.php' => [null, 'nav.d.allegro.dashboard'],

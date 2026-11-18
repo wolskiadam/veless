@@ -118,6 +118,17 @@ if ($control->isPaused('worker')) {
     exit(0);
 }
 
+// --- Aktualizacje (System → Aktualizacja): raz dziennie pytanie serwera Veless, w nocy instalacja poprawek ---
+// Worker trzyma już storage/worker.lock, więc aktualizacja nie zderzy się z innym przebiegiem.
+try {
+    if ((new \Pase\Services\UpdateChecker(new \Pase\Services\AppUpdater($pdo, PASE_ROOT), $settings, PASE_ROOT))->tick()) {
+        // Nowe pliki są już na miejscu - reszta pracy w następnym przebiegu, z nowym kodem i migracjami.
+        exit(0);
+    }
+} catch (\Throwable $e) {
+    Logger::warn('worker: aktualizacje: ' . $e->getMessage());
+}
+
 // --- Złóż zależności (ręczny DI - bez kontenera, lekko dla shared hostingu) ---
 $queue     = new Queue($pdo);
 $wooOrders = new WooOrderRepository($pdo);

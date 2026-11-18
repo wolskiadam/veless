@@ -1,0 +1,6 @@
+# Serwer aktualizacji Veless: z internetu dostępny jest tylko index.php.
+Options -Indexes
+<FilesMatch "^(config\.php|config\.example\.php|README\.md)$">
+    Require all denied
+</FilesMatch>
+RedirectMatch 403 ^.*/(data|releases)/

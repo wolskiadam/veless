@@ -48,3 +48,12 @@ __pycache__/
 
 # Grafiki produktów wersji demo (tworzy cli/demo_reset.php)
 /public/demo-img/
+
+# Paczki wydania (cli/build_release.php)
+/dist/
+
+# Serwer aktualizacji: konfiguracja, lista instalacji i paczki są tylko na serwerze
+/updates-server/config.php
+/updates-server/data/*.json
+/updates-server/releases/*.zip
+/updates-server/releases/*.json

@@ -277,6 +277,34 @@ W trybie demo (`src/Support/Demo.php`):
 - kopie zapasowe, migracja adresu, pobieranie agenta i reset hasła są wyłączone,
 - konta, 2FA, wtyczki, integracje i ustawienia wysyłki można oglądać, ale nie zmieniać.
 
+## Instalacja przez kreator w przeglądarce
+
+Najprostsza droga, bez SSH i bez ręcznej edycji `.env`:
+
+1. Pobierz `veless-<wersja>-instalacja.zip` i rozpakuj go u siebie. W środku są `instaluj.php`,
+   `veless-<wersja>.zip` i `INSTRUKCJA.txt`.
+2. Utwórz pustą bazę MySQL/MariaDB w panelu hostingu, a potem wgraj **oba pliki** (bez rozpakowywania
+   paczki) do katalogu, w którym ma działać system.
+3. Otwórz `https://twoja-domena.pl/<katalog>/instaluj.php`. Kreator sprawdza wymagania, pyta o bazę,
+   adres panelu i konto administratora, rozpakowuje pliki w porcjach (sumy SHA-256), zapisuje `.env`
+   i klucz szyfrowania, zakłada tabele, sprawdza, czy `.env` nie jest widoczny z internetu, podaje
+   linijkę crona z testem, a na końcu usuwa paczkę i samego siebie.
+
+**Aktualizacja:** System → Aktualizacja. Wgrywasz nowszą paczkę `veless-<wersja>.zip` (albo kładziesz ją
+przez FTP w `storage/updates/`), widzisz listę zmian i klikasz „Aktualizuj”. System zapisuje kopię zmienianych
+plików (do przycisku „Cofnij”), wstrzymuje zadania w tle, podmienia pliki i usuwa te, których nowa wersja nie ma
+(tylko niezmienione lokalnie). `.env`, `storage/` i własne wtyczki spoza paczki zostają nietknięte, a migracje bazy
+uruchamia pierwsze kolejne żądanie. Instalacje wdrażane z GitHuba (build.json bez wersji) mają tę stronę wyłączoną.
+
+**Zdalne aktualizacje:** zainstalowany system raz dziennie pyta serwer aktualizacji (`updates-server/`, adres
+z paczki albo z System → Aktualizacja), pobiera nową wersję i sprawdza jej podpis (Ed25519, klucz publiczny
+w `src/Support/ReleaseSignature.php`). Poprawki w tej samej linii (1.0.x) instaluje sam w nocy, większe wersje
+czekają na kliknięcie. Opis serwera: [updates-server/README.md](updates-server/README.md).
+
+Paczkę buduje `php cli/build_release.php` (albo workflow „Paczka wydania” w GitHub Actions).
+Zawiera to samo co wdrożenie FTP, bez testów, Dockera i danych. Test całej ścieżki:
+`CRM_TEST_MYSQL=1 php tests/release_installer_http.php`.
+
 ## Instalacja na hostingu współdzielonym
 
 Logowanie dwuetapowe zgodne z Google Authenticator: [konfiguracja i wdrożenie 2FA](TWO-FACTOR.md).

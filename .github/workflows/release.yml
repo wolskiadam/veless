@@ -7,7 +7,7 @@ name: Paczka wydania (instalacja przez kreator)
 # Ustawienia (Settings → Secrets and variables → Actions):
 #   Secret   VELESS_SIGNING_KEY  - klucz prywatny podpisu paczek (Ed25519, base64). Bez niego paczka jest niepodpisana
 #                                  i zainstalowane systemy nie przyjmą jej jako aktualizacji.
-#   Variable VELESS_UPDATE_URL   - adres serwera aktualizacji (updates-server/index.php), np. https://aktualizacje.example.pl/
+#   Variable VELESS_UPDATE_URL   - adres serwera aktualizacji (updates-server/index.php); domyślnie https://aktualizacje.klubwoskarzy.pl/
 #   Opcjonalnie wysyłka na serwer aktualizacji przez FTP (gdy „Opublikuj” zaznaczone):
 #   Secrets  UPDATES_FTP_SERVER, UPDATES_FTP_USERNAME, UPDATES_FTP_PASSWORD, UPDATES_FTP_DIR (katalog releases/, z ukośnikiem na końcu)
 on:
@@ -44,7 +44,7 @@ jobs:
       - name: Zbuduj i podpisz paczkę
         env:
           VELESS_SIGNING_KEY: ${{ secrets.VELESS_SIGNING_KEY }}
-          VELESS_UPDATE_URL: ${{ vars.VELESS_UPDATE_URL }}
+          VELESS_UPDATE_URL: ${{ vars.VELESS_UPDATE_URL || 'https://aktualizacje.klubwoskarzy.pl/' }}
           NOTES: ${{ github.event.inputs.notes }}
         run: |
           VERSION="${{ github.event.inputs.version }}"

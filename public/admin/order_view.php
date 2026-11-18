@@ -1816,6 +1816,14 @@ foreach ($absorbedOrders as $ab) {
     <?php endif; ?>
 
     <?php if ($shipments): ?>
+        <?php
+        // Licznik druku etykiet (Services\LabelPrints): plakietka „Wydrukowano N×” i ostrzeżenie przed ponownym drukiem.
+        try {
+            $labelPrintInfo = (new \Pase\Services\LabelPrints($pdo))->forShipments(array_column($shipments, 'id'));
+        } catch (\Throwable $e) {
+            $labelPrintInfo = [];
+        }
+        ?>
         <table class="ship-table" style="margin-top:10px">
             <tr class="ship-head"><th>Nr listu</th><th>Kurier</th><th>Koszt</th><th>Status</th><th>Etykieta</th><th></th></tr>
             <?php foreach ($shipments as $sh):
@@ -1898,7 +1906,8 @@ foreach ($absorbedOrders as $ab) {
                     <td data-col="label">
                         <?php if ($cancelled || $failed || $pending): ?>—
                         <?php elseif (!empty($sh['bl_order_id'])): ?>
-                            <div class="lbl-menu">
+                            <?php $lp = $labelPrintInfo[(int) $sh['id']] ?? null; ?>
+                            <div class="lbl-menu" data-ship="<?= (int) $sh['id'] ?>" data-prints="<?= (int) ($lp['count'] ?? 0) ?>" data-warning="<?= $lp ? htmlspecialchars(\Pase\Services\LabelPrints::warning($lp)) : '' ?>">
                                 <button type="button" class="btn secondary lbl-toggle" aria-haspopup="true" aria-expanded="false" style="padding:4px 10px;font-size:13px">🖨 Etykieta ▾</button>
                                 <div class="lbl-pop" hidden>
                                     <label class="lbl-pop-title">Format</label>
@@ -1913,6 +1922,8 @@ foreach ($absorbedOrders as $ab) {
                                     <a class="lbl-item lbl-open" data-ship="<?= (int)$sh['id'] ?>" href="#">⬇ Pobierz</a>
                                 </div>
                             </div>
+                            <span class="lbl-count<?= ($lp['count'] ?? 0) >= 2 ? ' many' : '' ?>" data-ship="<?= (int) $sh['id'] ?>"<?= $lp ? '' : ' hidden' ?>
+                                  title="<?= $lp ? htmlspecialchars(\Pase\Services\LabelPrints::historyText($lp['rows'])) : '' ?>"><?= $lp ? htmlspecialchars(\Pase\Services\LabelPrints::badgeText($lp['count'])) : '' ?></span>
                         <?php elseif (!empty($sh['label_link'])): ?>
                             <a href="<?= htmlspecialchars($sh['label_link']) ?>" target="_blank" rel="noopener">⬇ PDF</a>
                         <?php else: ?>—<?php endif; ?>
@@ -3074,6 +3085,17 @@ foreach ($absorbedOrders as $ab) {
 .lbl-pop-title{font-size:11px;color:#888;margin:0 2px 2px}
 .lbl-pop select{width:100%;font-size:13px;padding:5px 6px;margin-bottom:6px}
 .lbl-item{display:block;padding:7px 8px;border-radius:6px;font-size:13px;color:#2c2a26;text-decoration:none;white-space:nowrap}
+.lbl-menu{vertical-align:middle}
+.lbl-count{display:inline-block;margin:4px 0 0 6px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;line-height:18px;white-space:nowrap;vertical-align:middle;cursor:help;background:#f1f0ec;color:#57534e;border:1px solid #e5e2da}
+.lbl-count.many{background:#fef2f2;color:#b91c1c;border-color:#fca5a5}
+.lbl-count[hidden]{display:none}
+.lbl-again{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(20,18,15,.45)}
+.lbl-again[hidden]{display:none}
+.lbl-again-box{max-width:440px;width:100%;background:#fff;border:2px solid #dc2626;border-radius:12px;padding:20px 20px 16px;box-shadow:0 12px 36px rgba(0,0,0,.25)}
+.lbl-again-box h3{margin:0 0 8px;font-size:18px;color:#b91c1c}
+.lbl-again-box p{margin:0 0 10px;font-size:14px;line-height:1.5}
+.lbl-again-acts{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:14px}
+.lbl-again-acts .btn.danger-outline{background:#fff;color:#b91c1c;border:1px solid #dc2626}
 .lbl-item:hover{background:#f5f3ee}
 </style>
 <script>
@@ -3110,48 +3132,122 @@ foreach ($absorbedOrders as $ab) {
         var sel = document.querySelector('.lbl-fmt[data-ship="' + ship + '"]');
         return sel ? sel.value : 'A4';
     }
+    function menuFor(ship) { return document.querySelector('.lbl-menu[data-ship="' + ship + '"]'); }
+
+    // Licznik druku (Services\LabelPrints): druga etykieta tej samej przesyłki tylko po potwierdzeniu,
+    // żeby nie nakleić jej na dwie różne paczki. Serwer i tak sprawdza (again=1) - to okienko pyta wcześniej.
+    var againBox = document.createElement('div');
+    againBox.className = 'lbl-again';
+    againBox.hidden = true;
+    againBox.setAttribute('role', 'alertdialog');
+    againBox.setAttribute('aria-modal', 'true');
+    againBox.innerHTML = '<div class="lbl-again-box"><h3>⚠ Ta etykieta była już drukowana</h3><p class="lbl-again-txt"></p>'
+        + '<p>Każda paczka musi mieć własną etykietę. Drukuj ponownie tylko wtedy, gdy poprzedni wydruk się nie udał albo zniszczył.</p>'
+        + '<div class="lbl-again-acts"><button type="button" class="btn lbl-again-no">Nie drukuj</button>'
+        + '<button type="button" class="btn danger-outline lbl-again-yes">Drukuj ponownie</button></div></div>';
+    document.body.appendChild(againBox);
+    var againGo = null;
+    function closeAgain() { againBox.hidden = true; againGo = null; }
+    againBox.querySelector('.lbl-again-no').addEventListener('click', closeAgain);
+    againBox.addEventListener('click', function (e) { if (e.target === againBox) closeAgain(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !againBox.hidden) closeAgain(); });
+    againBox.querySelector('.lbl-again-yes').addEventListener('click', function () {
+        var go = againGo;
+        closeAgain();
+        if (go) go(); // wciąż w kliknięciu - okno druku/pobrania nie zostanie zablokowane
+    });
+    function askAgain(warning, go) {
+        againBox.querySelector('.lbl-again-txt').textContent = warning || 'Ta etykieta była już wydrukowana.';
+        againGo = go;
+        againBox.hidden = false;
+        againBox.querySelector('.lbl-again-no').focus();
+    }
+    // Akcja z menu: przy pierwszym druku od razu, przy kolejnym po potwierdzeniu (again=1).
+    function guarded(ship, run) {
+        var m = menuFor(ship);
+        if (m && +m.dataset.prints > 0) {
+            askAgain(m.dataset.warning, function () { run(true); });
+        } else {
+            run(false);
+        }
+    }
+    // Po druku: plakietka „Wydrukowano N×” na karcie od razu, bez przeładowania.
+    function bumpCount(ship, count) {
+        var m = menuFor(ship), b = document.querySelector('.lbl-count[data-ship="' + ship + '"]');
+        var n = count || ((m ? +m.dataset.prints : 0) + 1);
+        var now = new Date(), pad = function (x) { return (x < 10 ? '0' : '') + x; };
+        var when = pad(now.getDate()) + '.' + pad(now.getMonth() + 1) + ' o ' + pad(now.getHours()) + ':' + pad(now.getMinutes());
+        if (m) {
+            var firstPart = (m.dataset.warning.match(/Pierwszy raz [^)]*\)/) || ['Pierwszy raz ' + when + ' (Ty)'])[0];
+            m.dataset.warning = 'Wydrukowano już ' + n + '×. ' + firstPart + (n > 1 ? ', ostatnio ' + when + ' (Ty)' : '') + '.';
+            m.dataset.prints = n;
+        }
+        if (b) {
+            b.textContent = 'Wydrukowano ' + n + '×';
+            b.classList.toggle('many', n >= 2);
+            b.title = when + ' · Ty' + (b.title ? '\n' + b.title : '');
+            b.hidden = false;
+        }
+    }
+    function labelUrl(ship, again, extra) {
+        return 'label_download.php?shipment=' + ship + '&printer=' + fmtFor(ship) + (extra || '') + (again ? '&again=1' : '');
+    }
     document.querySelectorAll('.lbl-print').forEach(function (a) {
         a.addEventListener('click', function (e) {
             e.preventDefault();
             var s = a.dataset.ship;
-            window.open('label_download.php?shipment=' + s + '&printer=' + fmtFor(s) + '&print=1', '_blank');
+            guarded(s, function (again) {
+                window.open(labelUrl(s, again, '&print=1'), '_blank');
+                bumpCount(s);
+            });
         });
     });
     document.querySelectorAll('.lbl-open').forEach(function (a) {
         a.addEventListener('click', function (e) {
             e.preventDefault();
             var s = a.dataset.ship;
-            window.open('label_download.php?shipment=' + s + '&printer=' + fmtFor(s), '_blank');
+            guarded(s, function (again) {
+                window.open(labelUrl(s, again, ''), '_blank');
+                bumpCount(s);
+            });
         });
     });
     document.querySelectorAll('.lbl-agent').forEach(function (a) {
         a.addEventListener('click', function (e) {
             e.preventDefault();
             var s = a.dataset.ship;
-            // Każdy format idzie do agenta: ZPL/EPL surowo, PDF/A4/LBL agent
-            // zrasteryzuje u siebie i wyśle na Zebrę jako grafikę.
-            var fmt = fmtFor(s);
-            var label = a.dataset.label || (a.dataset.label = a.textContent);
-            a.textContent = '⏳ wysyłam…';
-            fetch('label_download.php?shipment=' + s + '&printer=' + fmt + '&agent=1', {
-                method: 'POST', body: new URLSearchParams({csrf: <?= json_encode(csrfToken()) ?>})
-            })
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    if (data.ok) {
-                        // Bez okienka: potwierdzenie na chwilę w samym przycisku.
-                        var copies = (data.jobs && data.jobs > 1) ? (' (' + data.jobs + ' kopie)') : '';
-                        a.textContent = '✅ Wysłano' + copies;
-                        setTimeout(function () { a.textContent = label; }, 2500);
-                    } else {
-                        a.textContent = label;
-                        alert('Nie udało się wysłać: ' + (data.error || 'nieznany błąd'));
-                    }
+            guarded(s, function send(again) {
+                // Każdy format idzie do agenta: ZPL/EPL surowo, PDF/A4/LBL agent
+                // zrasteryzuje u siebie i wyśle na Zebrę jako grafikę.
+                var label = a.dataset.label || (a.dataset.label = a.textContent);
+                a.textContent = '⏳ wysyłam…';
+                fetch(labelUrl(s, again, '&agent=1'), {
+                    method: 'POST', body: new URLSearchParams({csrf: <?= json_encode(csrfToken()) ?>})
                 })
-                .catch(function () {
-                    a.textContent = label;
-                    alert('Błąd połączenia z serwerem.');
-                });
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (data.ok) {
+                            // Bez okienka: potwierdzenie na chwilę w samym przycisku.
+                            var copies = (data.jobs && data.jobs > 1) ? (' (' + data.jobs + ' kopie)') : '';
+                            a.textContent = '✅ Wysłano' + copies;
+                            bumpCount(s, data.prints);
+                            setTimeout(function () { a.textContent = label; }, 2500);
+                        } else if (data.already) {
+                            // Karta była nieaktualna (np. druk z innej karty) - serwer pyta o potwierdzenie.
+                            a.textContent = label;
+                            var m = menuFor(s);
+                            if (m) { m.dataset.prints = data.count; m.dataset.warning = data.warning; }
+                            askAgain(data.warning, function () { send(true); });
+                        } else {
+                            a.textContent = label;
+                            alert('Nie udało się wysłać: ' + (data.error || 'nieznany błąd'));
+                        }
+                    })
+                    .catch(function () {
+                        a.textContent = label;
+                        alert('Błąd połączenia z serwerem.');
+                    });
+            });
         });
     });
 

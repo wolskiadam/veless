@@ -7,6 +7,8 @@ declare(strict_types=1);
  * Domyślnie serwuje plik (PDF/inny) bezpośrednio do pobrania/druku.
  * POST z parametrem URL agent=1 i csrf w treści kolejkuje zadanie dla lokalnego
  * agenta druku (patrz print_agent_poll.php) i zwraca JSON.
+ * Każde udane pobranie/druk zapisuje Services\LabelPrints. Gdy etykieta była już drukowana,
+ * bez again=1 zwraca ostrzeżenie (agent: JSON already=true, reszta: strona z potwierdzeniem).
  */
 
 use Pase\Plugin\Contract\Courier;
@@ -43,6 +45,52 @@ if ($externalId === '' || $externalId === '0' || ($sh['status'] ?? '') === 'pend
     return;
 }
 
+// Licznik druku (Services\LabelPrints): ta sama etykieta drugi raz tylko po świadomym potwierdzeniu
+// (again=1) - żeby nie nakleić jej na dwie różne paczki. Karta zamówienia pyta wcześniej we własnym
+// okienku; to sprawdzenie łapie też nieaktualną kartę (np. druk z drugiej karty przeglądarki).
+$labelMode = ($_GET['agent'] ?? '') === '1' ? 'agent' : (($_GET['print'] ?? '') === '1' ? 'print' : 'download');
+$labelPrints = new \Pase\Services\LabelPrints($pdo);
+if (($_GET['again'] ?? '') !== '1') {
+    $printed = $labelPrints->forShipments([$shipmentId])[$shipmentId] ?? null;
+    if ($printed !== null) {
+        $warning = \Pase\Services\LabelPrints::warning($printed);
+        if ($labelMode === 'agent') {
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['ok' => false, 'already' => true, 'count' => $printed['count'], 'warning' => $warning], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+        $againUrl = 'label_download.php?' . http_build_query(array_merge($_GET, ['again' => '1']));
+        $orderUrl = 'order_view.php?id=' . (int) ($sh['woo_order_id'] ?? 0);
+        http_response_code(409);
+        header('Content-Type: text/html; charset=utf-8');
+        header('Cache-Control: no-store');
+        ?>
+<!DOCTYPE html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Etykieta była już drukowana</title>
+<style>
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f6f5f2;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color:#2c2a26;padding:16px;box-sizing:border-box}
+.box{max-width:440px;background:#fff;border:2px solid #dc2626;border-radius:12px;padding:22px 22px 18px;box-shadow:0 8px 24px rgba(0,0,0,.08)}
+h1{margin:0 0 10px;font-size:19px;color:#b91c1c}
+p{margin:0 0 12px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+a{display:inline-block;padding:9px 14px;border-radius:8px;text-decoration:none;font-weight:600}
+.no{background:#2c2a26;color:#fff}.yes{background:#fff;color:#b91c1c;border:1px solid #dc2626}
+</style></head><body>
+<div class="box">
+    <h1>⚠ Ta etykieta była już drukowana</h1>
+    <p><?= htmlspecialchars($warning) ?></p>
+    <p>Każda paczka musi mieć własną etykietę. Drukuj ponownie tylko wtedy, gdy poprzedni wydruk się nie udał albo zniszczył.</p>
+    <div class="acts">
+        <a class="no" href="<?= htmlspecialchars($orderUrl) ?>" onclick="if (window.opener) { window.close(); return false; }">Nie drukuj</a>
+        <a class="yes" href="<?= htmlspecialchars($againUrl) ?>">Drukuj ponownie</a>
+    </div>
+</div>
+</body></html>
+        <?php
+        return;
+    }
+}
+
 $bl = (new IntegrationAccountRepository($pdo))->find((int) $sh['integration_id']);
 if ($bl === null) {
     http_response_code(422);
@@ -72,6 +120,11 @@ if (!$r['ok'] || $r['content'] === null) {
     return;
 }
 
+// Etykieta jest w ręku - liczy się jako wydrukowana (agent, okno druku albo pobrany plik).
+$printCount = $labelPrints->record($shipmentId, isset($sh['woo_order_id']) ? (int) $sh['woo_order_id'] : null,
+    $labelMode, $printer, currentUserId(), currentUserName());
+header('X-Label-Prints: ' . $printCount);
+
 // Tryb agenta: zamiast serwować plik, wrzuć etykietę do kolejki lokalnego programu
 // drukującego. Działa dla każdego formatu:
 //   ZPL/EPL - surowe komendy, agent posyła je na drukarkę bez zmian;
@@ -91,7 +144,7 @@ if (($_GET['agent'] ?? '') === '1') {
     if (in_array($printer, ['ZPL', 'EPL'], true)) {
         // Surowe komendy można po prostu powielić w jednym zadaniu.
         $jobId = $jobsRepo->enqueue('label', $printer, str_repeat($r['content'], $copies), $filename, 'zebra');
-        echo json_encode(['ok' => true, 'job_id' => $jobId, 'jobs' => 1]);
+        echo json_encode(['ok' => true, 'job_id' => $jobId, 'jobs' => 1, 'prints' => $printCount]);
         return;
     }
 
@@ -106,7 +159,7 @@ if (($_GET['agent'] ?? '') === '1') {
         $firstId ??= $jobId;
     }
 
-    echo json_encode(['ok' => true, 'job_id' => $firstId, 'jobs' => $copies, 'format' => $format, 'target' => $target]);
+    echo json_encode(['ok' => true, 'job_id' => $firstId, 'jobs' => $copies, 'format' => $format, 'target' => $target, 'prints' => $printCount]);
     return;
 }
 

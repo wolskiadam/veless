@@ -224,6 +224,12 @@ if (!function_exists('sourceBadge')) {
         } catch (\Throwable $e) {
             $returningByOrder = [];
         }
+        // Licznik druku etykiet (Services\LabelPrints): plakietka „Wydrukowano N×” przy dostawie, czerwona od 2.
+        try {
+            $labelPrintsByOrder = (new \Pase\Services\LabelPrints($pdo))->forOrders(array_map('intval', array_column($rows, 'woo_order_id')));
+        } catch (\Throwable $e) {
+            $labelPrintsByOrder = [];
+        }
         // Rozszerzenia dostają całą stronę wierszy naraz (np. jedna kwerenda zamiast jednej na wiersz).
         \Pase\Plugin\Hooks::doAction('orders.rows', $rows);
         ?>
@@ -360,6 +366,14 @@ if (!function_exists('sourceBadge')) {
                             . (\Pase\Support\AllegroDeliveryTime::formatDelivery($dispatchTimes) !== '' ? ' · przewidywana dostawa: ' . \Pase\Support\AllegroDeliveryTime::formatDelivery($dispatchTimes) : '');
                         echo '<div class="dispatch-by ' . $dispatchUrg . '" title="' . htmlspecialchars($dispatchTip) . '">'
                             . ($dispatchUrg === 'overdue' ? 'po terminie ' : 'wyślij do ') . htmlspecialchars(\Pase\Support\AllegroDeliveryTime::formatShort($dispatchTimes['dispatch_to'])) . '</div>';
+                    }
+                    $lpOrder = $labelPrintsByOrder[(int)$r['woo_order_id']] ?? null;
+                    if ($lpOrder !== null) {
+                        $lpTip = ($lpOrder['count'] >= 2 ? 'Ta sama etykieta wydrukowana ' . $lpOrder['count'] . '× — sprawdź, czy nie trafiła na dwie paczki. ' : 'Etykieta wydrukowana. ')
+                            . 'Pierwszy raz ' . \Pase\Services\LabelPrints::when($lpOrder['first'])
+                            . ($lpOrder['count'] >= 2 ? ', ostatnio ' . \Pase\Services\LabelPrints::when($lpOrder['last']) : '') . '.';
+                        echo '<div><span class="label-prints' . ($lpOrder['count'] >= 2 ? ' many' : '') . '" tabindex="0" data-tip="' . htmlspecialchars($lpTip) . '" aria-label="' . htmlspecialchars($lpTip) . '">'
+                            . htmlspecialchars(\Pase\Services\LabelPrints::badgeText($lpOrder['count'])) . '</span></div>';
                     }
                 ?></td>
                 <?php $cells['delivery'] = ob_get_clean(); ob_start(); ?>

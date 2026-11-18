@@ -38,6 +38,7 @@ final class Migrator
         \Pase\Services\Customers::migrate($this->pdo);
         \Pase\Services\EmailLog::migrate($this->pdo);
         \Pase\Services\AllegroOrderHandling::migrate($this->pdo);   // czas wysyłki z oferty w chwili zakupu
+        \Pase\Services\LabelPrints::migrate($this->pdo);   // licznik druku etykiet przewozowych
         if (!$this->allTablesExist()) {
             // Każde CREATE TABLE osobno - inaczej jedna nieudana instrukcja (np. przez
             // ograniczenia hostingu) przerywała pętlę i blokowała utworzenie WSZYSTKICH

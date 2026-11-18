@@ -6,12 +6,14 @@ Nie jest częścią paczki Veless i nie potrzebuje bazy danych.
 ## Uruchomienie
 
 1. Wgraj zawartość tego katalogu na hosting z PHP 8.1+ i rozszerzeniem zip, najlepiej pod osobną
-   subdomeną z certyfikatem SSL, np. `https://aktualizacje.twoja-domena.pl/`.
+   subdomeną z certyfikatem SSL. Adres Klubu: `https://aktualizacje.klubwoskarzy.pl/` (w panelu hostingu:
+   subdomena `aktualizacje` wskazująca na katalog z tymi plikami, plus darmowy certyfikat Let's Encrypt).
 2. Skopiuj `config.example.php` jako `config.php` i wpisz `admin_key` (długie losowe hasło).
 3. Upewnij się, że PHP może pisać do `data/`. Katalogi `data/` i `releases/` są zablokowane z internetu
    (`.htaccess`; przy nginx zablokuj je w konfiguracji serwera).
 4. W repozytorium Veless (Settings → Secrets and variables → Actions) ustaw:
-   - zmienną `VELESS_UPDATE_URL` = adres z punktu 1 (trafi do każdej nowej paczki),
+   - zmienną `VELESS_UPDATE_URL` tylko przy innym adresie niż `https://aktualizacje.klubwoskarzy.pl/`
+     (workflow wpisuje go do każdej nowej paczki),
    - sekret `VELESS_SIGNING_KEY` = klucz prywatny podpisu z `php cli/release_keygen.php` (klucz publiczny z tego
      polecenia wpisz do `src/Support/ReleaseSignature.php`),
    - opcjonalnie `UPDATES_FTP_SERVER`, `UPDATES_FTP_USERNAME`, `UPDATES_FTP_PASSWORD`, `UPDATES_FTP_DIR`

@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Serwer aktualizacji Veless. Wgrywa się go na hosting Klubu (osobny katalog, np. aktualizacje.twoja-domena.pl).
+ * Serwer aktualizacji Veless. Wgrywa się go na hosting Klubu (osobny katalog, np. aktualizacje.klubwoskarzy.pl).
  *
  *   ?action=check     - pyta zainstalowany Veless (raz dziennie): podaje swoją wersję, identyfikator instalacji,
  *                       adres panelu i wersję PHP; dostaje opis najnowszej wersji. Zapis trafia na listę instalacji.

@@ -12,7 +12,8 @@ Nie jest częścią paczki Veless i nie potrzebuje bazy danych.
    (`.htaccess`; przy nginx zablokuj je w konfiguracji serwera).
 4. W repozytorium Veless (Settings → Secrets and variables → Actions) ustaw:
    - zmienną `VELESS_UPDATE_URL` = adres z punktu 1 (trafi do każdej nowej paczki),
-   - sekret `VELESS_SIGNING_KEY` = klucz prywatny podpisu (klucz publiczny jest w `src/Support/ReleaseSignature.php`),
+   - sekret `VELESS_SIGNING_KEY` = klucz prywatny podpisu z `php cli/release_keygen.php` (klucz publiczny z tego
+     polecenia wpisz do `src/Support/ReleaseSignature.php`),
    - opcjonalnie `UPDATES_FTP_SERVER`, `UPDATES_FTP_USERNAME`, `UPDATES_FTP_PASSWORD`, `UPDATES_FTP_DIR`
      (katalog `releases/` tego serwera), żeby workflow sam wgrywał paczki.
 

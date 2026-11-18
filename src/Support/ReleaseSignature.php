@@ -15,9 +15,12 @@ namespace Pase\Support;
  */
 final class ReleaseSignature
 {
-    /** Klucze publiczne wydań Veless (base64). Pierwszy wygenerowany 2026-11-18. */
+    /**
+     * Klucze publiczne wydań Veless (base64). Parę kluczy tworzy `php cli/release_keygen.php` na komputerze
+     * właściciela: klucz publiczny wpisuje się tutaj, prywatny tylko do sekretu VELESS_SIGNING_KEY w GitHubie.
+     * Dopóki lista jest pusta, aktualizacje z serwera się nie instalują (ręczne wgranie paczki działa).
+     */
     public const PUBLIC_KEYS = [
-        '3LgMsTCt1zzn5xeUe7QcPycDp4Q4PVu8iKVYghMCuPI=',
     ];
 
     public static function available(): bool

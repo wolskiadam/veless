@@ -40,7 +40,7 @@ final class OrderIconDetails
         ['kind' => 'invoice', 'state' => 'bad', 'label' => 'orders.indicator.invoice_nip'],
         ['kind' => 'receipt', 'state' => 'ok', 'label' => 'orders.indicator.receipt_issued'],
         ['kind' => 'receipt', 'state' => 'bad', 'label' => 'orders.indicator.receipt_missing'],
-        ['kind' => 'shipping', 'state' => 'warn', 'label' => 'orders.indicator.shipping_needed'],
+        ['kind' => 'shipping', 'state' => 'todo', 'label' => 'orders.indicator.shipping_needed'],
         ['kind' => 'shipping', 'state' => 'info', 'label' => 'orders.indicator.shipping_created'],
         ['kind' => 'shipping', 'state' => 'info', 'label' => 'Wysyłka razem z zamówieniem głównym (scalone)', 'literal' => true],
         ['kind' => 'shipping', 'state' => 'transit', 'label' => 'orders.indicator.shipping_sent'],
@@ -67,10 +67,15 @@ final class OrderIconDetails
      * Kolor ikony na liście. Brakujący dokument (paragon albo faktura do wystawienia) ma w danych
      * stan „warn” (od niego zależy m.in. przycisk faktury na karcie zamówienia), ale na liście
      * to zaległość jak nieopłacone zamówienie - rysujemy go na czerwono, żeby od razu rzucał się w oczy.
+     *
+     * „Do wysyłki — brak aktywnej przesyłki” (wysyłka w stanie „warn”) rysujemy jako „todo”: pełne
+     * pomarańczowe tło z białą ikoną, żeby od razu odróżniało się od „Przesyłka utworzona”.
      */
     public static function displayState(string $kind, string $state): string
     {
-        return $state === 'warn' && in_array($kind, ['receipt', 'invoice'], true) ? 'bad' : $state;
+        if ($state !== 'warn') { return $state; }
+        if (in_array($kind, ['receipt', 'invoice'], true)) { return 'bad'; }
+        return $kind === 'shipping' ? 'todo' : $state;
     }
 
     /** Link do dokumentu w wFirma (ten sam, co na karcie zamówienia). */

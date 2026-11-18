@@ -55,4 +55,10 @@ $n = I::note(['customer_note' => "Linia 1\nLinia 2"]);
 check($n !== null && $n['state'] === 'note' && $n['label'] === 'Uwaga od klienta: Linia 1 Linia 2' && !empty($n['literal']), 'note icon label carries text');
 check(mb_strlen(I::note(['customer_note' => str_repeat('x', 500)])['label']) < 330, 'long note shortened in icon');
 
+check(D::displayState('shipping', 'warn') === 'todo', 'shipping needed drawn as solid orange (todo)');
+check(D::displayState('shipping', 'info') === 'info', 'shipment created stays neutral');
+check(D::displayState('receipt', 'warn') === 'bad' && D::displayState('payment', 'warn') === 'warn', 'missing document red, COD amber');
+$legendShip = array_values(array_filter(D::LEGEND, static fn ($l) => $l['label'] === 'orders.indicator.shipping_needed'));
+check(($legendShip[0]['state'] ?? '') === 'todo', 'legend shows shipping needed as todo');
+
 echo "\n{$checks} checks passed\n";

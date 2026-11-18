@@ -228,6 +228,9 @@ $PAGE_HEAD = <<<'CSS'
     .order-indicator.warn { background:#fff3d9; color:#8a4600; box-shadow:inset 0 0 0 1px #e3a73f; }
     .order-indicator.bad { background:#d93025; color:#fff; box-shadow:none; }
     .order-indicator.bad svg { stroke-width:2.1; }
+    /* Do wysyłki (brak przesyłki): pełne pomarańczowe tło - ma się wyraźnie różnić od „Przesyłka utworzona”. */
+    .order-indicator.todo { background:#e37400; color:#fff; box-shadow:none; }
+    .order-indicator.todo svg { stroke-width:2.1; }
     .order-indicator.info { background:var(--accent-soft); color:var(--accent-ink); }
     .order-indicator.muted { background:#eef0f6; color:#6b7280; }
     .order-indicator.note { background:#fdf0b5; color:#7a5a00; box-shadow:inset 0 0 0 1px #e9c94a; }
@@ -587,6 +590,7 @@ $PAGE_HEAD = <<<'CSS'
     .order-indicator.ok:hover, .order-indicator.info:hover, .order-indicator.transit:hover, .order-indicator.partial:hover { background:var(--surface-2); }
     .order-indicator.warn:hover { background:#ffe9b8; }
     .order-indicator.bad:hover { background:#b3261e; }
+    .order-indicator.todo:hover { background:#c25e00; }
     .col-amt { font-family:var(--font-ui); font-size:15px; }
     .col-cur { font-size:11px; color:var(--ink-3); font-weight:500; }
     .col-date { font-size:13px; color:var(--ink); }
@@ -1180,7 +1184,7 @@ $pipeGroups = [
             body.appendChild(row);
         });
         // Wysłane / w drodze, a przesyłki w CRM brak (np. nadana poza CRM) - nie ma skąd wziąć numeru.
-        if (data && !ships.length && rowIcons.some(function (r) { return r.kind === 'shipping' && r.state !== 'warn'; })) {
+        if (data && !ships.length && rowIcons.some(function (r) { return r.kind === 'shipping' && r.state !== 'warn' && r.state !== 'todo'; })) {
             body.appendChild(el('div', 'oi-note', 'Brak przesyłki zapisanej w CRM — nie ma numeru ani linku do śledzenia.'));
         }
         if (error) { body.appendChild(el('div', 'oi-note', error)); }
@@ -1202,7 +1206,7 @@ $pipeGroups = [
     function open(container) {
         var id = container.getAttribute('data-order-id');
         var rowIcons = [].map.call(container.querySelectorAll('.order-indicator'), function (a) {
-            var state = ['ok', 'partial', 'transit', 'warn', 'bad', 'info', 'note', 'muted'].filter(function (s) { return a.classList.contains(s); })[0] || 'muted';
+            var state = ['ok', 'partial', 'transit', 'warn', 'todo', 'bad', 'info', 'note', 'muted'].filter(function (s) { return a.classList.contains(s); })[0] || 'muted';
             // svg: ikona rozszerzenia (spoza ICONS) - przenosimy ją z listy do okienka.
             var svg = a.querySelector('svg');
             return { kind: a.getAttribute('data-kind'), state: state, label: a.getAttribute('data-legend') || a.getAttribute('title') || '', svg: svg ? svg.innerHTML : '' };

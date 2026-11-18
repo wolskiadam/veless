@@ -27,6 +27,7 @@ $labels = [
     'document.linked' => 'Zapisanie dokumentu', 'document.unlinked' => 'Usunięcie lokalnego powiązania',
     'document.remote_deleted' => 'Usunięcie dokumentu z wFirma i lokalnego powiązania',
     'push.new_order' => 'Powiadomienie push o nowym zamówieniu',
+    'shipment.label_printed' => 'Druk / pobranie etykiety przesyłki',
 ];
 $escape = static fn($value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $PAGE_TITLE = 'Historia zmian' . ($orderId ? ' — zamówienie #' . $orderId : '');

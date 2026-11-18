@@ -118,6 +118,15 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
         if (Math.abs(pos.amount.top - pos.act.top) > 2 || pos.act.left < pos.amount.right - 1) fail('amount and actions are not on the bottom row ' + JSON.stringify([pos.amount, pos.act]));
         pass('number + status, client, source, icons, amount + actions are laid out on the card');
 
+        // Nazwa konta/sklepu (np. „AWIEN Sp zoo”) stoi w osobnej linii pod kanałem i nie jest ucinana do „AWIEN S…”.
+        const subs = await page.evaluate(() => [...document.querySelectorAll('.orders-table td[data-col="source"] .source-sub')].map((el) => ({
+            text: el.textContent.trim(), cut: el.scrollWidth > el.clientWidth + 1,
+            below: el.getBoundingClientRect().top >= el.parentElement.querySelector('.source-badge').getBoundingClientRect().bottom - 1,
+        })));
+        if (!subs.some((s) => s.text === 'AWIEN Sp zoo')) fail('account name is missing on the card: ' + JSON.stringify(subs));
+        if (subs.some((s) => s.cut || !s.below)) fail('account name is cut or not on its own line: ' + JSON.stringify(subs));
+        pass('account name is shown in full on its own line under the channel');
+
         // Po zaznaczeniu karty pasek akcji wyskakuje na dole ekranu (licznik, status, Pakuj, Scal, Archiwizuj, Do kosza).
         await page.locator('.orders-table tr:not(.orders-head) .rowcheck').first().check();
         if ((await page.locator('#selCount').textContent()).trim() !== '1') fail('selecting a card does not update the counter');

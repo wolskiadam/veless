@@ -610,8 +610,9 @@ $PAGE_HEAD = <<<'CSS'
         .orders-table td[data-col="status"] > span:first-child { height:auto; padding:0; font-size:13px; }
         .orders-table td[data-col="amount"] { font-size:20px; }
         .orders-table td[data-col="date"] { font-size:12px; color:var(--ink-2); }
-        .orders-table td[data-col="source"] { display:flex; align-items:center; gap:8px; min-width:0; }
-        .orders-table td[data-col="source"] .source-sub { margin:0; max-width:none; min-width:0; }
+        /* Nazwa konta/sklepu w osobnej linii pod kanałem, w całości (zawija się zamiast ucinać do „AWIEN S…”). */
+        .orders-table td[data-col="source"] { display:flex; flex-direction:column; align-items:flex-start; justify-content:center; gap:2px; min-width:0; }
+        .orders-table td[data-col="source"] .source-sub { margin:0 0 0 28px; max-width:none; min-width:0; white-space:normal; overflow:visible; overflow-wrap:anywhere; line-height:1.3; }
     }
     /* Szybki podgląd zamówienia (oko w wierszu): okienko przy wierszu na komputerze, arkusz od dołu na telefonie. */
     .orders-table td[data-col="actions"] .btn.order-peek { width:32px; padding:0 !important; justify-content:center; margin-right:4px; color:var(--ink-2); }

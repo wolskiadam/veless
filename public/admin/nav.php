@@ -425,10 +425,24 @@ document.addEventListener('click', function(e) {
         for (var i = 0; i < raw.length; i++) { out[i] = raw.charCodeAt(i); }
         return out;
     }
+    // Nazwa urządzenia do listy w dzwoneczku i historii zamówienia. iPhone/iPad z „wersją komputerową” Safari udaje Maca
+    // w nagłówku, więc rozpoznajemy go po ekranie dotykowym; aplikacja z ekranu początkowego ma dopisek.
+    function deviceName() {
+        var ua = navigator.userAgent, touchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1, n;
+        if (/iPhone|iPod/.test(ua) || (touchMac && Math.min(screen.width, screen.height) < 600)) { n = 'iPhone'; }
+        else if (/iPad/.test(ua) || touchMac) { n = 'iPad'; }
+        else if (/Android/.test(ua)) { n = 'Android'; }
+        else if (/Macintosh/.test(ua)) { n = 'Mac'; }
+        else if (/Windows/.test(ua)) { n = 'Windows'; }
+        else if (/Linux/.test(ua)) { n = 'Linux'; }
+        else { n = 'Urządzenie'; }
+        var b = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /(Chrome|CriOS)\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+        return n + (standalone ? ' (aplikacja)' : (b ? ' · ' + b : ''));
+    }
     function save(sub) {
         var j = sub.toJSON();
         endpoint = j.endpoint;
-        return post({ action: 'subscribe', endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }).then(function (d) {
+        return post({ action: 'subscribe', endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: deviceName() }).then(function (d) {
             if (!d.ok) { throw new Error(d.error || 'zapis nie powiódł się'); }
             return d;
         });
@@ -447,8 +461,8 @@ document.addEventListener('click', function(e) {
             : state === 'off' ? '<button type="button" class="on" data-push="on">Włącz powiadomienia</button>' : '';
         box.innerHTML = '<div class="nav-push-txt">' + t + '</div>' + (btns ? '<div class="nav-push-btns">' + btns + '</div>' : '')
             + (msg ? '<div class="nav-push-msg">' + esc(msg) + '</div>' : '')
-            + (state === 'on' && endpoint ? '<div class="nav-push-src"></div>' : '');
-        if (state === 'on' && endpoint) { loadSources(); loadStatus(); }
+            + (state === 'on' && endpoint ? '<div class="nav-push-src"></div><div class="nav-push-dev"></div>' : '');
+        if (state === 'on' && endpoint) { loadSources(); loadStatus(); loadDevices(); }
         showRemind(state);
     }
     // Subskrypcja push tego urządzenia; bez zgody najpierw pyta (na iPhonie tylko po stuknięciu, więc wołane z kliknięcia).
@@ -527,6 +541,26 @@ document.addEventListener('click', function(e) {
             }).join('');
         }).catch(function () {});
     }
+    // Urządzenia tego konta, które dostają powiadomienia (to urządzenie zaznaczone); inne można usunąć.
+    function loadDevices() {
+        post({ action: 'devices', endpoint: endpoint }).then(function (d) {
+            var el = box.querySelector('.nav-push-dev');
+            if (!el || !d.ok || !d.devices) { return; }
+            el.innerHTML = '<div>Twoje urządzenia z powiadomieniami (' + d.devices.length + '):</div>' + d.devices.map(function (x) {
+                return '<div class="nav-push-devrow"><span><b>' + esc(x.device) + '</b>' + (x.current ? ' (to urządzenie)' : '')
+                    + ' · ' + (x.last_ok_at ? 'ostatnio ' + esc(when(x.last_ok_at)) : 'jeszcze nic nie doszło')
+                    + (x.last_error ? ' · błąd: ' + esc(x.last_error) : '') + '</span>'
+                    + (x.current ? '' : '<button type="button" data-push-remove="' + x.id + '" title="Usuń z powiadomień">Usuń</button>') + '</div>';
+            }).join('');
+        }).catch(function () {});
+    }
+    box.addEventListener('click', function (ev) {
+        var b = ev.target.closest('[data-push-remove]');
+        if (!b) { return; }
+        ev.stopPropagation();
+        b.disabled = true;
+        post({ action: 'remove_device', id: b.getAttribute('data-push-remove') }).then(loadDevices).catch(function () { b.disabled = false; });
+    });
     box.addEventListener('change', function (ev) {
         if (!ev.target.matches('[data-src]')) { return; }
         var all = box.querySelectorAll('[data-src]'), ids = [];
@@ -552,8 +586,8 @@ document.addEventListener('click', function(e) {
                 render('on');
                 // Raz na sesję odświeżamy zapis na serwerze (np. po zmianie konta na tym urządzeniu).
                 try {
-                    if (!sessionStorage.getItem('velessPushSynced')) {
-                        save(sub).then(function () { try { sessionStorage.setItem('velessPushSynced', '1'); } catch (e) {} loadStatus(); }).catch(function () {});
+                    if (!sessionStorage.getItem('velessPushSynced2')) {
+                        save(sub).then(function () { try { sessionStorage.setItem('velessPushSynced2', '1'); } catch (e) {} loadStatus(); }).catch(function () {});
                     }
                 } catch (e) {}
             }).catch(function () { render('on'); });

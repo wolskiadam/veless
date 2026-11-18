@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Powiadomienia push tego urządzenia (JSON, z dzwoneczka w nav.php - Services\WebPush).
  * GET - klucz publiczny VAPID; POST action=subscribe (endpoint, p256dh, auth) | unsubscribe (endpoint) | test
- *   | status (endpoint) | sources (endpoint) | save_sources (endpoint, all=1 albo sources[]=id konta, 0 = ręczne).
+ *   | status (endpoint) | devices (endpoint) | remove_device (id) | sources (endpoint) | save_sources (endpoint, all=1 albo sources[]=id konta, 0 = ręczne).
  */
 
 use Pase\Services\WebPush;
@@ -47,7 +47,7 @@ $action = (string) ($_POST['action'] ?? '');
 try {
     if ($action === 'subscribe') {
         $push->subscribe($uid, (string) ($_POST['endpoint'] ?? ''), (string) ($_POST['p256dh'] ?? ''), (string) ($_POST['auth'] ?? ''),
-            (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+            (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), (string) ($_POST['device'] ?? ''));
         echo json_encode(['ok' => true]);
     } elseif ($action === 'unsubscribe') {
         $push->unsubscribe((string) ($_POST['endpoint'] ?? ''), $uid);
@@ -68,6 +68,12 @@ try {
         echo json_encode(['ok' => $sent > 0, 'sent' => $sent, 'error' => $sent > 0 ? null
             : 'Nie udało się wysłać powiadomienia na żadne urządzenie' . ($why !== [] ? ': ' . implode('; ', $why) : ' (to konto nie ma zapisanych urządzeń)') . '.'],
             JSON_UNESCAPED_UNICODE);
+    } elseif ($action === 'devices') {
+        // Lista urządzeń tego konta z powiadomieniami (z zaznaczeniem bieżącego).
+        echo json_encode(['ok' => true, 'devices' => $push->devices($uid, (string) ($_POST['endpoint'] ?? ''))], JSON_UNESCAPED_UNICODE);
+    } elseif ($action === 'remove_device') {
+        $removed = $push->removeDevice($uid, (int) ($_POST['id'] ?? 0));
+        echo json_encode(['ok' => $removed, 'error' => $removed ? null : 'Nie znaleziono urządzenia.'], JSON_UNESCAPED_UNICODE);
     } elseif ($action === 'status') {
         // Dzwoneczek: czy serwer zna to urządzenie, kiedy ostatnio coś doszło i ostatni błąd.
         echo json_encode(['ok' => true] + $push->deviceStatus((string) ($_POST['endpoint'] ?? ''), $uid), JSON_UNESCAPED_UNICODE);

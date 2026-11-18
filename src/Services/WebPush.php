@@ -87,6 +87,20 @@ final class WebPush
         }
     }
 
+    /** Kolumna device_name: nazwa urządzenia podana przez panel (iPhone z „wersją komputerową” Safari wysyła nagłówek Maca). */
+    private static function ensureDeviceColumn(PDO $pdo): void
+    {
+        try {
+            $pdo->query('SELECT device_name FROM push_subscriptions LIMIT 1');
+        } catch (\PDOException) {
+            try {
+                $pdo->exec('ALTER TABLE push_subscriptions ADD COLUMN device_name VARCHAR(80) NULL');
+            } catch (\PDOException) {
+                // kolumna już jest
+            }
+        }
+    }
+
     /** Kolumna sources (wybór sklepów/źródeł) w tabeli sprzed tej zmiany. */
     private static function ensureSourcesColumn(PDO $pdo): void
     {
@@ -154,7 +168,7 @@ final class WebPush
         return false;
     }
 
-    public function subscribe(int $userId, string $endpoint, string $p256dh, string $auth, string $userAgent = ''): void
+    public function subscribe(int $userId, string $endpoint, string $p256dh, string $auth, string $userAgent = '', string $device = ''): void
     {
         if (!self::allowedEndpoint($endpoint) || strlen($endpoint) > 2000) {
             throw new \InvalidArgumentException('Nieobsługiwana usługa powiadomień push.');
@@ -165,17 +179,21 @@ final class WebPush
         self::migrate($this->pdo);
         self::ensureSourcesColumn($this->pdo);
         self::ensureStatusColumns($this->pdo);
+        self::ensureDeviceColumn($this->pdo);
         $hash = hash('sha256', $endpoint);
-        // Wybór sklepów zostaje przy ponownym zapisie tego samego urządzenia (to samo konto).
-        $st = $this->pdo->prepare('SELECT user_id, sources FROM push_subscriptions WHERE endpoint_hash = ?');
+        // Wybór sklepów i ostatnie dostarczenie zostają przy ponownym zapisie tego samego urządzenia (to samo konto).
+        $st = $this->pdo->prepare('SELECT user_id, sources, created_at, last_ok_at FROM push_subscriptions WHERE endpoint_hash = ?');
         $st->execute([$hash]);
         $old = $st->fetch(PDO::FETCH_ASSOC) ?: null;
-        $sources = $old !== null && (int) $old['user_id'] === $userId ? $old['sources'] : null;
+        $same = $old !== null && (int) $old['user_id'] === $userId;
+        $sources = $same ? $old['sources'] : null;
+        $device = mb_substr(trim(preg_replace('/[^\p{L}\p{N} ()·.,_-]/u', '', $device) ?? ''), 0, 80);
         // DELETE + INSERT - działa też na SQLite; to samo urządzenie po zalogowaniu na inne konto przechodzi na nie.
         $this->pdo->prepare('DELETE FROM push_subscriptions WHERE endpoint_hash = ?')->execute([$hash]);
-        $this->pdo->prepare('INSERT INTO push_subscriptions (user_id, endpoint_hash, endpoint, p256dh, auth, user_agent, created_at, sources)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-            ->execute([$userId, $hash, $endpoint, $p256dh, $auth, mb_substr($userAgent, 0, 255), time(), $sources]);
+        $this->pdo->prepare('INSERT INTO push_subscriptions (user_id, endpoint_hash, endpoint, p256dh, auth, user_agent, created_at, sources, last_ok_at, device_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            ->execute([$userId, $hash, $endpoint, $p256dh, $auth, mb_substr($userAgent, 0, 255), $same ? (int) $old['created_at'] : time(), $sources,
+                $same && $old['last_ok_at'] !== null ? (int) $old['last_ok_at'] : null, $device !== '' ? $device : null]);
     }
 
     /**
@@ -315,7 +333,7 @@ final class WebPush
         $this->lastErrors = [];
         $this->lastReport = [];
         foreach ($subs as $s) {
-            $report = ['user_id' => (int) $s['user_id'], 'device' => self::deviceLabel((string) ($s['user_agent'] ?? '')), 'result' => ''];
+            $report = ['user_id' => (int) $s['user_id'], 'device' => self::labelOf($s), 'result' => ''];
             try {
                 $endpoint = (string) $s['endpoint'];
                 if (!self::allowedEndpoint($endpoint)) {
@@ -489,7 +507,7 @@ final class WebPush
                 }
             }
             if ($why !== null) {
-                $skipped[] = ['user_id' => (int) $s['user_id'], 'device' => self::deviceLabel((string) ($s['user_agent'] ?? '')), 'result' => $why];
+                $skipped[] = ['user_id' => (int) $s['user_id'], 'device' => self::labelOf($s), 'result' => $why];
             }
         }
         $ok = $this->send(self::newOrderMessage($this->pdo, $wooOrderId, $payload), null, $exceptUser, $sourceId);
@@ -546,6 +564,39 @@ final class WebPush
         } catch (\Throwable $e) {
             Logger::warn("Push: nie zapisano wpisu w historii zamówienia {$wooOrderId}", ['error' => $e->getMessage()]);
         }
+    }
+
+    /** Nazwa urządzenia: podana przez panel przy zapisie, a dla starszych zapisów - z nagłówka przeglądarki. */
+    private static function labelOf(array $s): string
+    {
+        $name = trim((string) ($s['device_name'] ?? ''));
+        return $name !== '' ? $name : self::deviceLabel((string) ($s['user_agent'] ?? ''));
+    }
+
+    /**
+     * Urządzenia konta z powiadomieniami (dzwoneczek → „Urządzenia”): nazwa, od kiedy, ostatnie dostarczenie, ostatni błąd.
+     * @return list<array{id:int,device:string,created_at:int,last_ok_at:?int,last_error:?string,current:bool}>
+     */
+    public function devices(int $userId, string $currentEndpoint = ''): array
+    {
+        self::ensureStatusColumns($this->pdo);
+        self::ensureDeviceColumn($this->pdo);
+        $out = [];
+        foreach ($this->subscriptions($userId) as $s) {
+            $out[] = ['id' => (int) $s['id'], 'device' => self::labelOf($s), 'created_at' => (int) $s['created_at'],
+                'last_ok_at' => $s['last_ok_at'] !== null ? (int) $s['last_ok_at'] : null,
+                'last_error' => ($s['last_error'] ?? '') !== '' && ($s['last_try_at'] ?? 0) > ($s['last_ok_at'] ?? 0) ? (string) $s['last_error'] : null,
+                'current' => $currentEndpoint !== '' && hash_equals((string) $s['endpoint_hash'], hash('sha256', $currentEndpoint))];
+        }
+        return $out;
+    }
+
+    /** Usuwa urządzenie z powiadomień (tylko własne). */
+    public function removeDevice(int $userId, int $id): bool
+    {
+        $st = $this->pdo->prepare('DELETE FROM push_subscriptions WHERE id = ? AND user_id = ?');
+        $st->execute([$id, $userId]);
+        return $st->rowCount() > 0;
     }
 
     /** Krótka nazwa urządzenia z nagłówka przeglądarki (iPhone, Android, Mac, Windows…). */

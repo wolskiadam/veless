@@ -188,6 +188,17 @@ $k2 = $kp->publicKey();
 check($k2 !== $k1 && (int) $keys->query('SELECT COUNT(*) FROM push_subscriptions')->fetchColumn() === 0,
     'regenerated VAPID keys drop subscriptions made with the old key (device re-subscribes on next visit)');
 
+// --- nazwa urządzenia z panelu (iPhone z „wersją komputerową” Safari wysyła nagłówek Maca) i lista urządzeń ---
+$okBefore = $push->deviceStatus('https://web.push.apple.com/adam', 1)['last_ok_at'];
+$push->subscribe(1, 'https://web.push.apple.com/adam', $adam['p256dh'], $adam['auth'], 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605', 'iPhone (aplikacja)<script>');
+$devs = $push->devices(1, 'https://web.push.apple.com/adam');
+check(count($devs) === 1 && $devs[0]['device'] === 'iPhone (aplikacja)script' && $devs[0]['current'] && $devs[0]['last_ok_at'] === $okBefore,
+    'device name from the panel wins over the Mac user agent, is sanitized, last delivery kept on re-save');
+$sent = [];
+$push->send(['title' => 'X'], 1);
+check(($push->devices(1)[0]['device'] ?? '') === 'iPhone (aplikacja)script', 'devices list for the account');
+check(!$push->removeDevice(2, $devs[0]['id']) && count($push->devices(1)) === 1, 'cannot remove another account\'s device');
+
 // --- zdarzenie „Pobrano zamówienie” w silniku reguł wysyła push ---
 $pdo->exec("INSERT INTO woo_orders VALUES (502, 'R7', 0, 'PLN', 'Anna', '" . gmdate('Y-m-d H:i:s') . "', NULL)");
 $pdo->exec('CREATE TABLE automation_rules (id INTEGER PRIMARY KEY, name TEXT, event TEXT, is_active INT, priority INT, conditions TEXT, actions TEXT, condition_match TEXT)');

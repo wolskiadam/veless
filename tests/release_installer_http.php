@@ -30,9 +30,9 @@ $rm = static function (string $path) use (&$rm): void {
     foreach (scandir($path) as $e) { if ($e !== '.' && $e !== '..') { $rm($path . '/' . $e); } }
     rmdir($path);
 };
-$serve = static function (string $docroot, array $env = []) use (&$procs, $temp): string {
+$serve = static function (string $docroot, array $env = [], ?string $router = null) use (&$procs, $temp): string {
     $httpPort = 18000 + random_int(0, 1999);
-    $procs[] = proc_open([PHP_BINARY, '-S', '127.0.0.1:' . $httpPort, '-t', $docroot], [1 => ['file', '/dev/null', 'w'], 2 => ['file', $temp . '/server-' . $httpPort . '.log', 'w']],
+    $procs[] = proc_open(array_merge([PHP_BINARY, '-S', '127.0.0.1:' . $httpPort, '-t', $docroot], $router !== null ? [$router] : []), [1 => ['file', '/dev/null', 'w'], 2 => ['file', $temp . '/server-' . $httpPort . '.log', 'w']],
         $pipes, null, $env + ['PATH' => getenv('PATH') ?: '/usr/bin', 'PHP_CLI_SERVER_WORKERS' => '4']);
     for ($i = 0; $i < 50 && @fsockopen('127.0.0.1', $httpPort) === false; ++$i) { usleep(100000); }
     return 'http://127.0.0.1:' . $httpPort;
@@ -84,7 +84,11 @@ try {
     // --- Instalacja przez przeglądarkę, budżet ~0: każdy krok wznawia się wiele razy ---
     $web = $temp . '/web/veless'; mkdir($web, 0755, true);
     copy($dist . '/instaluj.php', $web . '/instaluj.php');
-    $base = $serve($temp . '/web', ['VELESS_INSTALLER_BUDGET' => '0.02']);
+    // Jak hosting z .htaccess: gdy istnieje plik $guard, serwer odmawia .env, storage/ i paczek.
+    $guard = $temp . '/guard';
+    $router = $temp . '/router.php';
+    file_put_contents($router, '<?php $p = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH); if (is_file(' . var_export($guard, true) . ') && preg_match("#/\\.env$|/storage/|\\.zip$#", $p)) { http_response_code(403); echo "Forbidden"; return true; } return false;');
+    $base = $serve($temp . '/web', ['VELESS_INSTALLER_BUDGET' => '0.02'], $router);
     $http = $client($base . '/veless/instaluj.php');
     [, $page] = $http();
     check(str_contains($page, '✗') && str_contains($page, 'veless-&lt;wersja&gt;.zip') && str_contains($page, ' disabled'), 'Without the package the requirements page blocks the start');
@@ -146,15 +150,7 @@ try {
     exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($web . '/cli/worker.php') . ' 2>&1', $wout, $wrc);
     $lastRun = (int) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'WORKER_LAST_RUN_AT'")->fetchColumn();
     check($wrc === 0 && $lastRun >= time() - 120, 'Worker (cron) runs on the fresh installation: ' . substr(implode(' ', $wout), 0, 200));
-    $router = $temp . '/router.php';
-    file_put_contents($router, '<?php $p = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH); if (preg_match("#/\\.env$|/storage/|\\.zip$#", $p)) { http_response_code(403); echo "Forbidden"; return true; } return false;');
-    foreach ($procs as $p) { proc_terminate($p); }
-    $procs = [];
-    $httpPort = (int) parse_url($base, PHP_URL_PORT);
-    for ($i = 0; $i < 30 && @fsockopen('127.0.0.1', $httpPort) !== false; ++$i) { usleep(100000); }
-    $procs[] = proc_open([PHP_BINARY, '-S', '127.0.0.1:' . $httpPort, '-t', $temp . '/web', $router], [1 => ['file', '/dev/null', 'w'], 2 => ['file', $temp . '/server-guarded.log', 'w']],
-        $pipes, null, ['VELESS_INSTALLER_BUDGET' => '0.02', 'PATH' => getenv('PATH') ?: '/usr/bin', 'PHP_CLI_SERVER_WORKERS' => '4']);
-    for ($i = 0; $i < 50 && @fsockopen('127.0.0.1', $httpPort) === false; ++$i) { usleep(100000); }
+    touch($guard);
     [, $page] = $http();
     check(str_contains($page, 'są zablokowane z internetu') && str_contains($page, 'Cron działa'), 'With protection in place and worker running both checks pass');
     [, $page] = $http(['csrf' => $csrf($page), 'action' => 'finish']);

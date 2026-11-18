@@ -541,7 +541,7 @@ document.addEventListener('click', function(e) {
             }).join('');
         }).catch(function () {});
     }
-    // Urządzenia tego konta, które dostają powiadomienia (to urządzenie zaznaczone); inne można usunąć.
+    // Urządzenia tego konta, które dostają powiadomienia (bieżące zaznaczone); inne można usunąć.
     function loadDevices() {
         post({ action: 'devices', endpoint: endpoint }).then(function (d) {
             var el = box.querySelector('.nav-push-dev');

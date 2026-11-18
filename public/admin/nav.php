@@ -547,7 +547,7 @@ document.addEventListener('click', function(e) {
             var el = box.querySelector('.nav-push-dev');
             if (!el || !d.ok || !d.devices) { return; }
             el.innerHTML = '<div>Twoje urządzenia z powiadomieniami (' + d.devices.length + '):</div>' + d.devices.map(function (x) {
-                return '<div class="nav-push-devrow"><span><b>' + esc(x.device) + '</b>' + (x.current ? ' (to urządzenie)' : '')
+                return '<div class="nav-push-devrow"><span><b>' + esc(x.device) + '</b>' + (x.current ? ' (tutaj)' : '')
                     + ' · ' + (x.last_ok_at ? 'ostatnio ' + esc(when(x.last_ok_at)) : 'jeszcze nic nie doszło')
                     + (x.last_error ? ' · błąd: ' + esc(x.last_error) : '') + '</span>'
                     + (x.current ? '' : '<button type="button" data-push-remove="' + x.id + '" title="Usuń z powiadomień">Usuń</button>') + '</div>';

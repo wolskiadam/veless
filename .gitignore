@@ -48,3 +48,6 @@ __pycache__/
 
 # Grafiki produktów wersji demo (tworzy cli/demo_reset.php)
 /public/demo-img/
+
+# Paczki wydania (cli/build_release.php)
+/dist/

@@ -61,6 +61,10 @@ final class AppVersion
                 ->setTimezone(new \DateTimeZone('Europe/Warsaw'))->format('Y-m-d H:i');
         }
         $ver = self::VERSION . '.' . $build;
+        // Paczka wydania (cli/build_release.php) ma w build.json gotowy numer wersji, np. 1.0.170.
+        if ($deploy !== null && $deploy['version'] !== '') {
+            $ver = $deploy['version'];
+        }
         return [
             'name' => self::NAME, 'version' => $ver, 'build' => $build, 'date' => $date,
             'label' => self::NAME . ' v' . $ver . ($date !== '' ? '  |  ' . $date : ''),
@@ -68,7 +72,7 @@ final class AppVersion
         ];
     }
 
-    /** @return array{id:string,deployed_at:int,commit:string}|null */
+    /** @return array{id:string,deployed_at:int,commit:string,version:string}|null */
     private static function deployStamp(): ?array
     {
         $path = PASE_ROOT . '/config/build.json';
@@ -79,7 +83,8 @@ final class AppVersion
         if (!is_array($data) || !is_string($data['id'] ?? null) || $data['id'] === '' || !is_int($data['deployed_at'] ?? null)) {
             return null;
         }
-        return ['id' => $data['id'], 'deployed_at' => $data['deployed_at'], 'commit' => (string) ($data['commit'] ?? '')];
+        $version = is_string($data['version'] ?? null) && preg_match('/^\d+(\.\d+){1,3}$/D', $data['version']) ? $data['version'] : '';
+        return ['id' => $data['id'], 'deployed_at' => $data['deployed_at'], 'commit' => (string) ($data['commit'] ?? ''), 'version' => $version];
     }
 
     /** @param array<string,mixed> $state */

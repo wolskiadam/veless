@@ -170,6 +170,12 @@ jobs:
           CRM_TEST_MYSQL: '1'
           CRM_TEST_MYSQL_USER: root
           CRM_TEST_MYSQL_PASSWORD: isolated-test-only
+      - name: Kreator instalacji (instaluj.php + paczka wydania)
+        run: php tests/release_installer_http.php
+        env:
+          CRM_TEST_MYSQL: '1'
+          CRM_TEST_MYSQL_USER: root
+          CRM_TEST_MYSQL_PASSWORD: isolated-test-only
       - name: Księgowość na MySQL
         run: php tests/ksiegowosc.php
         env:

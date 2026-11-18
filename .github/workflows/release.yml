@@ -1,0 +1,38 @@
+name: Paczka wydania (instalacja przez kreator)
+
+# Buduje paczkę do instalacji jak WordPress: instaluj.php + veless-<wersja>.zip (cli/build_release.php).
+# Uruchamiane ręcznie (Actions → Run workflow) albo po wypchnięciu tagu v* (np. v1.0.170).
+# Wynik leży w artefaktach przebiegu; publikowanie dla subskrybentów to osobny etap.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Numer wersji (puste = 1.0.<numer przebiegu>)"
+        required: false
+        default: ""
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: zip
+          coverage: none
+      - name: Zbuduj paczkę
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then VERSION="${GITHUB_REF_NAME#v}"; fi
+          if [ -n "$VERSION" ]; then php cli/build_release.php --version="$VERSION" --out=dist; else php cli/build_release.php --out=dist; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: veless-instalacja
+          path: dist/*-instalacja.zip
+          retention-days: 30

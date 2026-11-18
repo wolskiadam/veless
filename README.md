@@ -277,6 +277,23 @@ W trybie demo (`src/Support/Demo.php`):
 - kopie zapasowe, migracja adresu, pobieranie agenta i reset hasła są wyłączone,
 - konta, 2FA, wtyczki, integracje i ustawienia wysyłki można oglądać, ale nie zmieniać.
 
+## Instalacja przez kreator w przeglądarce
+
+Najprostsza droga, bez SSH i bez ręcznej edycji `.env`:
+
+1. Pobierz `veless-<wersja>-instalacja.zip` i rozpakuj go u siebie. W środku są `instaluj.php`,
+   `veless-<wersja>.zip` i `INSTRUKCJA.txt`.
+2. Utwórz pustą bazę MySQL/MariaDB w panelu hostingu, a potem wgraj **oba pliki** (bez rozpakowywania
+   paczki) do katalogu, w którym ma działać system.
+3. Otwórz `https://twoja-domena.pl/<katalog>/instaluj.php`. Kreator sprawdza wymagania, pyta o bazę,
+   adres panelu i konto administratora, rozpakowuje pliki w porcjach (sumy SHA-256), zapisuje `.env`
+   i klucz szyfrowania, zakłada tabele, sprawdza, czy `.env` nie jest widoczny z internetu, podaje
+   linijkę crona z testem, a na końcu usuwa paczkę i samego siebie.
+
+Paczkę buduje `php cli/build_release.php` (albo workflow „Paczka wydania” w GitHub Actions).
+Zawiera to samo co wdrożenie FTP, bez testów, Dockera i danych. Test całej ścieżki:
+`CRM_TEST_MYSQL=1 php tests/release_installer_http.php`.
+
 ## Instalacja na hostingu współdzielonym
 
 Logowanie dwuetapowe zgodne z Google Authenticator: [konfiguracja i wdrożenie 2FA](TWO-FACTOR.md).

@@ -76,22 +76,24 @@ final class ClpPages
     public static function sheet(Store $s, array $r, int $n, string $page, array $hidden, string $pickers, string $info): string
     {
         $head = '<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Etykiety CLP</title>'
-            . '<style>@page{margin:6mm}body{font-family:system-ui,sans-serif;margin:0}.bar{padding:10px;background:#f6f5f2;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px}'
+            . '<style>@page{size:A4;margin:6mm}body{font-family:system-ui,sans-serif;margin:0}.bar{padding:10px;background:#f6f5f2;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px}'
             . '.bar form{margin:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.sheet{display:flex;flex-wrap:wrap;gap:2mm;padding:3mm;align-items:flex-start}'
-            . '.warn{background:#fdecec;color:#a11;padding:8px 10px;border-radius:6px;font-size:13px}.info{color:#666;font-size:13px}' . Clp::css()
+            . '.warn{background:#fdecec;color:#a11;padding:8px 10px;border-radius:6px;font-size:13px}.info{color:#666;font-size:13px}.clp-skip{visibility:hidden}' . Clp::css()
             . '@media print{.bar,.warn{display:none!important}}</style></head><body>';
+        $skip = max(0, min(200, (int) ($_GET['pomin'] ?? 0))); // zużyte miejsca na rozpoczętym arkuszu A4
         $form = '<form method="get" action="ext.php"><input type="hidden" name="page" value="produkcja.' . U::h($page) . '">';
         foreach ($hidden as $k => $v) {
             $form .= '<input type="hidden" name="' . U::h($k) . '" value="' . U::h($v) . '">';
         }
-        $form .= $pickers . ' Ile: <input type="number" name="n" min="1" max="500" value="' . $n . '" style="width:70px"> <button>Pokaż</button></form>';
+        $form .= $pickers . ' Ile: <input type="number" name="n" min="1" max="500" value="' . $n . '" style="width:70px">'
+            . ' Pomiń: <input type="number" name="pomin" min="0" max="200" value="' . $skip . '" style="width:60px" title="Ile etykiet na arkuszu A4 jest już zużytych - druk zacznie się od następnej"> <button>Pokaż</button></form>';
         $bar = '<div class="bar">' . $form . '<button onclick="print()">🖨 Drukuj</button><span class="info">' . U::h($info) . '</span>'
             . '<span class="warn" id="clp-over" hidden>Treść nie mieści się na etykiecie. Powiększ ją albo zmniejsz czcionkę we wzorze.</span></div>';
         if ($r['layout'] === null) {
             return $head . $bar . '<p style="padding:16px">Nie ma jeszcze wzoru etykiety CLP. Dodaj go w Produkcja → Etykiety CLP.</p></body></html>';
         }
         $one = Clp::label($r['layout'], $r['class'], $r['d']);
-        return $head . $bar . '<div class="sheet">' . str_repeat($one, $n) . '</div><script src="assets/qrcodegen.js"></script>' . Clp::script('clp-over') . '</body></html>';
+        return $head . $bar . '<div class="sheet">' . str_repeat(preg_replace('/^<div class="clp/', '<div aria-hidden="true" class="clp-skip clp', $one, 1), $skip) . str_repeat($one, $n) . '</div><script src="assets/qrcodegen.js"></script>' . Clp::script('clp-over') . '</body></html>';
     }
 
     /** Podpowiedzi SKU: produkty z przypisanym zapachem (gdy jest wtyczka Zapachy), inaczej wszystkie. */

@@ -43,6 +43,7 @@ Dane i wygląd są rozdzielone:
   dla produktów bez zapachu.
 - **Druk**: z karty partii (wzór i SKU produktu do wyboru, gdy partia nie ma wyrobu) albo z karty produktu (sekcja „Etykieta CLP”,
   numer partii z podpowiedzi). Na etykiecie: numer partii, GTIN (EAN produktu), UFI, masa netto (waga wyrobu albo produktu).
+  Arkusz drukuje się na A4; „Pomiń” zostawia puste miejsca po etykietach już zużytych na rozpoczętym arkuszu.
 - Podgląd wzoru i lista „Do sprawdzenia”: nieznane kody, „…” do uzupełnienia, piktogram mniejszy niż 1/15 etykiety (puste pole
   „Piktogram GHS” = najmniejszy dozwolony), czcionka poniżej 1,2 mm wysokości małych liter, brak producenta. Treść, która się nie
   mieści, ma czerwoną ramkę na ekranie.

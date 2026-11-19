@@ -309,6 +309,8 @@ try {
     ok(str_contains($pv, '🏷 Etykieta CLP') && str_contains($pv, 'produkcja.etykieta_produkt') && str_contains($pv, 'AD010LX02ABBA'), 'Product card offers the CLP label with recent batches');
     $lab = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'ad010lx02abba', 'n' => 3, 'wzor' => $clpId]))['body'];
     ok(substr_count($lab, 'class="clp round"') === 3 && str_contains($lab, 'ad010lx02abba') && str_contains($lab, 'Najlepiej do: 04.11.2028'), 'Label from the product card with a typed batch number');
+    $lab = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'X1', 'n' => 2, 'pomin' => 3, 'wzor' => $clpId]))['body'];
+    ok(substr_count($lab, 'class="clp-skip clp round"') === 3 && substr_count($lab, 'class="clp round"') === 2 && str_contains($lab, 'size:A4'), 'A4 sheet skips used labels');
     ok(str_contains(request($vi, $url('etykiety'))['body'], 'domyślny'), 'CLP list marks the default layout');
 
     // ---- Test spalania ze zdjęciem

@@ -21,6 +21,7 @@ final class ReleaseSignature
      * Dopóki lista jest pusta, aktualizacje z serwera się nie instalują (ręczne wgranie paczki działa).
      */
     public const PUBLIC_KEYS = [
+        '7QCi9kMZK601XWGjunypkCGjvlsNTLGYtTMhPOlHciM=', // Klub Woskarzy, 2026-11-19
     ];
 
     public static function available(): bool

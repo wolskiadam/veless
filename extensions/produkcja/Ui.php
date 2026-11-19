@@ -84,7 +84,7 @@ final class Ui
     /** Zakładki wtyczki nad treścią (ta sama nawigacja na telefonie i komputerze). */
     public static function tabs(string $active): string
     {
-        $tabs = ['pulpit' => 'Pulpit', 'materialy' => 'Materiały i magazyn', 'wyroby' => 'Wyroby', 'partie' => 'Partie', 'testy' => 'Testy spalania'];
+        $tabs = ['pulpit' => 'Pulpit', 'materialy' => 'Materiały i magazyn', 'wyroby' => 'Wyroby', 'partie' => 'Partie', 'etykiety' => 'Etykiety CLP', 'testy' => 'Testy spalania'];
         $html = '<nav class="pr-tabs">';
         foreach ($tabs as $k => $label) {
             $html .= '<a class="' . ($k === $active ? 'on' : '') . '" href="' . self::h(self::url($k)) . '">' . $label . '</a>';

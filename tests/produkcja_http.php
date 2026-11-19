@@ -90,7 +90,8 @@ try {
     $pdo->exec("INSERT INTO order_statuses (status_key,label,color,position) VALUES ('new','Nowe','#8a8f98',1),('processing','W realizacji','#c28a2b',2),('shipped','Wysłane','#2f8f5b',3)");
     $pdo->exec('CREATE TABLE integration_accounts (id INTEGER PRIMARY KEY, type TEXT, name TEXT, is_active INTEGER, config TEXT)');
     $pdo->exec("INSERT INTO integration_accounts (id, type, name, is_active, config) VALUES (1, 'woocommerce', 'Mój Sklep', 1, '{}')");
-    $pdo->exec('CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, pase_stock INTEGER, pase_price REAL, images TEXT, ean TEXT, actual_stock INTEGER NULL, actual_stock_set_at TEXT NULL)');
+    $pdo->exec('CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, pase_stock INTEGER, pase_price REAL, images TEXT, ean TEXT, actual_stock INTEGER NULL, actual_stock_set_at TEXT NULL,
+        weight REAL, length REAL, width REAL, height REAL, description TEXT, short_description TEXT, attributes TEXT, categories TEXT, custom_fields TEXT)');
     $pdo->exec("INSERT INTO products (id, sku, name, pase_stock, pase_price, actual_stock) VALUES (1, 'GB-1L', 'GINGERBREAD 1l', 5, 49.9, 3), (2, 'MW-1L', 'MULLED WINE 1l', 5, 39.9, NULL)");
     $pdo->exec("CREATE TABLE woo_orders (id INTEGER PRIMARY KEY, woo_order_id INTEGER UNIQUE, integration_id INTEGER, pase_number INTEGER, order_number TEXT, status TEXT,
         pase_status TEXT, currency TEXT, total REAL, customer_name TEXT, customer_email TEXT, date_created TEXT, imported_at TEXT, updated_at TEXT,
@@ -271,6 +272,46 @@ try {
     // ---- Etykiety
     $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 3]))['body'];
     ok(substr_count($lab, 'class="l"') === 3 && str_contains($lab, 'AD010LX02ABBA') && str_contains($lab, '04.11.2028') && str_contains($lab, 'Klub Woskarzy'), 'Label sheet with number, best-before and maker');
+
+    // ---- Etykiety CLP: wzór wyglądu z własną klasyfikacją (bez Zapachów), druk z numerem partii
+    ok(str_contains(request($vi, $url('etykiety'))['body'], 'Dodaj pierwszy wzór etykiety'), 'CLP list starts empty');
+    $post($vi, 'clp_zapisz', ['name' => 'X']);
+    ok((int) $pdo->query('SELECT COUNT(*) FROM ext_prod_clp')->fetchColumn() === 0, 'Viewer cannot add a CLP template');
+    $png = "$temp/ikony.png";
+    $im = imagecreatetruecolor(120, 40); imagepng($im, $png);
+    $csrfF = csrfOf(request($ola, $url('clp', ['nowy' => 1]))['body']);
+    $r = request($ola, $url('clp_zapisz'), ['csrf' => $csrfF, 'name' => 'Okrągła 70', 'shape' => 'round', 'width_mm' => '70', 'title_mode' => 'product', 'subtitle' => 'Sojowa świeca zapachowa',
+        'warning' => 'Przed użyciem zapoznaj się z etykietą.', 'qr_text' => 'https://example.com/{sku}', 'font_pt' => '6,8', 'is_default' => '1', 'show_dates' => '1',
+        'signal_word' => 'Uwaga', 'pictograms[0]' => 'GHS07', 'pictograms[1]' => 'XXX', 'hazards' => 'H317, H412', 'precautions' => "P101 P102\nP501 Zawartość/pojemnik usuwać do zbiorników do segregacji odpadów.",
+        'contains_text' => 'citral, linalol', 'extra' => 'EUH210', 'ufi' => 'ab12-cd34-ef56-gh78', 'safety_img' => new CURLFile($png, 'image/png', 'ikony.png')]);
+    $clpId = $locId($r);
+    $crow = $pdo->query("SELECT * FROM ext_prod_clp WHERE id = '$clpId'")->fetch(PDO::FETCH_ASSOC);
+    ok($r['status'] === 302 && $crow['shape'] === 'round' && $crow['pictograms'] === 'GHS07' && $crow['ufi'] === 'AB12-CD34-EF56-GH78' && str_starts_with((string) $crow['safety_img'], 'data:image/png;base64,')
+        && (int) $crow['is_default'] === 1, 'Layout saved: round, own classification, safety image');
+    $cc = request($vi, $url('clp', ['id' => $clpId]))['body'];
+    ok(str_contains($cc, 'Może powodować reakcję alergiczną skóry.') && str_contains($cc, 'Chronić przed dziećmi.') && str_contains($cc, 'EUH208:</b> Zawiera citral, linalol. Może wywoływać')
+        && str_contains($cc, '<b>Uwaga!</b> Przed użyciem') && str_contains($cc, 'SOJOWA ŚWIECA ZAPACHOWA') && str_contains($cc, 'class="clp round"') && str_contains($cc, 'class="clp-safe"'), 'Layout card preview: round label with phrases, EUH208 and safety icons');
+    ok(str_contains(request($vi, $url('partia', ['id' => $b1]))['body'], 'Etykiety CLP'), 'Batch card button says CLP');
+    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 2]))['body'];
+    ok(substr_count($lab, 'class="clp round"') === 2 && str_contains($lab, 'Nr partii: <b class="clp-lot">AD010LX02ABBA</b>') && str_contains($lab, 'Najlepiej do: 04.11.2028')
+        && str_contains($lab, '210,5 g') && str_contains($lab, 'Klub Woskarzy') && str_contains($lab, 'UFI: AB12-CD34-EF56-GH78') && str_contains($lab, 'data-text="https://example.com/GB-1L"')
+        && str_contains($lab, 'GINGERBREAD 1L') && str_contains($lab, 'własna klasyfikacja wzoru'), 'Batch prints the CLP label with number, weight, maker, QR');
+    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 1, 'wzor' => 'prosta']))['body'];
+    ok(!str_contains($lab, 'class="clp') && substr_count($lab, 'class="l"') === 1, 'Simple batch label can still be chosen');
+    $r = request($ola, $url('clp_zapisz'), ['csrf' => $csrfF, 'name' => 'Prostokąt 90×50', 'shape' => 'rect', 'width_mm' => '90', 'height_mm' => '50', 'title_mode' => 'own', 'title' => 'Świeca sojowa Piernik', 'font_pt' => '7']);
+    $clp2 = $locId($r);
+    ok(str_contains(request($ola, $url('wyrob', ['id' => $prod, 'edytuj' => 1]))['body'], 'name="clp_id"'), 'Product form has the layout select');
+    $post($ola, 'wyrob_zapisz', ['id' => $prod, 'name' => 'Świeca Piernik 180', 'sku' => 'GB-1L', 'price' => '49,90', 'vat' => '23', 'shelf_life_months' => '24', 'min_stock' => '10', 'weight_g' => '210,5', 'clp_id' => $clp2,
+        'recipe' => [['material_id' => $wax, 'qty' => '180'], ['material_id' => $scent, 'qty' => '14'], ['material_id' => $wick, 'qty' => '1'], ['material_id' => $jar, 'qty' => '1']]]);
+    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 1]))['body'];
+    ok(str_contains($lab, 'ŚWIECA SOJOWA PIERNIK') && str_contains($lab, 'width:90mm;height:50mm') && str_contains($lab, 'Brak danych CLP'), 'Product layout wins; without own classification no CLP data');
+    $pv = request($vi, 'admin/product_view.php?id=1')['body'];
+    ok(str_contains($pv, '🏷 Etykieta CLP') && str_contains($pv, 'produkcja.etykieta_produkt') && str_contains($pv, 'AD010LX02ABBA'), 'Product card offers the CLP label with recent batches');
+    $lab = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'ad010lx02abba', 'n' => 3, 'wzor' => $clpId]))['body'];
+    ok(substr_count($lab, 'class="clp round"') === 3 && str_contains($lab, 'ad010lx02abba') && str_contains($lab, 'Najlepiej do: 04.11.2028'), 'Label from the product card with a typed batch number');
+    $lab = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'X1', 'n' => 2, 'pomin' => 3, 'wzor' => $clpId]))['body'];
+    ok(substr_count($lab, 'class="clp-skip clp round"') === 3 && substr_count($lab, 'class="clp round"') === 2 && str_contains($lab, 'size:A4'), 'A4 sheet skips used labels');
+    ok(str_contains(request($vi, $url('etykiety'))['body'], 'domyślny'), 'CLP list marks the default layout');
 
     // ---- Test spalania ze zdjęciem
     $img = imagecreatetruecolor(40, 60);

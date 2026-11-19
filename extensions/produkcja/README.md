@@ -30,6 +30,25 @@ i numer partii przy zamówieniu. Kod numerów partii pochodzi z wtyczki WordPres
   na wszystkie sztuki, a pod listą „Materiały razem”. Zapach z wariantu zamówienia wygrywa z recepturą.
   Pole „Waga (g)” wyrobu pokazuje się w kolumnie „Waga”.
 
+## Etykiety CLP
+
+Dane i wygląd są rozdzielone:
+
+- **Klasyfikacja** jest przy olejku w wtyczce **Zapachy** (karta zapachu → „Etykieta CLP - mieszaniny”): osobno dla każdego
+  stężenia (np. 6%, 8%, 10%) - piktogramy GHS, hasło, zwroty H i P (same kody, tekst wstawia się sam), EUH208 / „Zawiera:”, UFI.
+  Na karcie produktu w Magazynie przy zapachu wybiera się stężenie. Zapachy oddają klasyfikację przez filtr `clp.product`.
+- **Wygląd** to wzór w **Produkcja → Etykiety CLP**: okrąg albo prostokąt, rozmiar, tytuł (nazwa zapachu / produktu / własny),
+  podtytuł, linijka ostrzeżenia, obrazek z piktogramami bezpieczeństwa świecy, symbol recyklingu, kod QR (adres z {sku}, {partia},
+  {gtin}), producent, czcionka. Jeden wzór jest domyślny; wyrób może mieć własny. Wzór może mieć też własną klasyfikację
+  dla produktów bez zapachu.
+- **Druk**: z karty partii (wzór i SKU produktu do wyboru, gdy partia nie ma wyrobu) albo z karty produktu (sekcja „Etykieta CLP”,
+  numer partii z podpowiedzi). Na etykiecie: numer partii, GTIN (EAN produktu), UFI, masa netto (waga wyrobu albo produktu).
+  Arkusz drukuje się na A4; „Pomiń” zostawia puste miejsca po etykietach już zużytych na rozpoczętym arkuszu.
+- Podgląd wzoru i lista „Do sprawdzenia”: nieznane kody, „…” do uzupełnienia, piktogram mniejszy niż 1/15 etykiety (puste pole
+  „Piktogram GHS” = najmniejszy dozwolony), czcionka poniżej 1,2 mm wysokości małych liter, brak producenta. Treść, która się nie
+  mieści, ma czerwoną ramkę na ekranie.
+- Wspólny kod: `src/Services/Clp.php` (słownik zwrotów, piktogramy GHS01-GHS09 z domeny publicznej w `src/Services/clp/`).
+
 ## Numer partii
 
 Domyślny wzór: `{DC}{MC}{YC}{PR}{FC}{WC}{SC}{WK}{QTY}{PC}`, np. `AJLXPKS102ABB1500A` = 9 listopada 2026, wyrób PK, forma/pojemnik S1,

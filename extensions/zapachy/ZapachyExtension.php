@@ -64,6 +64,43 @@ final class ZapachyExtension extends AbstractExtension
                 $f = $s->fragrance((string) ($_GET['id'] ?? ''));
                 return $f === null ? '<div class="flash err">Nie ma takiego zapachu.</div>' : Pages::card($s, $ctx, $f);
             }]);
+        Hooks::addPage('clp', ['title' => 'Etykieta CLP zapachu', 'menu' => false, 'role' => 'editor',
+            'render' => static function (PDO $pdo, array $ctx) use ($store): string {
+                $s = $store();
+                $f = $s->fragrance((string) ($_GET['zapach'] ?? ''));
+                $m = isset($_GET['id']) ? $s->mixture((string) $_GET['id']) : [];
+                if ($f === null || $m === null || ($m !== [] && $m['fragrance_id'] !== $f['id'])) {
+                    return '<div class="flash err">Nie ma takiego zapachu albo stężenia.</div>';
+                }
+                return Pages::mixtureForm($s, $ctx, $f, $m);
+            }]);
+        Hooks::addPage('clp_zapisz', ['title' => 'Etykieta CLP zapachu', 'menu' => false, 'role' => 'editor',
+            'render' => static function (PDO $pdo, array $ctx) use ($store, $go): string {
+                $s = $store();
+                $f = $s->fragrance((string) ($_POST['fragrance_id'] ?? ''));
+                $id = (string) ($_POST['id'] ?? '');
+                $old = $id !== '' ? $s->mixture($id) : null;
+                if (!$ctx['post'] || $f === null || ($id !== '' && ($old === null || $old['fragrance_id'] !== $f['id']))) {
+                    $go('lista');
+                }
+                if ($old !== null && !empty($_POST['delete'])) {
+                    $s->deleteMixture($id);
+                    flash('Usunięto stężenie ' . Store::percent($old['percent']) . '.');
+                    header('Location: ' . U::url('zapach', ['id' => $f['id']]) . '#clp');
+                    exit;
+                }
+                try {
+                    $m = $s->saveMixture($old['id'] ?? null, (string) $f['id'], $_POST);
+                    flash('Zapisano dane CLP dla stężenia ' . Store::percent($m['percent']) . '.');
+                    header('Location: ' . U::url('clp', ['zapach' => $f['id'], 'id' => $m['id']]));
+                    exit;
+                } catch (\RuntimeException $e) {
+                    flash($e->getMessage(), 'err');
+                    return Pages::mixtureForm($s, $ctx, $f, $old ?? [], $_POST);
+                }
+            }]);
+        // Klasyfikacja CLP produktu dla etykiet (Produkcja): zapach przy produkcie + wybrane stężenie.
+        Hooks::addFilter('clp.product', static fn(?array $found, int $productId) => $found ?? $store()->clpForProduct($productId));
         Hooks::addPage('edytuj', ['title' => 'Zapach', 'menu' => false, 'role' => 'editor',
             'render' => static function (PDO $pdo, array $ctx) use ($store): string {
                 $s = $store();
@@ -157,7 +194,7 @@ final class ZapachyExtension extends AbstractExtension
                 $pid = (int) ($_POST['product_id'] ?? 0);
                 if ($ctx['post'] && $pid > 0) {
                     $s = $store();
-                    $s->setProductFragrances($pid, (array) ($_POST['fragrances'] ?? []), $user($ctx));
+                    $s->setProductFragrances($pid, (array) ($_POST['fragrances'] ?? []), $user($ctx), isset($_POST['clp']) ? array_map('strval', (array) $_POST['clp']) : null);
                     $now = $s->forProducts([$pid])[$pid] ?? [];
                     flash($now === [] ? 'Produkt nie ma już zapachu.' : 'Zapach produktu: ' . implode(', ', array_map([Store::class, 'label'], $now)) . '.');
                 }

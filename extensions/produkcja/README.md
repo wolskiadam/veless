@@ -32,20 +32,21 @@ i numer partii przy zamówieniu. Kod numerów partii pochodzi z wtyczki WordPres
 
 ## Etykiety CLP
 
-**Produkcja → Etykiety CLP**: wzory etykiet CLP - piktogramy GHS01-GHS09, hasło ostrzegawcze (Uwaga / Niebezpieczeństwo), zwroty H i P,
-„Zawiera: …”, informacje dodatkowe (EUH208, EUH210, zasady palenia świecy), UFI, masa netto, dane dostawcy i rozmiar etykiety.
-Zwroty wpisuje się kodami (`H317, H412`, `P302+P352`) - polski tekst wstawia się sam ze słownika (`Clp::PHRASES`); linia z kodem
-i własną treścią albo zwykły tekst zostaje bez zmian. Klasyfikację przepisuje się z karty charakterystyki olejku, system jej nie liczy.
+Dane i wygląd są rozdzielone:
 
-- Wzór wybiera się na karcie **wyrobu** (pole „Etykieta CLP”) albo **zapachu** w Materiałach. Przy druku partii: wzór wyrobu,
-  a gdy go nie ma - wzór zapachu z partii (u partii zaimportowanych: zapach z uwag „Zapach: …”). Na stronie etykiet można też wybrać
-  wzór ręcznie albo prostą etykietę partii.
-- Etykieta dostaje numer partii, datę produkcji, „Najlepiej do”, masę netto („Waga (g)” wyrobu, gdy wzór jej nie ma) i producenta
-  z ustawień, gdy wzór nie ma własnego.
-- Karta wzoru ma podgląd w prawdziwym rozmiarze i listę „Do sprawdzenia”: nieznane kody, „…” do uzupełnienia, piktogramy bez hasła
-  albo zwrotów H, brak dostawcy, za mały piktogram (romb ≥ 1/15 etykiety i ≥ 1 cm²; puste pole „Piktogram” = najmniejszy dozwolony)
-  i za mała czcionka (małe litery ≥ 1,2 mm). Tekst, który się nie mieści, ma czerwoną ramkę na ekranie.
-- Piktogramy (domena publiczna, UNECE) leżą w `assets/clp/` i są wstawiane w stronę, więc drukują się bez internetu.
+- **Klasyfikacja** jest przy olejku w wtyczce **Zapachy** (karta zapachu → „Etykieta CLP - mieszaniny”): osobno dla każdego
+  stężenia (np. 6%, 8%, 10%) - piktogramy GHS, hasło, zwroty H i P (same kody, tekst wstawia się sam), EUH208 / „Zawiera:”, UFI.
+  Na karcie produktu w Magazynie przy zapachu wybiera się stężenie. Zapachy oddają klasyfikację przez filtr `clp.product`.
+- **Wygląd** to wzór w **Produkcja → Etykiety CLP**: okrąg albo prostokąt, rozmiar, tytuł (nazwa zapachu / produktu / własny),
+  podtytuł, linijka ostrzeżenia, obrazek z piktogramami bezpieczeństwa świecy, symbol recyklingu, kod QR (adres z {sku}, {partia},
+  {gtin}), producent, czcionka. Jeden wzór jest domyślny; wyrób może mieć własny. Wzór może mieć też własną klasyfikację
+  dla produktów bez zapachu.
+- **Druk**: z karty partii (wzór i SKU produktu do wyboru, gdy partia nie ma wyrobu) albo z karty produktu (sekcja „Etykieta CLP”,
+  numer partii z podpowiedzi). Na etykiecie: numer partii, GTIN (EAN produktu), UFI, masa netto (waga wyrobu albo produktu).
+- Podgląd wzoru i lista „Do sprawdzenia”: nieznane kody, „…” do uzupełnienia, piktogram mniejszy niż 1/15 etykiety (puste pole
+  „Piktogram GHS” = najmniejszy dozwolony), czcionka poniżej 1,2 mm wysokości małych liter, brak producenta. Treść, która się nie
+  mieści, ma czerwoną ramkę na ekranie.
+- Wspólny kod: `src/Services/Clp.php` (słownik zwrotów, piktogramy GHS01-GHS09 z domeny publicznej w `src/Services/clp/`).
 
 ## Numer partii
 

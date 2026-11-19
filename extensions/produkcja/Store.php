@@ -69,10 +69,14 @@ final class Store
             'ext_prod_tests' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, product_id VARCHAR(16) NULL, batch_id VARCHAR(16) NULL, tested_at VARCHAR(10) NOT NULL,
                 wick VARCHAR(200) NOT NULL, result VARCHAR(8) NOT NULL, measurements TEXT NOT NULL, notes TEXT NOT NULL, photo VARCHAR(64) NOT NULL,
                 photo_mime VARCHAR(40) NOT NULL, created_by VARCHAR(100) NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
-            'ext_prod_clp' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, name VARCHAR(200) NOT NULL, title VARCHAR(200) NOT NULL, signal_word VARCHAR(20) NOT NULL,
-                pictograms VARCHAR(100) NOT NULL, hazards TEXT NOT NULL, precautions TEXT NOT NULL, contains_text TEXT NOT NULL, extra TEXT NOT NULL,
-                ufi VARCHAR(20) NOT NULL, net_qty VARCHAR(40) NOT NULL, maker TEXT NOT NULL, width_mm INT NOT NULL DEFAULT 100, height_mm INT NOT NULL DEFAULT 60,
-                pict_mm INT NOT NULL DEFAULT 0, font_pt DECIMAL(4,1) NOT NULL DEFAULT 7, archived INT NOT NULL DEFAULT 0,
+            // Wzór (wygląd) etykiety CLP; klasyfikację daje zapach produktu (wtyczka Zapachy), własna tylko awaryjnie.
+            'ext_prod_clp' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, name VARCHAR(200) NOT NULL, shape VARCHAR(8) NOT NULL DEFAULT \'rect\',
+                width_mm INT NOT NULL DEFAULT 100, height_mm INT NOT NULL DEFAULT 60, title_mode VARCHAR(8) NOT NULL DEFAULT \'scent\', title VARCHAR(200) NOT NULL,
+                subtitle VARCHAR(200) NOT NULL, warning VARCHAR(300) NOT NULL, safety_img MEDIUMTEXT NULL, safety_mm INT NOT NULL DEFAULT 0,
+                recycle_img MEDIUMTEXT NULL, qr_text VARCHAR(500) NOT NULL, maker TEXT NOT NULL, net_qty VARCHAR(40) NOT NULL,
+                show_codes INT NOT NULL DEFAULT 0, show_dates INT NOT NULL DEFAULT 0, pict_mm INT NOT NULL DEFAULT 0, font_pt DECIMAL(4,1) NOT NULL DEFAULT 7,
+                is_default INT NOT NULL DEFAULT 0, signal_word VARCHAR(20) NOT NULL, pictograms VARCHAR(100) NOT NULL, hazards TEXT NOT NULL,
+                precautions TEXT NOT NULL, contains_text TEXT NOT NULL, extra TEXT NOT NULL, ufi VARCHAR(20) NOT NULL, archived INT NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
             'ext_prod_order_batches' => 'order_id INT NOT NULL, item_idx INT NOT NULL, sku VARCHAR(191) NOT NULL, item_name VARCHAR(255) NOT NULL,
                 batch_code VARCHAR(60) NOT NULL, batch_id VARCHAR(16) NULL, qty INT NOT NULL, created_by VARCHAR(100) NULL,
@@ -102,13 +106,11 @@ final class Store
         } catch (\PDOException) {
             // już jest (nowa instalacja)
         }
-        // Wersja 4: wzór etykiety CLP przy wyrobie i przy zapachu (materiale).
-        foreach (['ext_prod_products', 'ext_prod_materials'] as $tbl) {
-            try {
-                $this->pdo->exec('ALTER TABLE ' . $tbl . ' ADD COLUMN clp_id VARCHAR(16) NULL');
-            } catch (\PDOException) {
-                // już jest
-            }
+        // Wersja 4: wzór etykiety CLP przy wyrobie.
+        try {
+            $this->pdo->exec('ALTER TABLE ext_prod_products ADD COLUMN clp_id VARCHAR(16) NULL');
+        } catch (\PDOException) {
+            // już jest
         }
         // Stary wzór Rejestru Partii (ilość do 999, bez wyrobu i formy) zamieniamy na nowy domyślny. Własny wzór zostaje.
         $cfg = json_decode((string) $settings->get('EXT_PRODUKCJA', ''), true);
@@ -224,7 +226,7 @@ final class Store
             $args[] = $cat;
         }
         $rows = $this->all($sql . ' GROUP BY m.id, m.name, m.category, m.code, m.unit, m.min_stock, m.supplier, m.fill_g, m.notes, m.archived,
-            m.created_at, m.updated_at, m.clp_id ORDER BY m.name', $args);
+            m.created_at, m.updated_at ORDER BY m.name', $args);
         $prices = $this->unitPrices();
         foreach ($rows as &$r) {
             $r['stock'] = (float) $r['stock'];
@@ -284,9 +286,6 @@ final class Store
             'notes' => mb_substr(trim((string) ($in['notes'] ?? '')), 0, 2000),
             'updated_at' => self::now(),
         ];
-        if (array_key_exists('clp_id', $in)) {
-            $row['clp_id'] = $this->clpIdOrNull((string) $in['clp_id']);
-        }
         $dupe = $this->one('SELECT id FROM ext_prod_materials WHERE LOWER(name) = LOWER(?) AND archived = 0' . ($id !== null ? ' AND id <> ?' : ''),
             $id !== null ? [$row['name'], $id] : [$row['name']]);
         if ($dupe !== null) {
@@ -311,7 +310,7 @@ final class Store
     /** @return list<array<string,mixed>> */
     public function clps(bool $archived = false): array
     {
-        return $this->all('SELECT * FROM ext_prod_clp WHERE archived = ? ORDER BY name', [$archived ? 1 : 0]);
+        return $this->all('SELECT * FROM ext_prod_clp WHERE archived = ? ORDER BY is_default DESC, name', [$archived ? 1 : 0]);
     }
 
     /** @return array<string,string> id => nazwa (do list wyboru) */
@@ -325,48 +324,92 @@ final class Store
         return $id !== '' && $this->clp($id) !== null ? $id : null;
     }
 
-    /** Wyroby i zapachy, które używają wzoru. @return array{products:list<array<string,mixed>>,materials:list<array<string,mixed>>} */
+    /** Wyroby z tym wzorem. @return list<array<string,mixed>> */
     public function clpUsers(string $id): array
     {
-        return ['products' => $this->all('SELECT id, name, sku FROM ext_prod_products WHERE clp_id = ? AND archived = 0 ORDER BY name', [$id]),
-            'materials' => $this->all('SELECT id, name, category FROM ext_prod_materials WHERE clp_id = ? AND archived = 0 ORDER BY name', [$id])];
+        return $this->all('SELECT id, name, sku FROM ext_prod_products WHERE clp_id = ? AND archived = 0 ORDER BY name', [$id]);
     }
 
-    public function saveClp(?string $id, array $in): array
+    /** Wzór domyślny (zaznaczony albo pierwszy). */
+    public function defaultClp(): ?array
+    {
+        return $this->clps()[0] ?? null;
+    }
+
+    /** Obrazek z formularza ($_FILES) jako data: URI. Null = bez zmian. */
+    public static function imageUpload(?array $f): ?string
+    {
+        if ($f === null || ($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            return null;
+        }
+        if (($f['error'] ?? 1) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $f['tmp_name'])) {
+            throw new \RuntimeException('Nie udało się wgrać obrazka.');
+        }
+        if ((int) $f['size'] > 3 * 1024 * 1024) {
+            throw new \RuntimeException('Obrazek jest za duży (najwięcej 3 MB).');
+        }
+        $data = (string) file_get_contents((string) $f['tmp_name']);
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($data) ?: '';
+        if ($mime === 'image/svg' || $mime === 'text/xml' || $mime === 'application/xml' || ($mime === 'text/plain' && str_contains($data, '<svg'))) {
+            $mime = 'image/svg+xml';
+        }
+        if (!in_array($mime, ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml'], true)) {
+            throw new \RuntimeException('Obrazek musi być PNG, JPG, WEBP, GIF albo SVG.');
+        }
+        return 'data:' . $mime . ';base64,' . base64_encode($data);
+    }
+
+    /** @param array<string,?string> $images safety_img / recycle_img: data URI, '' = usuń, null = bez zmian */
+    public function saveClp(?string $id, array $in, array $images = []): array
     {
         $name = trim((string) ($in['name'] ?? ''));
         if ($name === '') {
-            throw new \RuntimeException('Wpisz nazwę wzoru, np. „Olejek Piernik 10%”.');
+            throw new \RuntimeException('Wpisz nazwę wzoru, np. „Okrągła 60 mm”.');
         }
-        $pict = array_values(array_intersect(array_keys(Clp::PICTOGRAMS), array_map('strval', (array) ($in['pictograms'] ?? []))));
-        $txt = static fn(string $k, int $max = 4000): string => mb_substr(trim(str_replace("\r", '', (string) ($in[$k] ?? ''))), 0, $max);
+        $txt = static fn(string $k, int $max): string => mb_substr(trim(str_replace("\r", '', (string) ($in[$k] ?? ''))), 0, $max);
         $int = static fn(string $k, int $d, int $min, int $max): int => ($v = self::num($in[$k] ?? '')) === null ? $d : max($min, min($max, (int) round($v)));
+        $opt = static fn(string $k): int => ($v = self::num($in[$k] ?? '')) === null || $v <= 0 ? 0 : max(5, min(120, (int) round($v)));
         $font = self::num($in['font_pt'] ?? '');
         $row = [
             'name' => mb_substr($name, 0, 200),
-            'title' => $txt('title', 200),
-            'signal_word' => in_array((string) ($in['signal_word'] ?? ''), Clp::SIGNALS, true) ? (string) $in['signal_word'] : '',
-            'pictograms' => implode(',', $pict),
-            'hazards' => $txt('hazards'),
-            'precautions' => $txt('precautions'),
-            'contains_text' => $txt('contains_text', 1000),
-            'extra' => $txt('extra'),
-            'ufi' => strtoupper(mb_substr(preg_replace('/[^A-Za-z0-9-]/', '', (string) ($in['ufi'] ?? '')) ?? '', 0, 20)),
-            'net_qty' => $txt('net_qty', 40),
-            'maker' => $txt('maker', 1000),
+            'shape' => ($in['shape'] ?? '') === 'round' ? 'round' : 'rect',
             'width_mm' => $int('width_mm', 100, 20, 300),
             'height_mm' => $int('height_mm', 60, 15, 300),
-            'pict_mm' => ($pm = self::num($in['pict_mm'] ?? '')) === null || $pm <= 0 ? 0 : max(8, min(80, (int) round($pm))),
+            'title_mode' => in_array((string) ($in['title_mode'] ?? ''), ['scent', 'product', 'own'], true) ? (string) $in['title_mode'] : 'scent',
+            'title' => $txt('title', 200),
+            'subtitle' => $txt('subtitle', 200),
+            'warning' => $txt('warning', 300),
+            'safety_mm' => $opt('safety_mm'),
+            'qr_text' => $txt('qr_text', 500),
+            'maker' => $txt('maker', 1000),
+            'net_qty' => $txt('net_qty', 40),
+            'show_codes' => !empty($in['show_codes']) ? 1 : 0,
+            'show_dates' => !empty($in['show_dates']) ? 1 : 0,
+            'pict_mm' => $opt('pict_mm'),
             'font_pt' => $font === null ? 7.0 : max(4.0, min(20.0, round($font, 1))),
+            'is_default' => !empty($in['is_default']) ? 1 : 0,
             'updated_at' => self::now(),
-        ];
-        if ($id === null) {
-            $id = self::id();
-            $this->insert('ext_prod_clp', ['id' => $id, 'archived' => 0, 'created_at' => self::now()] + $row);
-        } else {
-            $this->update('ext_prod_clp', $id, $row + ['archived' => !empty($in['archived']) ? 1 : 0]);
+        ] + \Pase\Services\Clp::classFromInput($in);
+        $row['contains_text'] = \Pase\Services\Clp::containsFromInput($in);
+        foreach (['safety_img', 'recycle_img'] as $k) {
+            if (!empty($in[$k . '_remove'])) {
+                $row[$k] = null;
+            } elseif (($images[$k] ?? null) !== null) {
+                $row[$k] = $images[$k];
+            }
         }
-        return $this->clp($id) ?? [];
+        return $this->tx(function () use ($id, $row, $in): array {
+            if ($row['is_default'] === 1) {
+                $this->run('UPDATE ext_prod_clp SET is_default = 0');
+            }
+            if ($id === null) {
+                $id = self::id();
+                $this->insert('ext_prod_clp', ['id' => $id, 'archived' => 0, 'created_at' => self::now()] + $row);
+            } else {
+                $this->update('ext_prod_clp', $id, $row + ['archived' => !empty($in['archived']) ? 1 : 0]);
+            }
+            return $this->clp($id) ?? [];
+        });
     }
 
     // ---------------------------------------------------------------- dostawy

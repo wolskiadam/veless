@@ -118,9 +118,7 @@ final class BatchPages
             . '<div class="pr-top"><div><h2 style="margin:0" class="pr-code">' . U::h($b['code']) . '</h2><p>' . U::h($b['product_name']) . ' · ' . (int) $b['qty'] . ' szt. · ' . U::date($b['produced_at'])
             . ($draft ? ' · <span class="pill info">wycena robocza</span>' : '') . ($deleted ? ' · <span class="pill bad">w koszu</span>' : '') . '</p></div><div class="pr-actions">';
         if (!$draft && !$deleted) {
-            $clp = Clp::forBatch($s, $b, $b['product_id'] !== null ? ($s->product((string) $b['product_id']) ?? []) : []);
-            $html .= '<a class="btn secondary" target="_blank" rel="noopener" href="' . U::h(U::url('etykieta', ['id' => $b['id']])) . '"'
-                . ($clp['clp'] !== null ? ' title="' . U::h('Wzór „' . $clp['clp']['name'] . '” ' . $clp['from']) . '"' : '') . '>🖨 ' . ($clp['clp'] !== null ? 'Etykiety CLP' : 'Etykiety') . '</a>';
+            $html .= '<a class="btn secondary" target="_blank" rel="noopener" href="' . U::h(U::url('etykieta', ['id' => $b['id']])) . '">🖨 ' . ($s->defaultClp() !== null ? 'Etykiety CLP' : 'Etykiety') . '</a>';
         }
         if ($ctx['canEdit'] && !$deleted) {
             if ($draft) {
@@ -352,43 +350,23 @@ final class BatchPages
             . 'Brakuje czegoś na liście? <a href="' . U::h(U::url('material', ['nowy' => 1])) . '">Dodaj materiał</a>.</p>';
     }
 
-    /**
-     * Arkusz etykiet partii do druku. Ze wzorem CLP: pełna etykieta CLP z numerem partii, inaczej prosta (nazwa, numer, daty).
-     * @param array<string,string> $clpOptions
-     */
-    public static function labels(array $b, array $product, array $cfg, ?array $clp = null, string $from = '', string $pick = '', array $clpOptions = []): string
+    /** Prosty arkusz etykiet partii (nazwa, numer, data produkcji, ważność), gdy nie ma wzoru CLP albo wybrano prostą. */
+    public static function labels(array $b, array $product, array $cfg, string $extraBar = ''): string
     {
+        $w = max(20, min(150, (int) ($cfg['label_w'] ?? 50)));
+        $h = max(15, min(150, (int) ($cfg['label_h'] ?? 30)));
         $n = max(1, min(500, (int) ($_GET['n'] ?? $b['qty'])));
         $maker = trim((string) ($cfg['maker'] ?? ''));
-        $name = (string) ($product['name'] ?? $b['product_name']);
-        if ($clp !== null) {
-            $w = (int) $clp['width_mm'];
-            $h = (int) $clp['height_mm'];
-            $one = Clp::label($clp, ['title' => $name, 'code' => (string) $b['code'], 'produced' => (string) $b['produced_at'], 'expires' => (string) ($b['expires_at'] ?? ''),
-                'net' => ($product['weight_g'] ?? null) !== null ? U::n($product['weight_g']) . ' g' : '', 'maker' => $maker]);
-        } else {
-            $w = max(20, min(150, (int) ($cfg['label_w'] ?? 50)));
-            $h = max(15, min(150, (int) ($cfg['label_h'] ?? 30)));
-            $one = '<div class="l"><b>' . U::h($name) . '</b><span>Partia: <i>' . U::h($b['code']) . '</i></span>'
-                . '<span>Prod.: ' . U::date($b['produced_at']) . ($b['expires_at'] ? ' · Najlepiej do: ' . U::date($b['expires_at']) : '') . '</span>'
-                . ($maker !== '' ? '<small>' . nl2br(U::h($maker)) . '</small>' : '') . '</div>';
-        }
-        $sel = '';
-        if ($clpOptions !== []) {
-            $sel = ' Wzór: ' . U::select('clp', ['' => 'automatycznie' . ($pick === '' ? ($clp !== null ? ' (' . $clp['name'] . ')' : ' (brak - prosta)') : ''), 'brak' => 'prosta etykieta partii'] + $clpOptions, $pick, '', 'onchange="this.form.submit()"');
-        }
-        $info = $clp !== null ? 'Etykieta CLP „' . $clp['name'] . '”' . ($from !== '' ? ' ' . $from : '') . ', ' . $w . '×' . $h . ' mm'
-            : $w . '×' . $h . ' mm, rozmiar zmienisz w ustawieniach wtyczki' . ($clpOptions === [] ? '. Etykietę CLP dodasz w Produkcja → Etykiety CLP.' : '. Wzoru CLP brak: przypisz go do wyrobu albo zapachu.');
-        return '<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Etykiety ' . U::h($b['code']) . '</title><style>'
+        $one = '<div class="l"><b>' . U::h($product['name'] ?? $b['product_name']) . '</b><span>Partia: <i>' . U::h($b['code']) . '</i></span>'
+            . '<span>Prod.: ' . U::date($b['produced_at']) . ($b['expires_at'] ? ' · Najlepiej do: ' . U::date($b['expires_at']) : '') . '</span>'
+            . ($maker !== '' ? '<small>' . nl2br(U::h($maker)) . '</small>' : '') . '</div>';
+        return '<!doctype html><html lang="pl"><head><meta charset="utf-8"><title>Etykiety ' . U::h($b['code']) . '</title><style>'
             . '@page{margin:8mm}body{font-family:system-ui,sans-serif;margin:0}.bar{padding:10px;background:#f6f5f2;display:flex;flex-wrap:wrap;gap:10px;align-items:center}.bar form{margin:0}'
-            . '.sheet{display:flex;flex-wrap:wrap;gap:2mm;padding:4mm;align-items:flex-start}.l{width:' . $w . 'mm;height:' . $h . 'mm;border:0.2mm dashed #bbb;box-sizing:border-box;padding:2mm;display:flex;flex-direction:column;justify-content:center;gap:0.6mm;overflow:hidden;font-size:2.6mm;line-height:1.2}'
-            . '.l b{font-size:3.2mm}.l i{font-style:normal;font-family:ui-monospace,monospace;font-weight:700}.l small{font-size:2.1mm;color:#444}.clp{break-inside:avoid}'
-            . '.warn{background:#fdecec;color:#a11;padding:8px 10px;border-radius:6px;font-size:13px}'
-            . Clp::css() . '@media print{.bar,.warn{display:none!important}.l{border-color:#eee}}</style></head><body>'
+            . '.sheet{display:flex;flex-wrap:wrap;gap:2mm;padding:4mm}.l{width:' . $w . 'mm;height:' . $h . 'mm;border:0.2mm dashed #bbb;box-sizing:border-box;padding:2mm;display:flex;flex-direction:column;justify-content:center;gap:0.6mm;overflow:hidden;font-size:2.6mm;line-height:1.2}'
+            . '.l b{font-size:3.2mm}.l i{font-style:normal;font-family:ui-monospace,monospace;font-weight:700}.l small{font-size:2.1mm;color:#444}@media print{.bar{display:none}.l{border-color:#eee}}</style></head><body>'
             . '<div class="bar"><form method="get" action="ext.php"><input type="hidden" name="page" value="produkcja.etykieta"><input type="hidden" name="id" value="' . U::h($b['id']) . '">'
-            . 'Ile etykiet: <input type="number" name="n" min="1" max="500" value="' . $n . '" style="width:80px">' . $sel . ' <button>Pokaż</button></form><button onclick="print()">🖨 Drukuj</button>'
-            . '<span style="color:#666;font-size:13px">' . U::h($info) . '</span>'
-            . ($clp !== null ? '<span class="warn" id="clp-over" hidden>Tekst nie mieści się na etykiecie. Powiększ ją albo zmniejsz czcionkę we wzorze.</span>' : '') . '</div>'
-            . '<div class="sheet">' . str_repeat($one, $n) . '</div>' . ($clp !== null ? Clp::overflowScript('clp-over') : '') . '</body></html>';
+            . $extraBar . 'Ile etykiet: <input type="number" name="n" min="1" max="500" value="' . $n . '" style="width:80px"> <button>Pokaż</button></form><button onclick="print()">🖨 Drukuj</button>'
+            . '<span style="color:#666;font-size:13px">' . $w . '×' . $h . ' mm, rozmiar zmienisz w ustawieniach wtyczki</span></div>'
+            . '<div class="sheet">' . str_repeat($one, $n) . '</div></body></html>';
     }
 }

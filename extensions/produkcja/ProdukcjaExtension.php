@@ -129,7 +129,7 @@ final class ProdukcjaExtension extends AbstractExtension
                     return '<div class="flash err">Nie ma takiego materiału.</div>';
                 }
                 if (isset($_GET['edytuj']) && $ctx['canEdit']) {
-                    return U::style() . U::tabs('materialy') . U::back(U::url('material', ['id' => $m['id']]), (string) $m['name']) . MaterialPages::form($ctx, $m, null, $s);
+                    return U::style() . U::tabs('materialy') . U::back(U::url('material', ['id' => $m['id']]), (string) $m['name']) . MaterialPages::form($ctx, $m);
                 }
                 return MaterialPages::card($s, $ctx, $m);
             }]);
@@ -159,7 +159,7 @@ final class ProdukcjaExtension extends AbstractExtension
                     $go('material', ['id' => $m['id']]);
                 } catch (\RuntimeException $e) {
                     flash($e->getMessage(), 'err');
-                    return U::style() . U::tabs('materialy') . MaterialPages::form($ctx, $old ?? [], $_POST, $s);
+                    return U::style() . U::tabs('materialy') . MaterialPages::form($ctx, $old ?? [], $_POST);
                 }
                 return '';
             }]);
@@ -337,13 +337,56 @@ final class ProdukcjaExtension extends AbstractExtension
                     return;
                 }
                 $product = ($b['product_id'] !== null ? $s->product((string) $b['product_id']) : null) ?? [];
-                $pick = (string) ($_GET['clp'] ?? '');
-                $found = $pick === '' ? Clp::forBatch($s, $b, $product)
-                    : ['clp' => $pick === 'brak' ? null : $s->clp($pick), 'from' => $pick === 'brak' ? '' : 'wybrany ręcznie'];
-                echo BatchPages::labels($b, $product, $this->cfg(), $found['clp'], $found['from'], $pick, $s->clpOptions());
+                $pick = (string) ($_GET['wzor'] ?? '');
+                $sku = trim((string) ($_GET['sku'] ?? ''));
+                $skuBar = ' Produkt (SKU): <input name="sku" value="' . U::h($sku) . '" list="clp-skus" style="width:150px" placeholder="' . U::h($product['sku'] ?? '') . '" onchange="this.form.submit()">' . ClpPages::skuList($s);
+                if ($pick === 'prosta' || $s->clps() === []) {
+                    echo BatchPages::labels($b, $product, $this->cfg(), $s->clps() === [] ? '' : ClpPages::layoutSelect($s, $pick, 'domyślny') . ' ');
+                    return;
+                }
+                $crm = null;
+                if ($sku !== '') {
+                    try {
+                        $crm = $s->one('SELECT * FROM products WHERE sku = ?', [$sku]);
+                    } catch (\PDOException) {
+                        $crm = null;
+                    }
+                }
+                $r = ClpPages::resolve($s, $this->cfg(), $b, $crm, $pick);
+                $n = max(1, min(500, (int) ($_GET['n'] ?? $b['qty'])));
+                $info = ($r['layout'] !== null ? 'Wzór „' . $r['layout']['name'] . '”. ' : '') . ($r['from'] !== '' ? 'Dane CLP: ' . $r['from'] . '.'
+                    : 'Brak danych CLP: wpisz SKU produktu, który ma zapach ze stężeniem, albo przypisz SKU do wyrobu.');
+                echo ClpPages::sheet($s, $r, $n, 'etykieta', ['id' => (string) $b['id']], ClpPages::layoutSelect($s, $pick, 'automatycznie') . $skuBar, $info);
             }]);
 
         // ---- Wzory etykiet CLP
+        Hooks::addPage('etykieta_produkt', ['title' => 'Etykieta CLP produktu', 'menu' => false, 'role' => 'viewer', 'raw' => true,
+            'render' => function (PDO $pdo) use ($store): void {
+                $s = $store();
+                header('Content-Type: text/html; charset=utf-8');
+                try {
+                    $crm = $s->one('SELECT * FROM products WHERE id = ?', [(int) ($_GET['produkt'] ?? 0)]);
+                } catch (\PDOException) {
+                    $crm = null;
+                }
+                if ($crm === null) {
+                    echo 'Nie ma takiego produktu.';
+                    return;
+                }
+                $code = mb_substr(trim((string) ($_GET['partia'] ?? '')), 0, 60);
+                $batch = $code !== '' ? $s->batchByCode($code) : null;
+                $batch ??= ['code' => $code, 'product_id' => null, 'product_name' => (string) $crm['name'], 'produced_at' => '', 'expires_at' => ''];
+                $pick = (string) ($_GET['wzor'] ?? '');
+                $r = ClpPages::resolve($s, $this->cfg(), $batch, $crm, $pick);
+                $info = (string) $crm['name'] . '. ' . ($r['from'] !== '' ? 'Dane CLP: ' . $r['from'] . '.' : 'Brak danych CLP: przypisz zapach i stężenie na karcie produktu.');
+                $bar = ClpPages::layoutSelect($s, $pick, 'automatycznie') . ' Nr partii: <input name="partia" value="' . U::h($code) . '" style="width:170px">';
+                echo ClpPages::sheet($s, $r, max(1, min(500, (int) ($_GET['n'] ?? 1))), 'etykieta_produkt', ['produkt' => (string) $crm['id']], $bar, $info);
+            }]);
+        Hooks::addFilter('product_view.sections', function (array $sections) use ($store): array {
+            $sections[] = ['id' => 'produkcja_clp', 'title' => '🏷 Etykieta CLP',
+                'render' => fn(array $p, array $ctx): string => ClpPages::productSection($store(), $this->cfg(), $p)];
+            return $sections;
+        });
         Hooks::addPage('clp', ['title' => 'Etykieta CLP', 'menu' => false, 'role' => 'viewer',
             'render' => function (PDO $pdo, array $ctx) use ($store): string {
                 $s = $store();
@@ -370,7 +413,13 @@ final class ProdukcjaExtension extends AbstractExtension
                     $go('etykiety');
                 }
                 try {
-                    $t = $s->saveClp($old['id'] ?? null, $_POST);
+                    $images = ['safety_img' => Store::imageUpload($_FILES['safety_img'] ?? null), 'recycle_img' => Store::imageUpload($_FILES['recycle_img'] ?? null)];
+                    if ($old === null && ($src = $s->clp((string) ($_POST['copy_from'] ?? ''))) !== null) {
+                        foreach ($images as $k => $v) {
+                            $images[$k] = $v ?? $src[$k];
+                        }
+                    }
+                    $t = $s->saveClp($old['id'] ?? null, $_POST, $images);
                     flash(($old === null ? 'Dodano wzór: ' : 'Zapisano: ') . $t['name'] . '.');
                     $go('clp', ['id' => $t['id']]);
                 } catch (\RuntimeException $e) {

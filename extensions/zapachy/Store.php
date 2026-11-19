@@ -21,7 +21,7 @@ use PDO;
  */
 final class Store
 {
-    public const SCHEMA = '1';
+    public const SCHEMA = '2';
     /** Klucze wariantu/atrybutu, które oznaczają zapach. */
     private const ATTR_KEYS = ['zapach', 'aromat', 'olejek', 'scent', 'fragrance', 'nuta'];
 
@@ -59,6 +59,10 @@ final class Store
             'ext_zap_notes' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, name VARCHAR(100) NOT NULL, category VARCHAR(100) NOT NULL',
             'ext_zap_links' => 'product_id INT NOT NULL, fragrance_id VARCHAR(16) NOT NULL, created_by VARCHAR(100) NULL,
                 created_at DATETIME NOT NULL, PRIMARY KEY (product_id, fragrance_id)',
+            // Klasyfikacja CLP mieszaniny z tym olejkiem przy danym stężeniu (np. 6%, 8%, 10%).
+            'ext_zap_clp' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, fragrance_id VARCHAR(16) NOT NULL, percent DECIMAL(5,2) NOT NULL,
+                signal_word VARCHAR(20) NOT NULL, pictograms VARCHAR(100) NOT NULL, hazards TEXT NOT NULL, precautions TEXT NOT NULL,
+                contains_text TEXT NOT NULL, extra TEXT NOT NULL, ufi VARCHAR(20) NOT NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
         ];
         foreach ($t as $name => $cols) {
             $this->pdo->exec("CREATE TABLE IF NOT EXISTS {$name} ({$cols})");
@@ -69,6 +73,12 @@ final class Store
             } catch (\PDOException) {
                 // już jest
             }
+        }
+        // Wersja 2: stężenie (mieszanina CLP) wybrane przy produkcie.
+        try {
+            $this->pdo->exec('ALTER TABLE ext_zap_links ADD COLUMN clp_id VARCHAR(16) NULL');
+        } catch (\PDOException) {
+            // już jest
         }
         $settings->setMany(['EXT_ZAPACHY_SCHEMA' => self::SCHEMA]);
     }
@@ -472,15 +482,127 @@ final class Store
         return $out;
     }
 
-    /** Ustawia zapachy produktu (zastępuje poprzednie). @param string[] $fragranceIds */
-    public function setProductFragrances(int $productId, array $fragranceIds, string $user): void
+    /**
+     * Ustawia zapachy produktu (zastępuje poprzednie). Stężenie (mieszanina CLP) z $clp[fragrance_id]; bez wpisu zostaje dotychczasowe.
+     * @param string[] $fragranceIds @param array<string,string>|null $clp
+     */
+    public function setProductFragrances(int $productId, array $fragranceIds, string $user, ?array $clp = null): void
     {
         $valid = array_column($this->allFragrances(), 'id');
         $ids = array_values(array_unique(array_intersect(array_map('strval', $fragranceIds), $valid)));
+        $old = [];
+        foreach ($this->all('SELECT fragrance_id, clp_id FROM ext_zap_links WHERE product_id = ?', [$productId]) as $l) {
+            $old[(string) $l['fragrance_id']] = $l['clp_id'];
+        }
         $this->run('DELETE FROM ext_zap_links WHERE product_id = ?', [$productId]);
         foreach ($ids as $fid) {
-            $this->insert('ext_zap_links', ['product_id' => $productId, 'fragrance_id' => $fid, 'created_by' => $user, 'created_at' => self::now()]);
+            $cid = $clp !== null && array_key_exists($fid, $clp) ? (string) $clp[$fid] : (string) ($old[$fid] ?? '');
+            $mix = $cid !== '' ? $this->mixture($cid) : null;
+            $this->insert('ext_zap_links', ['product_id' => $productId, 'fragrance_id' => $fid, 'created_by' => $user, 'created_at' => self::now(),
+                'clp_id' => $mix !== null && $mix['fragrance_id'] === $fid ? $cid : null]);
         }
+    }
+
+    // ---------------------------------------------------------------- CLP: mieszaniny wg stężenia
+
+    public function mixture(string $id): ?array
+    {
+        return $this->one('SELECT * FROM ext_zap_clp WHERE id = ?', [$id]);
+    }
+
+    /** @return list<array<string,mixed>> mieszaniny olejku od najmniejszego stężenia */
+    public function mixtures(string $fragranceId): array
+    {
+        return $this->all('SELECT * FROM ext_zap_clp WHERE fragrance_id = ? ORDER BY percent', [$fragranceId]);
+    }
+
+    public static function percent(mixed $p): string
+    {
+        return self::fmtPercent((float) $p);
+    }
+
+    private static function fmtPercent(float $p): string
+    {
+        return rtrim(rtrim(number_format($p, 2, ',', ''), '0'), ',') . '%';
+    }
+
+    public function saveMixture(?string $id, string $fragranceId, array $in): array
+    {
+        $pct = self::num($in['percent'] ?? '');
+        if ($pct === null || $pct <= 0 || $pct > 100) {
+            throw new \RuntimeException('Wpisz stężenie olejku w procentach, np. 8.');
+        }
+        $pct = round($pct, 2);
+        $dupe = $this->one('SELECT id FROM ext_zap_clp WHERE fragrance_id = ? AND percent = ?' . ($id !== null ? ' AND id <> ?' : ''),
+            $id !== null ? [$fragranceId, $pct, $id] : [$fragranceId, $pct]);
+        if ($dupe !== null) {
+            throw new \RuntimeException('Stężenie ' . self::fmtPercent($pct) . ' już jest przy tym olejku.');
+        }
+        $row = ['percent' => $pct] + \Pase\Services\Clp::classFromInput($in);
+        $row['contains_text'] = \Pase\Services\Clp::containsFromInput($in);
+        $row['updated_at'] = self::now();
+        if ($id === null) {
+            $id = self::id();
+            $this->insert('ext_zap_clp', ['id' => $id, 'fragrance_id' => $fragranceId, 'created_at' => self::now()] + $row);
+        } else {
+            $this->update('ext_zap_clp', $id, $row);
+        }
+        return $this->mixture($id) ?? [];
+    }
+
+    /** UFI olejku dla stężenia: „ABCD-…” albo lista „6%: AAAA-…, 10%: BBBB-…” (jak w Aroma Helper). */
+    public static function ufiFor(string $ufi, float $percent): string
+    {
+        $ufi = trim($ufi);
+        if (preg_match_all('/(\d+(?:[.,]\d+)?)\s*%\s*[:=-]?\s*([A-Z0-9]{4}(?:-[A-Z0-9]{4}){3})/i', $ufi, $m, PREG_SET_ORDER)) {
+            foreach ($m as $x) {
+                if (abs((float) str_replace(',', '.', $x[1]) - $percent) < 0.001) {
+                    return strtoupper($x[2]);
+                }
+            }
+            return '';
+        }
+        return preg_match('/^[A-Z0-9]{4}(?:-[A-Z0-9]{4}){3}$/i', $ufi) ? strtoupper($ufi) : '';
+    }
+
+    public function deleteMixture(string $id): void
+    {
+        $this->run('UPDATE ext_zap_links SET clp_id = NULL WHERE clp_id = ?', [$id]);
+        $this->run('DELETE FROM ext_zap_clp WHERE id = ?', [$id]);
+    }
+
+    /** Stężenie wybrane przy produkcie dla każdego zapachu. @return array<string,string> fragrance_id => clp_id */
+    public function productMixtures(int $productId): array
+    {
+        $out = [];
+        foreach ($this->all('SELECT fragrance_id, clp_id FROM ext_zap_links WHERE product_id = ?', [$productId]) as $l) {
+            $out[(string) $l['fragrance_id']] = (string) ($l['clp_id'] ?? '');
+        }
+        return $out;
+    }
+
+    /**
+     * Klasyfikacja CLP produktu: zapach przypisany do produktu i jego mieszanina (wybrane stężenie albo jedyna, jaka jest).
+     * @return array{fragrance:array<string,mixed>,mixture:array<string,mixed>}|null
+     */
+    public function clpForProduct(int $productId): ?array
+    {
+        $mine = $this->forProducts([$productId])[$productId] ?? [];
+        $chosen = $this->productMixtures($productId);
+        foreach ($mine as $f) {
+            $mix = ($chosen[$f['id']] ?? '') !== '' ? $this->mixture($chosen[$f['id']]) : null;
+            if ($mix === null) {
+                $all = $this->mixtures((string) $f['id']);
+                $mix = count($all) === 1 ? $all[0] : null;
+            }
+            if ($mix !== null) {
+                if (trim((string) $mix['ufi']) === '') {
+                    $mix['ufi'] = self::ufiFor((string) $f['ufi'], (float) $mix['percent']);
+                }
+                return ['fragrance' => $f, 'mixture' => $mix];
+            }
+        }
+        return null;
     }
 
     /** Dokłada zapach do produktów (bez ruszania innych zapachów). @return int ile nowych powiązań */

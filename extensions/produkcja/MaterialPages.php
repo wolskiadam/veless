@@ -68,7 +68,7 @@ final class MaterialPages
     {
         $html = U::style() . U::tabs('materialy') . U::back(U::url('materialy'), 'Materiały i magazyn');
         if ($m === null || $posted !== null && !isset($m['id'])) {
-            return $html . self::form($ctx, $m ?? [], $posted, $s);
+            return $html . self::form($ctx, $m ?? [], $posted);
         }
         $stock = $s->stock($m['id']);
         $price = $s->unitPrices()[$m['id']] ?? null;
@@ -82,7 +82,6 @@ final class MaterialPages
             . ($m['code'] !== '' ? '<dt>Kod w numerze partii</dt><dd class="pr-code">' . U::h($m['code']) . '</dd>' : '')
             . ($m['fill_g'] !== null ? '<dt>Pojemność</dt><dd>' . U::n($m['fill_g']) . ' g wosku</dd>' : '')
             . ($m['supplier'] !== '' ? '<dt>Dostawca</dt><dd>' . U::h($m['supplier']) . '</dd>' : '')
-            . (($m['clp_id'] ?? null) && ($clp = $s->clp((string) $m['clp_id'])) !== null ? '<dt>Etykieta CLP</dt><dd><a href="' . U::h(U::url('clp', ['id' => $clp['id']])) . '">' . U::h($clp['name']) . '</a></dd>' : '')
             . ($m['notes'] !== '' ? '<dt>Uwagi</dt><dd style="white-space:pre-line">' . U::h($m['notes']) . '</dd>' : '')
             . '</dl>';
         if ($ctx['canEdit']) {
@@ -154,7 +153,7 @@ final class MaterialPages
         return $html;
     }
 
-    public static function form(array $ctx, array $m, ?array $posted = null, ?Store $s = null): string
+    public static function form(array $ctx, array $m, ?array $posted = null): string
     {
         $v = static fn(string $k, string $d = ''): string => (string) ($posted[$k] ?? $m[$k] ?? $d);
         $edit = isset($m['id']);
@@ -169,7 +168,6 @@ final class MaterialPages
             . U::input('min_stock', $v('min_stock') !== '' ? U::n($v('min_stock')) : '', 'Minimum (alarm niskiego stanu)', 'inputmode="decimal"')
             . U::input('supplier', $v('supplier'), 'Dostawca', 'maxlength="200"')
             . U::input('fill_g', $v('fill_g') !== '' ? U::n($v('fill_g')) : '', 'Pojemność (g wosku)', 'inputmode="decimal"', 'tylko pojemniki')
-            . ($s !== null ? ClpPages::select($s, $v('clp_id'), 'Etykieta CLP', 'tylko zapachy: wzór dla partii, gdy wyrób nie ma własnego') : '')
             . '</div><label>Uwagi<textarea name="notes" rows="3" maxlength="2000">' . U::h($v('notes')) . '</textarea></label>'
             . (!$edit ? '<details><summary class="pr-muted">Masz już ten materiał na półce? Wpisz stan od razu</summary><div class="pr-grid" style="margin-top:10px">'
                 . U::input('stock', '', 'Na stanie teraz', 'inputmode="decimal"')

@@ -30,6 +30,23 @@ i numer partii przy zamówieniu. Kod numerów partii pochodzi z wtyczki WordPres
   na wszystkie sztuki, a pod listą „Materiały razem”. Zapach z wariantu zamówienia wygrywa z recepturą.
   Pole „Waga (g)” wyrobu pokazuje się w kolumnie „Waga”.
 
+## Etykiety CLP
+
+**Produkcja → Etykiety CLP**: wzory etykiet CLP - piktogramy GHS01-GHS09, hasło ostrzegawcze (Uwaga / Niebezpieczeństwo), zwroty H i P,
+„Zawiera: …”, informacje dodatkowe (EUH208, EUH210, zasady palenia świecy), UFI, masa netto, dane dostawcy i rozmiar etykiety.
+Zwroty wpisuje się kodami (`H317, H412`, `P302+P352`) - polski tekst wstawia się sam ze słownika (`Clp::PHRASES`); linia z kodem
+i własną treścią albo zwykły tekst zostaje bez zmian. Klasyfikację przepisuje się z karty charakterystyki olejku, system jej nie liczy.
+
+- Wzór wybiera się na karcie **wyrobu** (pole „Etykieta CLP”) albo **zapachu** w Materiałach. Przy druku partii: wzór wyrobu,
+  a gdy go nie ma - wzór zapachu z partii (u partii zaimportowanych: zapach z uwag „Zapach: …”). Na stronie etykiet można też wybrać
+  wzór ręcznie albo prostą etykietę partii.
+- Etykieta dostaje numer partii, datę produkcji, „Najlepiej do”, masę netto („Waga (g)” wyrobu, gdy wzór jej nie ma) i producenta
+  z ustawień, gdy wzór nie ma własnego.
+- Karta wzoru ma podgląd w prawdziwym rozmiarze i listę „Do sprawdzenia”: nieznane kody, „…” do uzupełnienia, piktogramy bez hasła
+  albo zwrotów H, brak dostawcy, za mały piktogram (romb ≥ 1/15 etykiety i ≥ 1 cm²; puste pole „Piktogram” = najmniejszy dozwolony)
+  i za mała czcionka (małe litery ≥ 1,2 mm). Tekst, który się nie mieści, ma czerwoną ramkę na ekranie.
+- Piktogramy (domena publiczna, UNECE) leżą w `assets/clp/` i są wstawiane w stronę, więc drukują się bez internetu.
+
 ## Numer partii
 
 Domyślny wzór: `{DC}{MC}{YC}{PR}{FC}{WC}{SC}{WK}{QTY}{PC}`, np. `AJLXPKS102ABB1500A` = 9 listopada 2026, wyrób PK, forma/pojemnik S1,

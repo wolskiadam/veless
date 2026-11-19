@@ -18,10 +18,10 @@ use PDO;
  */
 final class ProdukcjaExtension extends AbstractExtension
 {
-    private const MENU = ['pulpit' => 'Pulpit produkcji', 'materialy' => 'Materiały i magazyn', 'wyroby' => 'Wyroby', 'partie' => 'Partie', 'testy' => 'Testy spalania'];
+    private const MENU = ['pulpit' => 'Pulpit produkcji', 'materialy' => 'Materiały i magazyn', 'wyroby' => 'Wyroby', 'partie' => 'Partie', 'etykiety' => 'Etykiety CLP', 'testy' => 'Testy spalania'];
     /** Menu: jednolinijkowy opis pozycji. */
     private const MENU_DESC = ['pulpit' => 'Co trzeba zrobić i stan materiałów', 'materialy' => 'Wosk, knoty, olejki i daty ważności',
-        'wyroby' => 'Receptury i koszt sztuki', 'partie' => 'Wyprodukowane partie z numerem', 'testy' => 'Wyniki testów spalania'];
+        'wyroby' => 'Receptury i koszt sztuki', 'partie' => 'Wyprodukowane partie z numerem', 'etykiety' => 'Wzory etykiet CLP z numerem partii', 'testy' => 'Wyniki testów spalania'];
 
     public function manifest(): ExtensionManifest
     {
@@ -86,6 +86,7 @@ final class ProdukcjaExtension extends AbstractExtension
                 'materialy' => MaterialPages::list($store(), $ctx),
                 'wyroby' => ProductPages::list($s = $store(), $prod($s), $ctx, $this->cfg()),
                 'partie' => BatchPages::list($s = $store(), $prod($s), $ctx),
+                'etykiety' => ClpPages::list($store(), $ctx),
                 'testy' => TestPages::list($store(), $ctx),
             }]);
         }
@@ -128,7 +129,7 @@ final class ProdukcjaExtension extends AbstractExtension
                     return '<div class="flash err">Nie ma takiego materiału.</div>';
                 }
                 if (isset($_GET['edytuj']) && $ctx['canEdit']) {
-                    return U::style() . U::tabs('materialy') . U::back(U::url('material', ['id' => $m['id']]), (string) $m['name']) . MaterialPages::form($ctx, $m);
+                    return U::style() . U::tabs('materialy') . U::back(U::url('material', ['id' => $m['id']]), (string) $m['name']) . MaterialPages::form($ctx, $m, null, $s);
                 }
                 return MaterialPages::card($s, $ctx, $m);
             }]);
@@ -158,7 +159,7 @@ final class ProdukcjaExtension extends AbstractExtension
                     $go('material', ['id' => $m['id']]);
                 } catch (\RuntimeException $e) {
                     flash($e->getMessage(), 'err');
-                    return U::style() . U::tabs('materialy') . MaterialPages::form($ctx, $old ?? [], $_POST);
+                    return U::style() . U::tabs('materialy') . MaterialPages::form($ctx, $old ?? [], $_POST, $s);
                 }
                 return '';
             }]);
@@ -331,7 +332,52 @@ final class ProdukcjaExtension extends AbstractExtension
                 $s = $store();
                 $b = $s->batch((string) ($_GET['id'] ?? ''));
                 header('Content-Type: text/html; charset=utf-8');
-                echo $b === null ? 'Nie ma takiej partii.' : BatchPages::labels($b, ($b['product_id'] !== null ? $s->product((string) $b['product_id']) : null) ?? [], $this->cfg());
+                if ($b === null) {
+                    echo 'Nie ma takiej partii.';
+                    return;
+                }
+                $product = ($b['product_id'] !== null ? $s->product((string) $b['product_id']) : null) ?? [];
+                $pick = (string) ($_GET['clp'] ?? '');
+                $found = $pick === '' ? Clp::forBatch($s, $b, $product)
+                    : ['clp' => $pick === 'brak' ? null : $s->clp($pick), 'from' => $pick === 'brak' ? '' : 'wybrany ręcznie'];
+                echo BatchPages::labels($b, $product, $this->cfg(), $found['clp'], $found['from'], $pick, $s->clpOptions());
+            }]);
+
+        // ---- Wzory etykiet CLP
+        Hooks::addPage('clp', ['title' => 'Etykieta CLP', 'menu' => false, 'role' => 'viewer',
+            'render' => function (PDO $pdo, array $ctx) use ($store): string {
+                $s = $store();
+                if (isset($_GET['nowy']) && $ctx['canEdit']) {
+                    $src = isset($_GET['z']) ? $s->clp((string) $_GET['z']) : null;
+                    if ($src !== null) {
+                        unset($src['id']);
+                        $src['name'] = 'Kopia: ' . $src['name'];
+                    }
+                    return ClpPages::form($ctx, $this->cfg(), $src ?? []);
+                }
+                $t = $s->clp((string) ($_GET['id'] ?? ''));
+                if ($t === null) {
+                    return '<div class="flash err">Nie ma takiego wzoru.</div>';
+                }
+                return isset($_GET['edytuj']) && $ctx['canEdit'] ? ClpPages::form($ctx, $this->cfg(), $t) : ClpPages::card($s, $ctx, $this->cfg(), $t);
+            }]);
+        Hooks::addPage('clp_zapisz', ['title' => 'Etykieta CLP', 'menu' => false, 'role' => 'editor',
+            'render' => function (PDO $pdo, array $ctx) use ($store, $go): string {
+                $s = $store();
+                $id = (string) ($_POST['id'] ?? '');
+                $old = $id !== '' ? $s->clp($id) : null;
+                if (!$ctx['post'] || ($id !== '' && $old === null)) {
+                    $go('etykiety');
+                }
+                try {
+                    $t = $s->saveClp($old['id'] ?? null, $_POST);
+                    flash(($old === null ? 'Dodano wzór: ' : 'Zapisano: ') . $t['name'] . '.');
+                    $go('clp', ['id' => $t['id']]);
+                } catch (\RuntimeException $e) {
+                    flash($e->getMessage(), 'err');
+                    return ClpPages::form($ctx, $this->cfg(), $old ?? [], $_POST);
+                }
+                return '';
             }]);
 
         // ---- Testy spalania

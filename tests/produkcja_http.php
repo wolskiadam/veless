@@ -272,6 +272,43 @@ try {
     $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 3]))['body'];
     ok(substr_count($lab, 'class="l"') === 3 && str_contains($lab, 'AD010LX02ABBA') && str_contains($lab, '04.11.2028') && str_contains($lab, 'Klub Woskarzy'), 'Label sheet with number, best-before and maker');
 
+    // ---- Etykiety CLP: wzór, przypisanie do zapachu i wyrobu, druk z numerem partii
+    ok(str_contains(request($vi, $url('etykiety'))['body'], 'Dodaj pierwszy wzór etykiety CLP'), 'CLP list starts empty');
+    $r = $post($vi, 'clp_zapisz', ['name' => 'Piernik 10%']);
+    ok((int) $pdo->query('SELECT COUNT(*) FROM ext_prod_clp')->fetchColumn() === 0, 'Viewer cannot add a CLP template');
+    $r = $post($ola, 'clp_zapisz', ['name' => 'Piernik 10%', 'signal_word' => 'Uwaga', 'pictograms' => ['GHS07', 'GHS09', 'XXX'],
+        'hazards' => "H317, H412", 'precautions' => "P101 P102\nP302+P352\nP501 Zawartość/pojemnik usuwać do punktu zbiórki odpadów.", 'contains_text' => 'linalol, kumaryna',
+        'extra' => "EUH208\nNie pozostawiać palącej się świecy bez nadzoru.", 'ufi' => 'ab12-cd34-ef56-gh78', 'width_mm' => '100', 'height_mm' => '60', 'pict_mm' => '16', 'font_pt' => '7']);
+    $clpId = $locId($r);
+    $crow = $pdo->query("SELECT * FROM ext_prod_clp WHERE id = '$clpId'")->fetch(PDO::FETCH_ASSOC);
+    ok($r['status'] === 302 && $crow['pictograms'] === 'GHS07,GHS09' && $crow['ufi'] === 'AB12-CD34-EF56-GH78', 'CLP template saved (unknown pictogram dropped)');
+    $cc = request($vi, $url('clp', ['id' => $clpId]))['body'];
+    ok(str_contains($cc, 'Może powodować reakcję alergiczną skóry.') && str_contains($cc, 'Chronić przed dziećmi.') && str_contains($cc, 'W PRZYPADKU KONTAKTU ZE SKÓRĄ')
+        && str_contains($cc, 'Zawiera: linalol, kumaryna') && str_contains($cc, 'UWAGA') && str_contains($cc, 'data:image/svg+xml;base64,'), 'CLP card preview expands H/P codes and shows pictograms');
+    ok(str_contains($cc, 'Uzupełnij „…” w EUH208') && str_contains($cc, 'Piktogram 16 mm jest za mały') && !str_contains($cc, 'Brak danych dostawcy'), 'CLP checks: placeholder, pictogram size; maker from settings');
+    ok(str_contains(request($ola, $url('material', ['id' => $scent, 'edytuj' => 1]))['body'], 'name="clp_id"'), 'Scent form has the CLP select');
+    $post($ola, 'material_zapisz', ['id' => $scent, 'name' => 'Olejek Piernik', 'category' => 'zapach', 'unit' => 'g', 'code' => 'AB', 'clp_id' => $clpId]);
+    ok($pdo->query("SELECT clp_id FROM ext_prod_materials WHERE id = '$scent'")->fetchColumn() === $clpId, 'CLP template assigned to the scent');
+    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 2]))['body'];
+    ok(substr_count($lab, 'class="clp"') === 2 && str_contains($lab, 'AD010LX02ABBA') && str_contains($lab, 'Może powodować reakcję alergiczną skóry.') && str_contains($lab, 'z zapachu Olejek Piernik')
+        && str_contains($lab, 'Najlepiej do: 04.11.2028') && str_contains($lab, 'Masa netto: 210,5 g') && str_contains($lab, 'Klub Woskarzy') && str_contains($lab, 'UFI: AB12-CD34-EF56-GH78'), 'Batch prints the scent CLP label with its number');
+    ok(str_contains(request($vi, $url('partia', ['id' => $b1]))['body'], 'Etykiety CLP'), 'Batch card button says CLP');
+    $r = $post($ola, 'clp_zapisz', ['name' => 'Świeca Piernik - słoik', 'title' => 'Świeca sojowa Piernik', 'signal_word' => 'Uwaga', 'pictograms' => ['GHS07'], 'hazards' => 'H317', 'precautions' => 'P102',
+        'maker' => 'Manufaktura Test, ul. Polna 1', 'width_mm' => '90', 'height_mm' => '50', 'pict_mm' => '22', 'font_pt' => '7,5']);
+    $clp2 = $locId($r);
+    $w = request($ola, $url('wyrob', ['id' => $prod, 'edytuj' => 1]))['body'];
+    ok(str_contains($w, 'name="clp_id"') && str_contains($w, 'Świeca Piernik - słoik'), 'Product form has the CLP select');
+    ok(str_contains(request($vi, $url('wyrob', ['id' => $prod]))['body'], 'z zapachu Olejek Piernik'), 'Product card shows CLP from the recipe scent');
+    $post($ola, 'wyrob_zapisz', ['id' => $prod, 'name' => 'Świeca Piernik 180', 'sku' => 'GB-1L', 'price' => '49,90', 'vat' => '23', 'shelf_life_months' => '24', 'min_stock' => '10', 'weight_g' => '210,5', 'clp_id' => $clp2,
+        'recipe' => [['material_id' => $wax, 'qty' => '180'], ['material_id' => $scent, 'qty' => '14'], ['material_id' => $wick, 'qty' => '1'], ['material_id' => $jar, 'qty' => '1']]]);
+    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 1]))['body'];
+    ok(str_contains($lab, 'Świeca sojowa Piernik') && str_contains($lab, 'z wyrobu Świeca Piernik 180') && str_contains($lab, 'Manufaktura Test') && str_contains($lab, 'width:90mm;height:50mm;font-size:7.5pt'), 'Product CLP template wins over the scent');
+    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 1, 'clp' => 'brak']))['body'];
+    ok(!str_contains($lab, 'class="clp"') && substr_count($lab, 'class="l"') === 1, 'Simple batch label can still be chosen');
+    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 1, 'clp' => $clpId]))['body'];
+    ok(str_contains($lab, 'wybrany ręcznie') && str_contains($lab, 'Chronić przed dziećmi.'), 'Template can be picked by hand on the label page');
+    ok(str_contains(request($vi, $url('etykiety'))['body'], '1 wyrób'), 'CLP list shows where a template is used');
+
     // ---- Test spalania ze zdjęciem
     $img = imagecreatetruecolor(40, 60);
     imagejpeg($img, "$temp/test.jpg");

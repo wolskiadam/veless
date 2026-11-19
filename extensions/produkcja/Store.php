@@ -15,7 +15,7 @@ use PDO;
  */
 final class Store
 {
-    public const SCHEMA = '3';
+    public const SCHEMA = '4';
     public const CATEGORIES = ['wosk' => 'Wosk', 'zapach' => 'Zapach', 'knot' => 'Knot', 'pojemnik' => 'Pojemnik', 'barwnik' => 'Barwnik',
         'dodatek' => 'Dodatek', 'opakowanie' => 'Opakowanie', 'etykieta' => 'Etykieta', 'inne' => 'Inne'];
     public const UNITS = ['g' => 'g', 'ml' => 'ml', 'szt' => 'szt.'];
@@ -69,6 +69,11 @@ final class Store
             'ext_prod_tests' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, product_id VARCHAR(16) NULL, batch_id VARCHAR(16) NULL, tested_at VARCHAR(10) NOT NULL,
                 wick VARCHAR(200) NOT NULL, result VARCHAR(8) NOT NULL, measurements TEXT NOT NULL, notes TEXT NOT NULL, photo VARCHAR(64) NOT NULL,
                 photo_mime VARCHAR(40) NOT NULL, created_by VARCHAR(100) NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
+            'ext_prod_clp' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, name VARCHAR(200) NOT NULL, title VARCHAR(200) NOT NULL, signal_word VARCHAR(20) NOT NULL,
+                pictograms VARCHAR(100) NOT NULL, hazards TEXT NOT NULL, precautions TEXT NOT NULL, contains_text TEXT NOT NULL, extra TEXT NOT NULL,
+                ufi VARCHAR(20) NOT NULL, net_qty VARCHAR(40) NOT NULL, maker TEXT NOT NULL, width_mm INT NOT NULL DEFAULT 100, height_mm INT NOT NULL DEFAULT 60,
+                pict_mm INT NOT NULL DEFAULT 0, font_pt DECIMAL(4,1) NOT NULL DEFAULT 7, archived INT NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
             'ext_prod_order_batches' => 'order_id INT NOT NULL, item_idx INT NOT NULL, sku VARCHAR(191) NOT NULL, item_name VARCHAR(255) NOT NULL,
                 batch_code VARCHAR(60) NOT NULL, batch_id VARCHAR(16) NULL, qty INT NOT NULL, created_by VARCHAR(100) NULL,
                 created_at DATETIME NOT NULL, PRIMARY KEY (order_id, item_idx)',
@@ -96,6 +101,14 @@ final class Store
             $this->pdo->exec('ALTER TABLE ext_prod_products ADD COLUMN weight_g DECIMAL(10,2) NULL');
         } catch (\PDOException) {
             // już jest (nowa instalacja)
+        }
+        // Wersja 4: wzór etykiety CLP przy wyrobie i przy zapachu (materiale).
+        foreach (['ext_prod_products', 'ext_prod_materials'] as $tbl) {
+            try {
+                $this->pdo->exec('ALTER TABLE ' . $tbl . ' ADD COLUMN clp_id VARCHAR(16) NULL');
+            } catch (\PDOException) {
+                // już jest
+            }
         }
         // Stary wzór Rejestru Partii (ilość do 999, bez wyrobu i formy) zamieniamy na nowy domyślny. Własny wzór zostaje.
         $cfg = json_decode((string) $settings->get('EXT_PRODUKCJA', ''), true);
@@ -211,7 +224,7 @@ final class Store
             $args[] = $cat;
         }
         $rows = $this->all($sql . ' GROUP BY m.id, m.name, m.category, m.code, m.unit, m.min_stock, m.supplier, m.fill_g, m.notes, m.archived,
-            m.created_at, m.updated_at ORDER BY m.name', $args);
+            m.created_at, m.updated_at, m.clp_id ORDER BY m.name', $args);
         $prices = $this->unitPrices();
         foreach ($rows as &$r) {
             $r['stock'] = (float) $r['stock'];
@@ -271,6 +284,9 @@ final class Store
             'notes' => mb_substr(trim((string) ($in['notes'] ?? '')), 0, 2000),
             'updated_at' => self::now(),
         ];
+        if (array_key_exists('clp_id', $in)) {
+            $row['clp_id'] = $this->clpIdOrNull((string) $in['clp_id']);
+        }
         $dupe = $this->one('SELECT id FROM ext_prod_materials WHERE LOWER(name) = LOWER(?) AND archived = 0' . ($id !== null ? ' AND id <> ?' : ''),
             $id !== null ? [$row['name'], $id] : [$row['name']]);
         if ($dupe !== null) {
@@ -283,6 +299,74 @@ final class Store
             $this->update('ext_prod_materials', $id, $row);
         }
         return $this->material($id) ?? [];
+    }
+
+    // ---------------------------------------------------------------- wzory etykiet CLP
+
+    public function clp(string $id): ?array
+    {
+        return $this->one('SELECT * FROM ext_prod_clp WHERE id = ?', [$id]);
+    }
+
+    /** @return list<array<string,mixed>> */
+    public function clps(bool $archived = false): array
+    {
+        return $this->all('SELECT * FROM ext_prod_clp WHERE archived = ? ORDER BY name', [$archived ? 1 : 0]);
+    }
+
+    /** @return array<string,string> id => nazwa (do list wyboru) */
+    public function clpOptions(): array
+    {
+        return array_column($this->clps(), 'name', 'id');
+    }
+
+    private function clpIdOrNull(string $id): ?string
+    {
+        return $id !== '' && $this->clp($id) !== null ? $id : null;
+    }
+
+    /** Wyroby i zapachy, które używają wzoru. @return array{products:list<array<string,mixed>>,materials:list<array<string,mixed>>} */
+    public function clpUsers(string $id): array
+    {
+        return ['products' => $this->all('SELECT id, name, sku FROM ext_prod_products WHERE clp_id = ? AND archived = 0 ORDER BY name', [$id]),
+            'materials' => $this->all('SELECT id, name, category FROM ext_prod_materials WHERE clp_id = ? AND archived = 0 ORDER BY name', [$id])];
+    }
+
+    public function saveClp(?string $id, array $in): array
+    {
+        $name = trim((string) ($in['name'] ?? ''));
+        if ($name === '') {
+            throw new \RuntimeException('Wpisz nazwę wzoru, np. „Olejek Piernik 10%”.');
+        }
+        $pict = array_values(array_intersect(array_keys(Clp::PICTOGRAMS), array_map('strval', (array) ($in['pictograms'] ?? []))));
+        $txt = static fn(string $k, int $max = 4000): string => mb_substr(trim(str_replace("\r", '', (string) ($in[$k] ?? ''))), 0, $max);
+        $int = static fn(string $k, int $d, int $min, int $max): int => ($v = self::num($in[$k] ?? '')) === null ? $d : max($min, min($max, (int) round($v)));
+        $font = self::num($in['font_pt'] ?? '');
+        $row = [
+            'name' => mb_substr($name, 0, 200),
+            'title' => $txt('title', 200),
+            'signal_word' => in_array((string) ($in['signal_word'] ?? ''), Clp::SIGNALS, true) ? (string) $in['signal_word'] : '',
+            'pictograms' => implode(',', $pict),
+            'hazards' => $txt('hazards'),
+            'precautions' => $txt('precautions'),
+            'contains_text' => $txt('contains_text', 1000),
+            'extra' => $txt('extra'),
+            'ufi' => strtoupper(mb_substr(preg_replace('/[^A-Za-z0-9-]/', '', (string) ($in['ufi'] ?? '')) ?? '', 0, 20)),
+            'net_qty' => $txt('net_qty', 40),
+            'maker' => $txt('maker', 1000),
+            'width_mm' => $int('width_mm', 100, 20, 300),
+            'height_mm' => $int('height_mm', 60, 15, 300),
+            'pict_mm' => ($pm = self::num($in['pict_mm'] ?? '')) === null || $pm <= 0 ? 0 : max(8, min(80, (int) round($pm))),
+            'font_pt' => $font === null ? 7.0 : max(4.0, min(20.0, round($font, 1))),
+            'updated_at' => self::now(),
+        ];
+        if ($id === null) {
+            $id = self::id();
+            $this->insert('ext_prod_clp', ['id' => $id, 'archived' => 0, 'created_at' => self::now()] + $row);
+        } else {
+            $this->update('ext_prod_clp', $id, $row + ['archived' => !empty($in['archived']) ? 1 : 0]);
+        }
+        return $this->clp($id) ?? [];
     }
 
     // ---------------------------------------------------------------- dostawy
@@ -475,6 +559,9 @@ final class Store
             'notes' => mb_substr(trim((string) ($in['notes'] ?? '')), 0, 2000),
             'updated_at' => self::now(),
         ];
+        if (array_key_exists('clp_id', $in)) {
+            $row['clp_id'] = $this->clpIdOrNull((string) $in['clp_id']);
+        }
         if ($row['sku'] !== '' && ($d = $this->one('SELECT name FROM ext_prod_products WHERE sku = ? AND archived = 0' . ($id !== null ? ' AND id <> ?' : ''),
             $id !== null ? [$row['sku'], $id] : [$row['sku']])) !== null) {
             throw new \RuntimeException('SKU ' . $row['sku'] . ' ma już wyrób „' . $d['name'] . '”.');

@@ -355,31 +355,6 @@ try {
     ok(str_contains($pq['body'], 'Strona Test 59</a>') && str_contains($pq['body'], 'id="zp-results"') && str_contains($pq['body'], 'zp-filter'), 'Search narrows pages; results block for live search');
     $pdo->exec("DELETE FROM ext_zap_fragrances WHERE id LIKE 'pg%'");
 
-    // ---- Etykieta CLP: mieszaniny wg stężenia przy olejku, stężenie przy produkcie, druk z Produkcji
-    $fp = request($ola, $url('clp', ['zapach' => $sc['id']]));
-    ok($fp['status'] === 200 && str_contains($fp['body'], 'Nowe stężenie') && str_contains($fp['body'], 'GHS07'), 'Mixture form for a fragrance');
-    $mix = static fn(array $d) => follow($ola, request($ola, $url('clp_zapisz'), ['csrf' => csrfOf($fp['body']), 'fragrance_id' => $sc['id']] + $d));
-    $r = $mix(['percent' => '6', 'hazards' => 'H412', 'precautions' => 'P273, P501', 'contains_text' => 'kumaryna']);
-    $r = $mix(['percent' => '10', 'signal_word' => 'Uwaga', 'pictograms' => ['GHS07'], 'hazards' => 'H317, H412', 'precautions' => "P101, P102\nP302+P352", 'contains_text' => 'kumaryna, eugenol', 'contains_plain' => '1', 'ufi' => '7ta1-e0xy-g00d-yahp']);
-    $m10 = $pdo->query("SELECT * FROM ext_zap_clp WHERE percent = 10")->fetch(PDO::FETCH_ASSOC);
-    ok($m10['pictograms'] === 'GHS07' && $m10['contains_text'] === 'Zawiera: kumaryna, eugenol' && $m10['ufi'] === '7TA1-E0XY-G00D-YAHP' && str_contains($r['body'], 'Może powodować reakcję alergiczną skóry.'), 'Mixture 10% saved with expanded preview');
-    $r = $mix(['percent' => '6,0']);
-    ok(str_contains($r['body'], 'już jest przy tym olejku'), 'Same concentration twice is refused');
-    $card = request($vi, $url('zapach', ['id' => $sc['id']]))['body'];
-    ok(str_contains($card, 'Etykieta CLP - mieszaniny (2)') && str_contains($card, '<b>6%</b>') && str_contains($card, '<b>10%</b>'), 'Fragrance card lists concentrations');
-    $page = request($ola, 'admin/product_view.php?id=2');
-    ok(str_contains($page['body'], 'name="clp[' . $sc['id'] . ']"') && str_contains($page['body'], '🏷 Etykieta CLP'), 'Product card: concentration select and CLP label section');
-    follow($ola, request($ola, $url('produkt_zapisz'), ['csrf' => csrfOf($page['body']), 'product_id' => '2', 'fragrances' => [$sc['id']], 'clp' => [$sc['id'] => $m10['id']]]));
-    ok($pdo->query("SELECT clp_id FROM ext_zap_links WHERE product_id = 2")->fetchColumn() === $m10['id'] && str_contains(request($vi, 'admin/product_view.php?id=2')['body'], 'CLP: 10%'), 'Concentration chosen on the product');
-    $ps->saveClp(null, ['name' => 'Okrągła 80', 'shape' => 'round', 'width_mm' => '80', 'subtitle' => 'Sojowa świeca zapachowa', 'warning' => 'Przed użyciem zapoznaj się z etykietą.', 'maker' => "Producent: Test\nul. Polna 1", 'is_default' => '1']);
-    $pdo->exec("UPDATE products SET ean = '5905080580730', weight = 0.1 WHERE id = 2");
-    $lab = request($vi, 'admin/ext.php?' . http_build_query(['page' => 'produkcja.etykieta_produkt', 'produkt' => 2, 'partia' => 'AQ001LX01AVBZ', 'n' => 2]))['body'];
-    ok(substr_count($lab, 'class="clp round"') === 2 && str_contains($lab, 'SWEET CARAMEL') && str_contains($lab, '<b>Uwaga!</b>') && str_contains($lab, 'Zawiera: kumaryna, eugenol.')
-        && str_contains($lab, 'Chronić przed dziećmi.') && str_contains($lab, 'AQ001LX01AVBZ') && str_contains($lab, 'GTIN: 5905080580730') && str_contains($lab, 'UFI: 7TA1-E0XY-G00D-YAHP')
-        && str_contains($lab, '100 g') && str_contains($lab, 'zapach Sweet Caramel 10%'), 'Product label: scent title, 10% classification, batch, GTIN, UFI, weight');
-    follow($ola, request($ola, $url('clp_zapisz'), ['csrf' => csrfOf($fp['body']), 'fragrance_id' => $sc['id'], 'id' => $m10['id'], 'percent' => '10', 'delete' => '1']));
-    ok($pdo->query("SELECT clp_id FROM ext_zap_links WHERE product_id = 2")->fetchColumn() === null && (int) $pdo->query('SELECT COUNT(*) FROM ext_zap_clp')->fetchColumn() === 1, 'Deleting a concentration clears it from products');
-
     $warnings = preg_grep('/PHP (Warning|Fatal|Parse|Deprecated|Notice)|Rozszerzenie .* błąd/', file("$temp/server.log") ?: []);
     ok($warnings === [], 'No PHP warnings or extension errors' . ($warnings ? ': ' . implode(' | ', array_map('trim', $warnings)) : ''));
     echo "PASS: {$checks} Zapachy HTTP checks\n";

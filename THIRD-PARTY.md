@@ -18,6 +18,7 @@ pochodzi z zewnątrz. Akcje GitHub i zależności Pythona agenta aktualizuje Dep
 |---|---|---|
 | `public/admin/email_templates.php` | Quill (`quill.js`, `quill.snow.css`) | 2.0.3 |
 | `public/admin/order_view.php` | SortableJS (`Sortable.min.js`) | 1.15.2 |
+| `extensions/produkcja/LabelPages.php` (wgrywanie etykiety CLP z PDF) | pdf.js (`pdfjs-dist`: `pdf.min.js`, `pdf.worker.min.js` przez `fetch` z `integrity`) | 3.11.174 |
 
 Atrybut `integrity` sprawia, że przeglądarka odrzuci plik, jeśli CDN poda coś innego niż ta wersja.
 Przy zmianie wersji policz nową sumę: `npm pack quill@X` i

@@ -118,7 +118,7 @@ final class BatchPages
             . '<div class="pr-top"><div><h2 style="margin:0" class="pr-code">' . U::h($b['code']) . '</h2><p>' . U::h($b['product_name']) . ' · ' . (int) $b['qty'] . ' szt. · ' . U::date($b['produced_at'])
             . ($draft ? ' · <span class="pill info">wycena robocza</span>' : '') . ($deleted ? ' · <span class="pill bad">w koszu</span>' : '') . '</p></div><div class="pr-actions">';
         if (!$draft && !$deleted) {
-            $html .= '<a class="btn secondary" target="_blank" rel="noopener" href="' . U::h(U::url('etykieta', ['id' => $b['id']])) . '">🖨 ' . ($s->defaultClp() !== null ? 'Etykiety CLP' : 'Etykiety') . '</a>';
+            $html .= '<a class="btn secondary" target="_blank" rel="noopener" href="' . U::h(U::url('etykieta', ['id' => $b['id']])) . '">🖨 Etykiety</a>';
         }
         if ($ctx['canEdit'] && !$deleted) {
             if ($draft) {
@@ -350,7 +350,7 @@ final class BatchPages
             . 'Brakuje czegoś na liście? <a href="' . U::h(U::url('material', ['nowy' => 1])) . '">Dodaj materiał</a>.</p>';
     }
 
-    /** Prosty arkusz etykiet partii (nazwa, numer, data produkcji, ważność), gdy nie ma wzoru CLP albo wybrano prostą. */
+    /** Arkusz etykiet partii do druku (nazwa, numer, data produkcji, ważność). */
     public static function labels(array $b, array $product, array $cfg, string $extraBar = ''): string
     {
         $w = max(20, min(150, (int) ($cfg['label_w'] ?? 50)));

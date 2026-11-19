@@ -276,8 +276,6 @@ JS;
         }
         $html .= '</div></div>';
 
-        $html .= self::clpSection($s, $ctx, $f);
-
         // Produkty
         $products = $s->productsOf((string) $f['id']);
         $html .= '<div class="card" id="produkty" style="margin-top:18px"><strong>Produkty z tym zapachem (' . count($products) . ')</strong>';
@@ -302,74 +300,6 @@ JS;
             }
         }
         return $html . '</div>';
-    }
-
-    /** Karta zapachu: mieszaniny CLP wg stężenia (dane do etykiety). */
-    private static function clpSection(Store $s, array $ctx, array $f): string
-    {
-        $mix = $s->mixtures((string) $f['id']);
-        $html = '<div class="card" id="clp" style="margin-top:18px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
-            . '<strong>Etykieta CLP - mieszaniny (' . count($mix) . ')</strong>'
-            . ($ctx['canEdit'] ? '<a class="btn secondary" href="' . U::h(U::url('clp', ['zapach' => $f['id']])) . '">+ Dodaj stężenie</a>' : '') . '</div>';
-        if ($mix === []) {
-            return $html . '<p class="zp-small">Wpisz klasyfikację z karty charakterystyki dla każdego stężenia, w jakim używasz olejku (np. 6%, 8%, 10%). '
-                . 'Potem na karcie produktu wybierzesz stężenie, a etykieta weźmie stąd piktogramy, zwroty i EUH208.</p></div>';
-        }
-        $html .= '<table style="margin-top:8px"><thead><tr><th>Stężenie</th><th>Piktogramy</th><th>Hasło</th><th class="zp-hm">Zwroty</th><th class="zp-hm">Produkty</th></tr></thead><tbody>';
-        foreach ($mix as $m) {
-            $pics = '';
-            foreach (\Pase\Services\Clp::pictograms($m) as $c) {
-                $pics .= '<img src="' . \Pase\Services\Clp::pictogramSrc($c) . '" alt="' . U::h($c) . '" title="' . U::h(\Pase\Services\Clp::PICTOGRAMS[$c]) . '" style="width:26px;height:26px;vertical-align:middle">';
-            }
-            $codes = [];
-            foreach (array_merge(\Pase\Services\Clp::phrases((string) $m['hazards']), \Pase\Services\Clp::phrases((string) $m['precautions'])) as $p) {
-                if ($p['code'] !== '') {
-                    $codes[] = $p['code'];
-                }
-            }
-            $n = (int) ($s->one('SELECT COUNT(*) AS n FROM ext_zap_links WHERE clp_id = ?', [$m['id']])['n'] ?? 0);
-            $html .= '<tr><td><a href="' . U::h(U::url('clp', ['zapach' => $f['id'], 'id' => $m['id']])) . '"><b>' . U::h(Store::percent($m['percent'])) . '</b></a></td>'
-                . '<td>' . ($pics !== '' ? $pics : '<span class="zp-small">brak</span>') . '</td><td>' . U::h($m['signal_word'] !== '' ? $m['signal_word'] : '-') . '</td>'
-                . '<td class="zp-hm zp-small">' . U::h(implode(', ', $codes)) . (trim((string) $m['contains_text']) !== '' ? ' · EUH208' : '') . '</td><td class="zp-hm">' . $n . '</td></tr>';
-        }
-        return $html . '</tbody></table><p class="zp-small" style="margin:8px 0 0">Klasyfikację przepisz z karty charakterystyki (SDS) mieszaniny. System nie liczy jej sam.</p></div>';
-    }
-
-    /** Formularz mieszaniny CLP (stężenie + klasyfikacja) z podglądem tekstu. */
-    public static function mixtureForm(Store $s, array $ctx, array $f, array $m, ?array $posted = null): string
-    {
-        $edit = isset($m['id']);
-        $data = $posted ?? $m;
-        $pct = $posted !== null ? (string) ($posted['percent'] ?? '') : ($edit ? str_replace('%', '', Store::percent($m['percent'])) : '');
-        $html = U::style() . '<style>.zp-form{display:flex;flex-direction:column;gap:14px;max-width:900px}.zp-form label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-2);font-weight:600}'
-            . '.zp-form label small{font-weight:400;color:var(--ink-3)}.zp-form textarea,.zp-form input:not([type=checkbox]),.zp-form select{width:100%;box-sizing:border-box;font-weight:400;color:var(--ink)}'
-            . '.zp-form textarea{padding:8px 10px;border:1px solid var(--line);border-radius:7px;font-size:14px}.zp-prev{background:var(--surface-2);border-radius:8px;padding:10px 12px;font-size:13px}</style>'
-            . U::tabs('lista') . U::back(U::url('zapach', ['id' => $f['id']]) . '#clp', (string) $f['name']);
-        if ($edit && $posted === null) {
-            $txt = [];
-            if (($c = \Pase\Services\Clp::containsSentence((string) $m['contains_text'])) !== '') {
-                $txt[] = $c;
-            }
-            foreach (['hazards', 'precautions', 'extra'] as $k) {
-                foreach (\Pase\Services\Clp::phrases((string) $m[$k]) as $p) {
-                    $txt[] = ($p['code'] !== '' ? $p['code'] . ' ' : '') . $p['text'];
-                }
-            }
-            $checks = \Pase\Services\Clp::checks([], $m, '');
-            $html .= '<div class="card" style="max-width:900px"><strong>Tekst na etykiecie (' . U::h(Store::percent($m['percent'])) . ')</strong><div class="zp-prev" style="margin-top:8px">'
-                . ($m['signal_word'] !== '' ? '<b>' . U::h($m['signal_word']) . '!</b> ' : '') . U::h(implode(' ', $txt)) . ($m['ufi'] !== '' ? ' <b>UFI: ' . U::h($m['ufi']) . '</b>' : '') . '</div>'
-                . ($checks !== [] ? '<ul class="zp-small" style="margin:8px 0 0;padding-left:18px;color:var(--warn-ink)">' . implode('', array_map(static fn(string $c): string => '<li>' . U::h($c) . '</li>', $checks)) . '</ul>' : '') . '</div>';
-        }
-        $html .= '<form class="card zp-form" method="post" action="' . U::h(U::url('clp_zapisz')) . '">' . U::csrf($ctx)
-            . '<h3 style="margin:0">' . ($edit ? 'Mieszanina ' . U::h(Store::percent($m['percent'])) : 'Nowe stężenie') . ' · ' . U::h($f['name']) . '</h3>'
-            . '<input type="hidden" name="fragrance_id" value="' . U::h($f['id']) . '">' . ($edit ? '<input type="hidden" name="id" value="' . U::h($m['id']) . '">' : '')
-            . '<label>Stężenie olejku (%)<input name="percent" value="' . U::h($pct) . '" inputmode="decimal" required style="max-width:160px" placeholder="np. 8"><small>tyle olejku jest w wosku</small></label>'
-            . \Pase\Services\Clp::classFields($data, 'Puste = UFI z danych olejku (' . (trim((string) $f['ufi']) !== '' ? $f['ufi'] : 'brak') . ').')
-            . '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn" type="submit">Zapisz</button><a class="btn secondary" href="' . U::h(U::url('zapach', ['id' => $f['id']]) . '#clp') . '">Anuluj</a>';
-        if ($edit) {
-            $html .= '<button class="btn secondary" type="submit" name="delete" value="1" formnovalidate style="margin-left:auto;color:var(--danger-ink)" onclick="return confirm(\'Usunąć to stężenie? Produkty z nim stracą dane CLP.\')">Usuń</button>';
-        }
-        return $html . '</div></form>';
     }
 
     private static function productPicker(Store $s, array $ctx, array $f, string $find): string
@@ -557,26 +487,6 @@ JS;
 
     // ---------------------------------------------------------------- produkt w Magazynie
 
-    /** Na karcie produktu: stężenie (mieszanina CLP) każdego przypisanego zapachu. */
-    private static function mixtureSelects(Store $s, array $mine, int $pid): string
-    {
-        $chosen = $s->productMixtures($pid);
-        $html = '';
-        foreach ($mine as $f) {
-            $mix = $s->mixtures((string) $f['id']);
-            if ($mix === []) {
-                $html .= '<p class="zp-small" style="margin:0 0 8px">' . U::h($f['name']) . ': brak danych CLP. <a href="' . U::h(U::url('clp', ['zapach' => $f['id']])) . '">Dodaj stężenie</a>.</p>';
-                continue;
-            }
-            $o = '<option value="">' . (count($mix) === 1 ? 'jedyne: ' . U::h(Store::percent($mix[0]['percent'])) : '- wybierz -') . '</option>';
-            foreach ($mix as $m) {
-                $o .= '<option value="' . U::h($m['id']) . '"' . (($chosen[$f['id']] ?? '') === $m['id'] ? ' selected' : '') . '>' . U::h(Store::percent($m['percent'])) . '</option>';
-            }
-            $html .= '<label style="display:flex;gap:8px;align-items:center;margin:0 0 8px;font-size:14px">Stężenie (CLP) ' . U::h($f['name']) . ': <select name="clp[' . U::h($f['id']) . ']">' . $o . '</select></label>';
-        }
-        return $html;
-    }
-
     public static function productSection(Store $s, array $ctx, array $p): string
     {
         $pid = (int) $p['id'];
@@ -596,7 +506,6 @@ JS;
             $html .= '<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px">'
                 . '<span style="display:inline-flex;align-items:center;justify-content:center;min-width:40px;height:40px;border-radius:10px;background:var(--ink,#1f1f1f);color:#fff;font-family:var(--font-num);font-weight:700;font-size:18px;padding:0 6px">'
                 . U::h(trim((string) $f['storage_no']) !== '' ? $f['storage_no'] : '–') . '</span><div><a href="' . U::h(U::url('zapach', ['id' => $f['id']])) . '" style="font-weight:600">' . U::h($f['name']) . '</a>'
-                . (($cid = $s->productMixtures($pid)[$f['id']] ?? '') !== '' && ($cm = $s->mixture($cid)) !== null ? ' <span class="zp-small">CLP: ' . U::h(Store::percent($cm['percent'])) . '</span>' : '')
                 . $notes . '</div></div>';
         }
         $suggest = $mine === [] ? $s->resolve('', self::productAttrs($p), (string) ($p['name'] ?? ''), -1) : [];
@@ -627,7 +536,7 @@ JS;
             . '.zp-pick-row:first-child{border-top:0}.zp-pick-row:hover{background:var(--surface-2,#f7f6f2)}.zp-pick-row b{font-family:var(--font-num);min-width:44px}'
             . '.zp-pick-row[hidden]{display:none}.zp-pick-row input{align-self:center}.zp-pick-row:has(input:checked){background:#f3ecfb}.zp-pick-empty{padding:10px;color:var(--ink-3,#888);font-size:13px}</style>'
             . '<form method="post" action="' . U::h(U::url('produkt_zapisz')) . '" class="zp-pick" style="margin:0">'
-            . U::csrf($ctx) . '<input type="hidden" name="product_id" value="' . $pid . '">' . self::mixtureSelects($s, $mine, $pid)
+            . U::csrf($ctx) . '<input type="hidden" name="product_id" value="' . $pid . '">'
             . '<input type="search" class="zp-pick-q" placeholder="Szukaj zapachu po nazwie albo numerze (np. 18)" autocomplete="off" aria-label="Szukaj zapachu">'
             . '<div class="zp-pick-list">' . $rows . '<div class="zp-pick-empty" hidden>Nie ma takiego zapachu.</div></div>'
             . '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn" type="submit">Zapisz zapach</button>'

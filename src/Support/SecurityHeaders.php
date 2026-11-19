@@ -23,7 +23,7 @@ final class SecurityHeaders
         . "font-src 'self' https://fonts.gstatic.com data:; "
         . "img-src 'self' data: blob: https:; "
         . "media-src 'self' blob:; "
-        . "connect-src 'self'; "
+        . "connect-src 'self' https://cdn.jsdelivr.net; "
         . "frame-src 'self' data: blob:; "
         . "worker-src 'self' blob:; "
         . "object-src 'none'; base-uri 'self'; form-action 'self' https:; frame-ancestors 'self'";

@@ -96,35 +96,6 @@ final class LabelPrints
         return $out;
     }
 
-    /**
-     * Lista zamówień: najwięcej druków jednej etykiety w zamówieniu (anulowane przesyłki pomijane).
-     *
-     * @param int[] $orderIds
-     * @return array<int,array{count:int,first:string,last:string}>
-     */
-    public function forOrders(array $orderIds): array
-    {
-        $ids = array_values(array_unique(array_filter(array_map('intval', $orderIds))));
-        if ($ids === []) {
-            return [];
-        }
-        self::migrate($this->pdo);
-        $st = $this->pdo->prepare("SELECT p.woo_order_id, p.shipment_id, COUNT(*) AS n, MIN(p.created_at) AS first_at, MAX(p.created_at) AS last_at
-            FROM shipment_label_prints p JOIN shipments s ON s.id = p.shipment_id
-            WHERE p.woo_order_id IN (" . implode(',', array_fill(0, count($ids), '?')) . ")
-              AND COALESCE(s.status, '') NOT IN ('cancelled', 'canceled', 'failed')
-            GROUP BY p.woo_order_id, p.shipment_id");
-        $st->execute($ids);
-        $out = [];
-        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
-            $oid = (int) $r['woo_order_id'];
-            if (!isset($out[$oid]) || (int) $r['n'] > $out[$oid]['count']) {
-                $out[$oid] = ['count' => (int) $r['n'], 'first' => (string) $r['first_at'], 'last' => (string) $r['last_at']];
-            }
-        }
-        return $out;
-    }
-
     /** Czas UTC z bazy -> „18.11 o 14:02” (czas polski). */
     public static function when(string $utc): string
     {

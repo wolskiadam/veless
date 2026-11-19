@@ -258,16 +258,6 @@ $PAGE_HEAD = <<<'CSS'
     .returning-badge:hover::after, .returning-badge:focus::after { opacity:1; visibility:visible; }
     @media (max-width:820px) { .orders-table td[data-col="client"] { position:relative; } .returning-badge { position:static; }
         .returning-badge::after { left:0; bottom:calc(100% + 4px); transform:none; max-width:100%; box-sizing:border-box; } }
-    /* Licznik druku etykiet (Services\LabelPrints) - w komórce dostawy; czerwony, gdy ta sama etykieta poszła 2× lub więcej. */
-    .label-prints { position:relative; display:inline-flex; align-items:center; margin-top:4px; padding:0 7px; border-radius:999px;
-        font-size:11px; font-weight:600; line-height:18px; white-space:nowrap; cursor:help; font-variant-numeric:tabular-nums;
-        background:var(--surface-2, #f1f0ec); color:var(--ink-2); border:1px solid var(--line); }
-    .label-prints.many { background:#fef2f2; color:#b91c1c; border-color:#fca5a5; }
-    .label-prints:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-    .label-prints::after { content:attr(data-tip); position:absolute; right:0; bottom:calc(100% + 6px); z-index:20;
-        width:max-content; max-width:240px; padding:6px 9px; border-radius:6px; background:#1f2937; color:#fff; font-size:12px; font-weight:500;
-        line-height:1.35; white-space:normal; text-align:left; box-shadow:var(--shadow); pointer-events:none; opacity:0; visibility:hidden; transition:opacity .12s; }
-    .label-prints:hover::after, .label-prints:focus::after { opacity:1; visibility:visible; }
     .order-shop-id { display:block; max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px; color:var(--ink-3); font-size:12px; font-variant-numeric:tabular-nums; }
     .order-source-number { display:inline-block; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:bottom; }
     @media (max-width:1400px) { .orders-table th,.orders-table td { padding:12px 6px; } }

@@ -3,7 +3,7 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
 // Licznik druku etykiet (Services\LabelPrints): każde pobranie/druk etykiety zapisane, drugi druk tylko po
-// potwierdzeniu (again=1), plakietka „Wydrukowano N×” na karcie i liście zamówień. Prawdziwe strony, SQLite,
+// potwierdzeniu (again=1), plakietka „Wydrukowano N×” na karcie zamówienia. Prawdziwe strony, SQLite,
 // atrapa wtyczki kurierskiej. Gdy jest Playwright (NODE_PATH), sprawdza okienko ostrzeżenia - tests/label_prints_ui.js.
 $root = dirname(__DIR__);
 spl_autoload_register(static function (string $class) use ($root): void {
@@ -180,17 +180,10 @@ return new class extends \Pase\Plugin\AbstractPlugin implements \Pase\Plugin\Con
     $page2 = request($boss, 'admin/order_view.php?id=552');
     ok(str_contains($page2['body'], 'data-ship="72" data-prints="0"'), 'Other shipment is not affected');
 
-    // --- lista zamówień ---
+    // --- lista zamówień: bez plakietki (Klub: niepotrzebna na liście, wystarczy karta) ---
     $list = request($boss, 'admin/index.php');
-    ok($list['status'] === 200 && preg_match('/<span class="label-prints many"[^>]*data-tip="Ta sama etykieta wydrukowana 3×[^"]*"[^>]*>Wydrukowano 3×<\/span>/', $list['body']) === 1, 'Orders list: red „Wydrukowano 3×” badge');
-    ok(substr_count($list['body'], 'class="label-prints') === 1, 'Orders list: no badge on the order whose label was never printed');
-    request($boss, 'admin/label_download.php?shipment=72&printer=A4');
-    $list = request($boss, 'admin/index.php');
-    ok(preg_match('/<span class="label-prints"[^>]*>Wydrukowano 1×<\/span>/', $list['body']) === 1, 'Orders list: grey badge after one print');
-    $pdo->exec("UPDATE shipments SET status = 'cancelled' WHERE id = 71");
-    $list = request($boss, 'admin/index.php');
-    ok(!str_contains($list['body'], 'Wydrukowano 3×'), 'Cancelled shipment no longer shows on the list');
-    $pdo->exec("UPDATE shipments SET status = 'created' WHERE id = 71");
+    ok($list['status'] === 200 && !str_contains($list['body'], 'Wydrukowano'), 'Orders list shows no print badge');
+    request($boss, 'admin/label_download.php?shipment=72&printer=A4');   // jeden druk - przeglądarka sprawdza ostrzeżenie na 72
 
     // --- historia zmian zamówienia ---
     ok((int) $pdo->query("SELECT COUNT(*) FROM audit_events WHERE order_id = 551 AND action = 'shipment.label_printed'")->fetchColumn() === 3, 'Each print is in the order history');

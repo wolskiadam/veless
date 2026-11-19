@@ -63,10 +63,6 @@ const fail = (m) => { throw new Error('FAIL (browser): ' + m); };
             const t = await desk.$('.ship-table');
             await t.evaluate((el) => el.closest('.card').scrollIntoView());
             await (await t.evaluateHandle((el) => el.closest('.card'))).screenshot({ path: SHOTS + '/karta-zamowienia.png' });
-            await desk.goto(BASE + 'admin/index.php');
-            await desk.screenshot({ path: SHOTS + '/lista-zamowien.png' });
-            await page.goto(BASE + 'admin/index.php');
-            await page.screenshot({ path: SHOTS + '/lista-telefon.png' });
             await desk.close();
         }
 

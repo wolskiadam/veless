@@ -167,7 +167,7 @@ final class LabelPages
                     $crm = null;
                 }
             }
-            $l = $crm !== null ? $s->label((int) $crm['id']) : null;
+            $l = $crm !== null ? $s->labelFor((int) $crm['id']) : null;
             if ($l === null) {
                 $missing[] = $b['code'] . ' (' . ($crm === null ? ($w === null ? 'partia bez wyrobu' : 'brak produktu o SKU wyrobu') : 'produkt bez etykiety') . ')';
                 continue;
@@ -241,8 +241,9 @@ final class LabelPages
     public static function section(Store $s, array $ctx, array $p): string
     {
         $pid = (int) $p['id'];
-        $l = $s->label($pid);
+        $l = $s->labelFor($pid);
         $edit = U::url('etykieta_edytuj', ['produkt' => $pid]);
+        $shared = $l['shared_from'] ?? null;
         if ($l === null) {
             return '<p class="pr-small" style="margin:0">Brak etykiety. Wgraj gotową etykietę CLP (PNG, JPG albo PDF, np. z Canvy) i zaznacz miejsce na numer partii. '
                 . 'Przy druku system wpisze tam numer partii.</p>' . ($ctx['canEdit'] ? '<p style="margin:10px 0 0"><a class="btn secondary" href="' . U::h($edit) . '">Wgraj etykietę</a></p>' : '');
@@ -256,7 +257,10 @@ final class LabelPages
         return '<style>' . self::css() . '.lb-thumb{max-width:100%;overflow:auto;padding:8px;background:var(--surface-2);border-radius:8px;margin-bottom:10px}.lb-thumb .lb{box-shadow:0 0 0 1px var(--line)}</style>'
             . '<div class="lb-thumb">' . self::render($l, self::fileUrl($l), $sample) . '</div>'
             . '<p class="pr-small" style="margin:0 0 8px">' . U::n($l['width_mm']) . '×' . U::n($l['height_mm']) . ' mm'
-            . ($ctx['canEdit'] ? ' · <a href="' . U::h($edit) . '">Zmień plik albo miejsce numeru</a>' : '') . '</p>'
+            . ($shared !== null
+                ? ' · wspólna z wariantem <a href="product_view.php?id=' . (int) $shared['id'] . '">' . U::h($shared['name']) . ($shared['sku'] !== '' ? ' (' . U::h($shared['sku']) . ')' : '') . '</a>'
+                    . ($ctx['canEdit'] ? ' · <a href="' . U::h($edit) . '">Wgraj osobną dla tego wariantu</a>' : '')
+                : ($ctx['canEdit'] ? ' · <a href="' . U::h($edit) . '">Zmień plik albo miejsce numeru</a>' : '')) . '</p>'
             . '<form method="get" action="ext.php" target="_blank" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:0">'
             . '<input type="hidden" name="page" value="produkcja.etykieta_produkt"><input type="hidden" name="produkt" value="' . $pid . '">'
             . '<label style="display:flex;flex-direction:column;gap:4px;font-size:13px">Numer partii<input name="partia" list="lb-batches-' . $pid . '" autocomplete="off" style="width:200px" placeholder="np. AQ001LX01AVBZ"></label>'

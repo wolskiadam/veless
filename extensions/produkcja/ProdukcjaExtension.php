@@ -348,7 +348,7 @@ final class ProdukcjaExtension extends AbstractExtension
                 $wyrob = ($b['product_id'] !== null ? $s->product((string) $b['product_id']) : null) ?? [];
                 $sku = trim((string) ($_GET['sku'] ?? ($wyrob['sku'] ?? '')));
                 $crm = $sku !== '' ? $this->crmBySku($s, $sku) : null;
-                $l = $crm !== null ? $s->label((int) $crm['id']) : null;
+                $l = $crm !== null ? $s->labelFor((int) $crm['id']) : null;
                 $pick = ' Produkt (SKU): <input name="sku" value="' . U::h($sku) . '" list="lb-skus" style="width:150px" onchange="this.form.submit()">' . LabelPages::skuList($s);
                 $simple = ($_GET['wzor'] ?? '') === 'prosta';
                 if ($l === null || $simple) {
@@ -400,7 +400,7 @@ final class ProdukcjaExtension extends AbstractExtension
                 $s = $store();
                 header('Content-Type: text/html; charset=utf-8');
                 $crm = $crmProduct($s, $_GET);
-                $l = $crm !== null ? $s->label((int) $crm['id']) : null;
+                $l = $crm !== null ? $s->labelFor((int) $crm['id']) : null;
                 if ($l === null) {
                     echo $crm === null ? 'Nie ma takiego produktu.' : 'Ten produkt nie ma etykiety CLP. Wgraj ją na karcie produktu.';
                     return;

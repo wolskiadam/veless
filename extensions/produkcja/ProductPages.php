@@ -126,7 +126,7 @@ final class ProductPages
             $html .= '<dt>Produkt</dt><dd><a href="products.php?q=' . U::h(rawurlencode((string) $crm['sku'])) . '">' . U::h($crm['name']) . '</a></dd>'
                 . '<dt>Stan</dt><dd>' . self::crmStock($crm) . '</dd>'
                 . ($w['min_stock'] !== null ? '<dt>Trzymaj co najmniej</dt><dd>' . (int) $w['min_stock'] . ' szt.</dd>' : '')
-                . '<dt>Etykieta CLP</dt><dd>' . ($s->label((int) $crm['id']) !== null ? '<a href="product_view.php?id=' . (int) $crm['id'] . '">jest</a>'
+                . '<dt>Etykieta CLP</dt><dd>' . ($s->labelFor((int) $crm['id']) !== null ? '<a href="product_view.php?id=' . (int) $crm['id'] . '">jest</a>'
                     : '<span class="pr-muted">brak</span> · <a href="' . U::h(U::url('etykieta_edytuj', ['produkt' => $crm['id']])) . '">wgraj</a>') . '</dd></dl>';
         }
         $html .= '<dl class="pr-dl" style="margin-top:10px">' . (($w['weight_g'] ?? null) !== null ? '<dt>Waga</dt><dd>' . U::n($w['weight_g']) . ' g</dd>' : '') . '<dt>Ważność</dt><dd>' . ((int) $w['shelf_life_months'] > 0 ? (int) $w['shelf_life_months'] . ' mies. od produkcji' : 'bez daty') . '</dd>'

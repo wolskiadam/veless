@@ -41,6 +41,8 @@ Etykietę CLP projektuje się poza CRM (Canva, od dostawcy olejku) i wgrywa goto
 - **Druk**: z karty partii (przycisk „Etykiety”: produkt po SKU wyrobu albo wpisanym SKU; bez pliku zostaje prosta etykieta partii)
   albo z karty produktu (numer partii z podpowiedzi). Arkusz A4 w prawdziwym rozmiarze, „Pomiń” zostawia miejsca po zużytych
   etykietach. Tekst wpisuje się w prostokąt (czcionka 80% wysokości, zmniejszana, gdy numer się nie mieści).
+- **Warianty**: wariant bez własnej etykiety używa etykiety innego wariantu tego samego produktu z Woo (wspólny `woo_product_id`);
+  własna etykieta wariantu ma pierwszeństwo. Wystarczy wgrać jedną do dowolnego wariantu.
 - **Wiele partii na jednym arkuszu**: na liście Partie zaznacza się kratki i „Drukuj etykiety zaznaczonych” - jeden arkusz A4
   z etykietą i numerem każdej partii (liczba sztuk do poprawienia przy każdej, domyślnie ilość z partii; partie bez etykiety są wypisane).
 - **Produkcja → Etykiety CLP**: lista produktów z etykietą i wybór produktu do dodania.

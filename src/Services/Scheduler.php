@@ -454,7 +454,8 @@ final class Scheduler
                 foreach ($batch as $prod) {
                     $id  = (int) ($prod['id'] ?? 0);
                     $sku = trim((string) ($prod['sku'] ?? ''));
-                    if ($id <= 0 || $sku === '') {
+                    // Rodzic produktu wariantowego bywa z własnym SKU - nie jest produktem na stanie.
+                    if ($id <= 0 || $sku === '' || \Pase\Handlers\WooProductImportHandler::isVariableParent($prod)) {
                         continue;
                     }
                     $prod['__integration_id'] = (int) $acc['id'];

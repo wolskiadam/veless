@@ -17,7 +17,7 @@ $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE
 $pdo->sqliteCreateFunction('GREATEST', 'max', 2);   // MySQL
 $pdo->exec('CREATE TABLE settings (setting_key VARCHAR(64) PRIMARY KEY, setting_value TEXT NULL)');
 $pdo->exec('CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, pase_stock INT NULL, pase_price REAL NULL,
-    source_integration_id INT NULL, woo_product_id INT NULL, categories TEXT NULL)');
+    source_integration_id INT NULL, woo_product_id INT NULL, woo_variation_id INT NULL, categories TEXT NULL)');
 $pdo->exec("INSERT INTO products (id, sku, name, pase_stock) VALUES (1,'GB-1L','Gingerbread 1l',50),(2,'MW-1L','Mulled Wine 1l',40),(3,'CC-1L','Clementine 1l',30)");
 LowStock::migrate($pdo);
 LowStock::migrate($pdo);   // drugi raz bez błędu

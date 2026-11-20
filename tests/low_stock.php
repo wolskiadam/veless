@@ -15,7 +15,7 @@ function check(bool $ok, string $label): void { global $checks; if (!$ok) { thro
 $pdo = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
 $pdo->exec('CREATE TABLE settings (setting_key VARCHAR(64) PRIMARY KEY, setting_value TEXT NULL)');
 $pdo->exec('CREATE TABLE products (id INTEGER PRIMARY KEY, sku TEXT, name TEXT, pase_stock INT NULL, pase_price REAL NULL,
-    source_integration_id INT NULL, woo_product_id INT NULL, categories TEXT NULL)');
+    source_integration_id INT NULL, woo_product_id INT NULL, woo_variation_id INT NULL, categories TEXT NULL)');
 $pdo->exec("INSERT INTO products (id, sku, name, pase_stock) VALUES
     (1,'GB-1L','Gingerbread 1l',3),(2,'MW-1L','Mulled Wine 1l',12),(3,'CC-1L','Clementine 1l',0),(4,'SLC-500','Lavender 500 ml',NULL),(5,'VAN-1L','Vanilla 1l',5)");
 LowStock::migrate($pdo);

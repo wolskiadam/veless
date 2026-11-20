@@ -299,13 +299,36 @@ final class Store
 
     // ---------------------------------------------------------------- etykiety CLP (gotowy plik przy produkcie CRM)
 
-    public const LABEL_FIELDS = ['lot' => 'Numer partii', 'produced' => 'Data produkcji', 'expires' => 'Najlepiej do'];
+    public const LABEL_FIELDS = ['lot' => 'Numer partii', 'produced' => 'Data produkcji', 'expires' => 'Najlepiej do', 'ean_bar' => 'Kod kreskowy EAN', 'ean' => 'EAN (tekst)'];
 
     public function label(int $productId): ?array
     {
         $l = $this->one('SELECT * FROM ext_prod_labels WHERE product_id = ?', [$productId]);
         if ($l !== null) {
             $l['boxes'] = self::boxes((string) $l['boxes']);
+        }
+        return $l;
+    }
+
+    /**
+     * Etykieta do druku: własna produktu, a gdy jej nie ma - etykieta innego wariantu tego samego produktu z Woo
+     * (wspólny woo_product_id). Wspólna ma 'shared_from' => [id, name, sku] wariantu, do którego ją wgrano.
+     */
+    public function labelFor(int $productId): ?array
+    {
+        $l = $this->label($productId);
+        if ($l !== null) {
+            return $l;
+        }
+        try {
+            $row = $this->one('SELECT p.id, p.name, p.sku FROM ext_prod_labels l JOIN products p ON p.id = l.product_id
+                JOIN products me ON me.woo_product_id = p.woo_product_id WHERE me.id = ? AND me.woo_product_id > 0 AND p.id <> me.id ORDER BY p.id LIMIT 1', [$productId]);
+        } catch (\PDOException) {
+            return null; // baza bez woo_product_id
+        }
+        $l = $row !== null ? $this->label((int) $row['id']) : null;
+        if ($l !== null) {
+            $l['shared_from'] = $row;
         }
         return $l;
     }

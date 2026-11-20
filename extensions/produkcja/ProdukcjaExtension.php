@@ -348,7 +348,7 @@ final class ProdukcjaExtension extends AbstractExtension
                 $wyrob = ($b['product_id'] !== null ? $s->product((string) $b['product_id']) : null) ?? [];
                 $sku = trim((string) ($_GET['sku'] ?? ($wyrob['sku'] ?? '')));
                 $crm = $sku !== '' ? $this->crmBySku($s, $sku) : null;
-                $l = $crm !== null ? $s->label((int) $crm['id']) : null;
+                $l = $crm !== null ? $s->labelFor((int) $crm['id']) : null;
                 $pick = ' Produkt (SKU): <input name="sku" value="' . U::h($sku) . '" list="lb-skus" style="width:150px" onchange="this.form.submit()">' . LabelPages::skuList($s);
                 $simple = ($_GET['wzor'] ?? '') === 'prosta';
                 if ($l === null || $simple) {
@@ -359,7 +359,7 @@ final class ProdukcjaExtension extends AbstractExtension
                 }
                 $n = max(1, min(500, (int) ($_GET['n'] ?? $b['qty'])));
                 $bar = $pick . ' <a href="' . U::h(U::url('etykieta', ['id' => $b['id'], 'wzor' => 'prosta'])) . '">prosta etykieta partii</a>';
-                echo LabelPages::sheet($l, LabelPages::values($b), $n, 'etykieta', ['id' => (string) $b['id']], $bar, (string) $crm['name'] . ' · partia ' . $b['code']);
+                echo LabelPages::sheet($l, LabelPages::values($b, '', (string) ($crm['ean'] ?? '')), $n, 'etykieta', ['id' => (string) $b['id']], $bar, (string) $crm['name'] . ' · partia ' . $b['code']);
             }]);
 
         Hooks::addPage('etykiety_partii', ['title' => 'Etykiety zaznaczonych partii', 'menu' => false, 'role' => 'viewer', 'raw' => true,
@@ -400,7 +400,7 @@ final class ProdukcjaExtension extends AbstractExtension
                 $s = $store();
                 header('Content-Type: text/html; charset=utf-8');
                 $crm = $crmProduct($s, $_GET);
-                $l = $crm !== null ? $s->label((int) $crm['id']) : null;
+                $l = $crm !== null ? $s->labelFor((int) $crm['id']) : null;
                 if ($l === null) {
                     echo $crm === null ? 'Nie ma takiego produktu.' : 'Ten produkt nie ma etykiety CLP. Wgraj ją na karcie produktu.';
                     return;
@@ -409,7 +409,7 @@ final class ProdukcjaExtension extends AbstractExtension
                 $batch = $code !== '' ? $s->batchByCode($code) : null;
                 $bar = 'Nr partii: <input name="partia" value="' . U::h($code) . '" style="width:170px">';
                 $info = (string) $crm['name'] . ($code === '' ? ' · wpisz numer partii' : ($batch === null ? ' · nie ma takiej partii w Produkcji, daty zostaną puste' : ''));
-                echo LabelPages::sheet($l, LabelPages::values($batch, $code), max(1, min(500, (int) ($_GET['n'] ?? 1))), 'etykieta_produkt', ['produkt' => (string) $crm['id']], $bar, $info);
+                echo LabelPages::sheet($l, LabelPages::values($batch, $code, (string) ($crm['ean'] ?? '')), max(1, min(500, (int) ($_GET['n'] ?? 1))), 'etykieta_produkt', ['produkt' => (string) $crm['id']], $bar, $info);
             }]);
         Hooks::addPage('etykieta_plik', ['title' => 'Plik etykiety', 'menu' => false, 'role' => 'viewer', 'raw' => true,
             'render' => static function (PDO $pdo) use ($store): void {

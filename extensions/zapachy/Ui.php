@@ -164,7 +164,6 @@ a.zp-pg:hover{border-color:var(--accent)}.zp-pg.on{background:var(--ink);color:v
 .zp-dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:0}
 .zp-dl dt{color:var(--ink-2)}
 .zp-dl dd{margin:0}
-@media (max-width:700px){.zp-hm{display:none}}
 .zp-back{margin:0 0 10px}
 .zp-back a{text-decoration:none;font-weight:600}
 .zp-list{list-style:none;margin:0;padding:0}

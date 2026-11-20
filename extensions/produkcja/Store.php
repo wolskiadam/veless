@@ -15,7 +15,7 @@ use PDO;
  */
 final class Store
 {
-    public const SCHEMA = '4';
+    public const SCHEMA = '5';
     public const CATEGORIES = ['wosk' => 'Wosk', 'zapach' => 'Zapach', 'knot' => 'Knot', 'pojemnik' => 'Pojemnik', 'barwnik' => 'Barwnik',
         'dodatek' => 'Dodatek', 'opakowanie' => 'Opakowanie', 'etykieta' => 'Etykieta', 'inne' => 'Inne'];
     public const UNITS = ['g' => 'g', 'ml' => 'ml', 'szt' => 'szt.'];
@@ -69,18 +69,13 @@ final class Store
             'ext_prod_tests' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, product_id VARCHAR(16) NULL, batch_id VARCHAR(16) NULL, tested_at VARCHAR(10) NOT NULL,
                 wick VARCHAR(200) NOT NULL, result VARCHAR(8) NOT NULL, measurements TEXT NOT NULL, notes TEXT NOT NULL, photo VARCHAR(64) NOT NULL,
                 photo_mime VARCHAR(40) NOT NULL, created_by VARCHAR(100) NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
-            // Wzór (wygląd) etykiety CLP; klasyfikację daje zapach produktu (wtyczka Zapachy), własna tylko awaryjnie.
-            'ext_prod_clp' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, name VARCHAR(200) NOT NULL, shape VARCHAR(8) NOT NULL DEFAULT \'rect\',
-                width_mm INT NOT NULL DEFAULT 100, height_mm INT NOT NULL DEFAULT 60, title_mode VARCHAR(8) NOT NULL DEFAULT \'scent\', title VARCHAR(200) NOT NULL,
-                subtitle VARCHAR(200) NOT NULL, warning VARCHAR(300) NOT NULL, safety_img MEDIUMTEXT NULL, safety_mm INT NOT NULL DEFAULT 0,
-                recycle_img MEDIUMTEXT NULL, qr_text VARCHAR(500) NOT NULL, maker TEXT NOT NULL, net_qty VARCHAR(40) NOT NULL,
-                show_codes INT NOT NULL DEFAULT 0, show_dates INT NOT NULL DEFAULT 0, pict_mm INT NOT NULL DEFAULT 0, font_pt DECIMAL(4,1) NOT NULL DEFAULT 7,
-                is_default INT NOT NULL DEFAULT 0, signal_word VARCHAR(20) NOT NULL, pictograms VARCHAR(100) NOT NULL, hazards TEXT NOT NULL,
-                precautions TEXT NOT NULL, contains_text TEXT NOT NULL, extra TEXT NOT NULL, ufi VARCHAR(20) NOT NULL, archived INT NOT NULL DEFAULT 0,
-                created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
             'ext_prod_order_batches' => 'order_id INT NOT NULL, item_idx INT NOT NULL, sku VARCHAR(191) NOT NULL, item_name VARCHAR(255) NOT NULL,
                 batch_code VARCHAR(60) NOT NULL, batch_id VARCHAR(16) NULL, qty INT NOT NULL, created_by VARCHAR(100) NULL,
                 created_at DATETIME NOT NULL, PRIMARY KEY (order_id, item_idx)',
+            // Gotowa etykieta CLP produktu CRM (plik graficzny) i miejsca, w które druk wpisuje numer partii / daty.
+            'ext_prod_labels' => 'product_id INT NOT NULL PRIMARY KEY, file VARCHAR(64) NOT NULL, mime VARCHAR(40) NOT NULL, px_w INT NOT NULL, px_h INT NOT NULL,
+                width_mm DECIMAL(6,1) NOT NULL, height_mm DECIMAL(6,1) NOT NULL, boxes TEXT NOT NULL, source_name VARCHAR(255) NOT NULL,
+                updated_by VARCHAR(100) NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL',
         ];
         foreach ($t as $name => $cols) {
             $this->pdo->exec("CREATE TABLE IF NOT EXISTS {$name} ({$cols})");
@@ -106,11 +101,13 @@ final class Store
         } catch (\PDOException) {
             // już jest (nowa instalacja)
         }
-        // Wersja 4: wzór etykiety CLP przy wyrobie.
-        try {
-            $this->pdo->exec('ALTER TABLE ext_prod_products ADD COLUMN clp_id VARCHAR(16) NULL');
-        } catch (\PDOException) {
-            // już jest
+        // Wersja 5: wzory etykiet CLP z wersji 4 zastąpione gotowym plikiem etykiety przy produkcie (ext_prod_labels).
+        foreach (['DROP TABLE ext_prod_clp', 'ALTER TABLE ext_prod_products DROP COLUMN clp_id'] as $sql) {
+            try {
+                $this->pdo->exec($sql);
+            } catch (\PDOException) {
+                // nie było (instalacja bez wersji 4)
+            }
         }
         // Stary wzór Rejestru Partii (ilość do 999, bez wyrobu i formy) zamieniamy na nowy domyślny. Własny wzór zostaje.
         $cfg = json_decode((string) $settings->get('EXT_PRODUKCJA', ''), true);
@@ -300,116 +297,92 @@ final class Store
         return $this->material($id) ?? [];
     }
 
-    // ---------------------------------------------------------------- wzory etykiet CLP
+    // ---------------------------------------------------------------- etykiety CLP (gotowy plik przy produkcie CRM)
 
-    public function clp(string $id): ?array
-    {
-        return $this->one('SELECT * FROM ext_prod_clp WHERE id = ?', [$id]);
-    }
+    public const LABEL_FIELDS = ['lot' => 'Numer partii', 'produced' => 'Data produkcji', 'expires' => 'Najlepiej do'];
 
-    /** @return list<array<string,mixed>> */
-    public function clps(bool $archived = false): array
+    public function label(int $productId): ?array
     {
-        return $this->all('SELECT * FROM ext_prod_clp WHERE archived = ? ORDER BY is_default DESC, name', [$archived ? 1 : 0]);
-    }
-
-    /** @return array<string,string> id => nazwa (do list wyboru) */
-    public function clpOptions(): array
-    {
-        return array_column($this->clps(), 'name', 'id');
-    }
-
-    private function clpIdOrNull(string $id): ?string
-    {
-        return $id !== '' && $this->clp($id) !== null ? $id : null;
-    }
-
-    /** Wyroby z tym wzorem. @return list<array<string,mixed>> */
-    public function clpUsers(string $id): array
-    {
-        return $this->all('SELECT id, name, sku FROM ext_prod_products WHERE clp_id = ? AND archived = 0 ORDER BY name', [$id]);
-    }
-
-    /** Wzór domyślny (zaznaczony albo pierwszy). */
-    public function defaultClp(): ?array
-    {
-        return $this->clps()[0] ?? null;
-    }
-
-    /** Obrazek z formularza ($_FILES) jako data: URI. Null = bez zmian. */
-    public static function imageUpload(?array $f): ?string
-    {
-        if ($f === null || ($f['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
-            return null;
+        $l = $this->one('SELECT * FROM ext_prod_labels WHERE product_id = ?', [$productId]);
+        if ($l !== null) {
+            $l['boxes'] = self::boxes((string) $l['boxes']);
         }
-        if (($f['error'] ?? 1) !== UPLOAD_ERR_OK || !is_uploaded_file((string) $f['tmp_name'])) {
-            throw new \RuntimeException('Nie udało się wgrać obrazka.');
-        }
-        if ((int) $f['size'] > 3 * 1024 * 1024) {
-            throw new \RuntimeException('Obrazek jest za duży (najwięcej 3 MB).');
-        }
-        $data = (string) file_get_contents((string) $f['tmp_name']);
-        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($data) ?: '';
-        if ($mime === 'image/svg' || $mime === 'text/xml' || $mime === 'application/xml' || ($mime === 'text/plain' && str_contains($data, '<svg'))) {
-            $mime = 'image/svg+xml';
-        }
-        if (!in_array($mime, ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml'], true)) {
-            throw new \RuntimeException('Obrazek musi być PNG, JPG, WEBP, GIF albo SVG.');
-        }
-        return 'data:' . $mime . ';base64,' . base64_encode($data);
+        return $l;
     }
 
-    /** @param array<string,?string> $images safety_img / recycle_img: data URI, '' = usuń, null = bez zmian */
-    public function saveClp(?string $id, array $in, array $images = []): array
+    /** Produkty z etykietą (z nazwą i SKU). @return list<array<string,mixed>> */
+    public function labels(): array
     {
-        $name = trim((string) ($in['name'] ?? ''));
-        if ($name === '') {
-            throw new \RuntimeException('Wpisz nazwę wzoru, np. „Okrągła 60 mm”.');
+        try {
+            $rows = $this->all('SELECT l.*, p.name, p.sku FROM ext_prod_labels l JOIN products p ON p.id = l.product_id ORDER BY p.name');
+        } catch (\PDOException) {
+            return [];
         }
-        $txt = static fn(string $k, int $max): string => mb_substr(trim(str_replace("\r", '', (string) ($in[$k] ?? ''))), 0, $max);
-        $int = static fn(string $k, int $d, int $min, int $max): int => ($v = self::num($in[$k] ?? '')) === null ? $d : max($min, min($max, (int) round($v)));
-        $opt = static fn(string $k): int => ($v = self::num($in[$k] ?? '')) === null || $v <= 0 ? 0 : max(5, min(120, (int) round($v)));
-        $font = self::num($in['font_pt'] ?? '');
-        $row = [
-            'name' => mb_substr($name, 0, 200),
-            'shape' => ($in['shape'] ?? '') === 'round' ? 'round' : 'rect',
-            'width_mm' => $int('width_mm', 100, 20, 300),
-            'height_mm' => $int('height_mm', 60, 15, 300),
-            'title_mode' => in_array((string) ($in['title_mode'] ?? ''), ['scent', 'product', 'own'], true) ? (string) $in['title_mode'] : 'scent',
-            'title' => $txt('title', 200),
-            'subtitle' => $txt('subtitle', 200),
-            'warning' => $txt('warning', 300),
-            'safety_mm' => $opt('safety_mm'),
-            'qr_text' => $txt('qr_text', 500),
-            'maker' => $txt('maker', 1000),
-            'net_qty' => $txt('net_qty', 40),
-            'show_codes' => !empty($in['show_codes']) ? 1 : 0,
-            'show_dates' => !empty($in['show_dates']) ? 1 : 0,
-            'pict_mm' => $opt('pict_mm'),
-            'font_pt' => $font === null ? 7.0 : max(4.0, min(20.0, round($font, 1))),
-            'is_default' => !empty($in['is_default']) ? 1 : 0,
-            'updated_at' => self::now(),
-        ] + \Pase\Services\Clp::classFromInput($in);
-        $row['contains_text'] = \Pase\Services\Clp::containsFromInput($in);
-        foreach (['safety_img', 'recycle_img'] as $k) {
-            if (!empty($in[$k . '_remove'])) {
-                $row[$k] = null;
-            } elseif (($images[$k] ?? null) !== null) {
-                $row[$k] = $images[$k];
+        foreach ($rows as &$r) {
+            $r['boxes'] = self::boxes((string) $r['boxes']);
+        }
+        return $rows;
+    }
+
+    /**
+     * Miejsca na etykiecie: pole => [x, y, szer., wys.] jako ułamek obrazka (0..1) + 'align'.
+     * @return array{align:string}&array<string,list<float>>
+     */
+    public static function boxes(string $json): array
+    {
+        $in = json_decode($json, true);
+        $out = ['align' => in_array($in['align'] ?? '', ['left', 'center', 'right'], true) ? (string) $in['align'] : 'left'];
+        foreach (array_keys(self::LABEL_FIELDS) as $k) {
+            $b = $in[$k] ?? null;
+            if (!is_array($b) || count($b) !== 4) {
+                continue;
+            }
+            [$x, $y, $w, $h] = array_map(static fn($v): float => max(0.0, min(1.0, round((float) $v, 4))), array_values($b));
+            if ($w >= 0.005 && $h >= 0.005) {
+                $out[$k] = [$x, $y, min($w, 1 - $x), min($h, 1 - $y)];
             }
         }
-        return $this->tx(function () use ($id, $row, $in): array {
-            if ($row['is_default'] === 1) {
-                $this->run('UPDATE ext_prod_clp SET is_default = 0');
-            }
-            if ($id === null) {
-                $id = self::id();
-                $this->insert('ext_prod_clp', ['id' => $id, 'archived' => 0, 'created_at' => self::now()] + $row);
-            } else {
-                $this->update('ext_prod_clp', $id, $row + ['archived' => !empty($in['archived']) ? 1 : 0]);
-            }
-            return $this->clp($id) ?? [];
-        });
+        return $out;
+    }
+
+    /** @param array{file:string,mime:string,px_w:int,px_h:int,source_name:string}|null $file nowy plik albo null = bez zmiany */
+    public function saveLabel(int $productId, array $in, ?array $file, string $user): array
+    {
+        $old = $this->label($productId);
+        if ($old === null && $file === null) {
+            throw new \RuntimeException('Wybierz plik z etykietą (PNG, JPG albo PDF).');
+        }
+        $pxW = (int) ($file['px_w'] ?? $old['px_w']);
+        $pxH = (int) ($file['px_h'] ?? $old['px_h']);
+        $w = self::num($in['width_mm'] ?? '');
+        if ($w === null || $w < 10 || $w > 300) {
+            throw new \RuntimeException('Wpisz szerokość etykiety w milimetrach (10-300), np. 60.');
+        }
+        $h = self::num($in['height_mm'] ?? '');
+        if ($h === null || $h <= 0) {
+            $h = $w * $pxH / max(1, $pxW);
+        }
+        $h = max(10.0, min(300.0, $h));
+        $boxes = self::boxes((string) ($in['boxes'] ?? ''));
+        if (!isset($boxes['lot'])) {
+            throw new \RuntimeException('Zaznacz na podglądzie miejsce na numer partii (przeciągnij prostokąt).');
+        }
+        $row = ['width_mm' => round($w, 1), 'height_mm' => round($h, 1), 'boxes' => json_encode($boxes), 'updated_by' => $user, 'updated_at' => self::now()];
+        if ($file !== null) {
+            $row += $file;
+        }
+        if ($old === null) {
+            $this->insert('ext_prod_labels', ['product_id' => $productId, 'created_at' => self::now()] + $row);
+        } else {
+            $set = implode(', ', array_map(static fn(string $k): string => $k . ' = ?', array_keys($row)));
+            $this->pdo->prepare("UPDATE ext_prod_labels SET {$set} WHERE product_id = ?")->execute([...array_values($row), $productId]);
+        }
+        return $this->label($productId) ?? [];
+    }
+
+    public function deleteLabel(int $productId): void
+    {
+        $this->run('DELETE FROM ext_prod_labels WHERE product_id = ?', [$productId]);
     }
 
     // ---------------------------------------------------------------- dostawy
@@ -602,9 +575,6 @@ final class Store
             'notes' => mb_substr(trim((string) ($in['notes'] ?? '')), 0, 2000),
             'updated_at' => self::now(),
         ];
-        if (array_key_exists('clp_id', $in)) {
-            $row['clp_id'] = $this->clpIdOrNull((string) $in['clp_id']);
-        }
         if ($row['sku'] !== '' && ($d = $this->one('SELECT name FROM ext_prod_products WHERE sku = ? AND archived = 0' . ($id !== null ? ' AND id <> ?' : ''),
             $id !== null ? [$row['sku'], $id] : [$row['sku']])) !== null) {
             throw new \RuntimeException('SKU ' . $row['sku'] . ' ma już wyrób „' . $d['name'] . '”.');

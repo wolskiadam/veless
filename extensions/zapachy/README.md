@@ -70,10 +70,3 @@ Tabele `ext_zap_fragrances` (zapachy), `ext_zap_notes` (słownik nut), `ext_zap_
 ## Uprawnienia
 
 Podgląd (rola „podgląd”) widzi wszystko. Dodawanie, zmiany, przypisywanie i import wymagają roli edytora.
-
-## Etykieta CLP
-
-Na karcie zapachu sekcja „Etykieta CLP - mieszaniny”: dla każdego stężenia olejku w wosku (np. 6%, 8%, 10%) klasyfikacja z karty
-charakterystyki - piktogramy, hasło, zwroty H i P (kody, tekst wstawia się sam), EUH208 / „Zawiera:” i UFI (puste = UFI olejku,
-także z listy „6%: …, 10%: …”). Na karcie produktu przy zapachu wybiera się stężenie (jedyne wybiera się samo). Etykietę drukuje
-wtyczka Produkcja (Produkcja → Etykiety CLP), filtr `clp.product`. Tabela `ext_zap_clp`, kolumna `ext_zap_links.clp_id`.

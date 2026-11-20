@@ -273,45 +273,48 @@ try {
     $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 3]))['body'];
     ok(substr_count($lab, 'class="l"') === 3 && str_contains($lab, 'AD010LX02ABBA') && str_contains($lab, '04.11.2028') && str_contains($lab, 'Klub Woskarzy'), 'Label sheet with number, best-before and maker');
 
-    // ---- Etykiety CLP: wzór wyglądu z własną klasyfikacją (bez Zapachów), druk z numerem partii
-    ok(str_contains(request($vi, $url('etykiety'))['body'], 'Dodaj pierwszy wzór etykiety'), 'CLP list starts empty');
-    $post($vi, 'clp_zapisz', ['name' => 'X']);
-    ok((int) $pdo->query('SELECT COUNT(*) FROM ext_prod_clp')->fetchColumn() === 0, 'Viewer cannot add a CLP template');
-    $png = "$temp/ikony.png";
-    $im = imagecreatetruecolor(120, 40); imagepng($im, $png);
-    $csrfF = csrfOf(request($ola, $url('clp', ['nowy' => 1]))['body']);
-    $r = request($ola, $url('clp_zapisz'), ['csrf' => $csrfF, 'name' => 'Okrągła 70', 'shape' => 'round', 'width_mm' => '70', 'title_mode' => 'product', 'subtitle' => 'Sojowa świeca zapachowa',
-        'warning' => 'Przed użyciem zapoznaj się z etykietą.', 'qr_text' => 'https://example.com/{sku}', 'font_pt' => '6,8', 'is_default' => '1', 'show_dates' => '1',
-        'signal_word' => 'Uwaga', 'pictograms[0]' => 'GHS07', 'pictograms[1]' => 'XXX', 'hazards' => 'H317, H412', 'precautions' => "P101 P102\nP501 Zawartość/pojemnik usuwać do zbiorników do segregacji odpadów.",
-        'contains_text' => 'citral, linalol', 'extra' => 'EUH210', 'ufi' => 'ab12-cd34-ef56-gh78', 'safety_img' => new CURLFile($png, 'image/png', 'ikony.png')]);
-    $clpId = $locId($r);
-    $crow = $pdo->query("SELECT * FROM ext_prod_clp WHERE id = '$clpId'")->fetch(PDO::FETCH_ASSOC);
-    ok($r['status'] === 302 && $crow['shape'] === 'round' && $crow['pictograms'] === 'GHS07' && $crow['ufi'] === 'AB12-CD34-EF56-GH78' && str_starts_with((string) $crow['safety_img'], 'data:image/png;base64,')
-        && (int) $crow['is_default'] === 1, 'Layout saved: round, own classification, safety image');
-    $cc = request($vi, $url('clp', ['id' => $clpId]))['body'];
-    ok(str_contains($cc, 'Może powodować reakcję alergiczną skóry.') && str_contains($cc, 'Chronić przed dziećmi.') && str_contains($cc, 'EUH208:</b> Zawiera citral, linalol. Może wywoływać')
-        && str_contains($cc, '<b>Uwaga!</b> Przed użyciem') && str_contains($cc, 'SOJOWA ŚWIECA ZAPACHOWA') && str_contains($cc, 'class="clp round"') && str_contains($cc, 'class="clp-safe"'), 'Layout card preview: round label with phrases, EUH208 and safety icons');
-    ok(str_contains(request($vi, $url('partia', ['id' => $b1]))['body'], 'Etykiety CLP'), 'Batch card button says CLP');
-    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 2]))['body'];
-    ok(substr_count($lab, 'class="clp round"') === 2 && str_contains($lab, 'Nr partii: <b class="clp-lot">AD010LX02ABBA</b>') && str_contains($lab, 'Najlepiej do: 04.11.2028')
-        && str_contains($lab, '210,5 g') && str_contains($lab, 'Klub Woskarzy') && str_contains($lab, 'UFI: AB12-CD34-EF56-GH78') && str_contains($lab, 'data-text="https://example.com/GB-1L"')
-        && str_contains($lab, 'GINGERBREAD 1L') && str_contains($lab, 'własna klasyfikacja wzoru'), 'Batch prints the CLP label with number, weight, maker, QR');
-    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 1, 'wzor' => 'prosta']))['body'];
-    ok(!str_contains($lab, 'class="clp') && substr_count($lab, 'class="l"') === 1, 'Simple batch label can still be chosen');
-    $r = request($ola, $url('clp_zapisz'), ['csrf' => $csrfF, 'name' => 'Prostokąt 90×50', 'shape' => 'rect', 'width_mm' => '90', 'height_mm' => '50', 'title_mode' => 'own', 'title' => 'Świeca sojowa Piernik', 'font_pt' => '7']);
-    $clp2 = $locId($r);
-    ok(str_contains(request($ola, $url('wyrob', ['id' => $prod, 'edytuj' => 1]))['body'], 'name="clp_id"'), 'Product form has the layout select');
-    $post($ola, 'wyrob_zapisz', ['id' => $prod, 'name' => 'Świeca Piernik 180', 'sku' => 'GB-1L', 'price' => '49,90', 'vat' => '23', 'shelf_life_months' => '24', 'min_stock' => '10', 'weight_g' => '210,5', 'clp_id' => $clp2,
-        'recipe' => [['material_id' => $wax, 'qty' => '180'], ['material_id' => $scent, 'qty' => '14'], ['material_id' => $wick, 'qty' => '1'], ['material_id' => $jar, 'qty' => '1']]]);
+    // ---- Etykieta CLP z gotowego pliku: wgranie do produktu, miejsce na numer partii, druk z partii i z karty produktu
     $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 1]))['body'];
-    ok(str_contains($lab, 'ŚWIECA SOJOWA PIERNIK') && str_contains($lab, 'width:90mm;height:50mm') && str_contains($lab, 'Brak danych CLP'), 'Product layout wins; without own classification no CLP data');
+    ok(substr_count($lab, 'class="l"') === 1 && str_contains($lab, 'nie ma etykiety CLP'), 'Without a label file the batch prints the simple label');
+    $png = "$temp/etykieta.png";
+    $im = imagecreatetruecolor(600, 400); imagepng($im, $png);
+    $box = json_encode(['align' => 'center', 'lot' => [0.1, 0.8, 0.5, 0.08], 'expires' => [0.1, 0.9, 0.4, 0.06]]);
+    $r = request($vi, $url('etykieta_edytuj', ['produkt' => 1]));
+    ok($r['status'] !== 200 || !str_contains($r['body'], 'name="plik"'), 'Viewer cannot open the label editor');
+    $ef = request($ola, $url('etykieta_edytuj', ['produkt' => 1]));
+    ok(str_contains($ef['body'], 'name="plik"') && str_contains($ef['body'], 'pdfjs-dist@3.11.174') && str_contains($ef['body'], 'GINGERBREAD'), 'Label editor: file, PDF support, product name');
+    $r = request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '50', 'boxes' => json_encode(['align' => 'left']),
+        'plik' => new CURLFile($png, 'image/png', 'gingerbread.png')]);
+    ok(str_contains($r['body'], 'Zaznacz na podglądzie miejsce na numer partii') && (int) $pdo->query('SELECT COUNT(*) FROM ext_prod_labels')->fetchColumn() === 0
+        && glob("$temp/storage/uploads/produkcja/etykiety/*") === [], 'Label without the batch number place is refused and the file is not kept');
+    $r = request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '50', 'height_mm' => '', 'boxes' => $box, 'source_name' => 'gingerbread.pdf',
+        'plik' => new CURLFile($png, 'image/png', 'gingerbread.png')]);
+    $lrow = $pdo->query('SELECT * FROM ext_prod_labels WHERE product_id = 1')->fetch(PDO::FETCH_ASSOC);
+    ok($r['status'] === 302 && str_contains($r['headers'], 'product_view.php?id=1') && (float) $lrow['height_mm'] === 33.3 && $lrow['source_name'] === 'gingerbread.pdf'
+        && (int) $lrow['px_w'] === 600 && is_file("$temp/storage/uploads/produkcja/etykiety/" . $lrow['file']), 'Label saved: file on disk, height from proportions');
+    $f = request($vi, $url('etykieta_plik', ['produkt' => 1]));
+    ok($f['status'] === 200 && str_contains($f['headers'], 'Content-Type: image/png') && str_starts_with($f['body'], "\x89PNG"), 'Label file is served');
+    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 2]))['body'];
+    ok(substr_count($lab, 'class="lb"') === 2 && str_contains($lab, 'width:50mm;height:33.3mm') && str_contains($lab, 'class="lb-f lb-lot" style="left:10%;top:80%;width:50%;height:8%;font-size:2.13mm;justify-content:center">AD010LX02ABBA</span>')
+        && str_contains($lab, '>04.11.2028</span>') && !str_contains($lab, 'lb-produced') && str_contains($lab, 'size:A4'), 'Batch prints the uploaded label with the batch number and best-before in place');
+    $lab = request($vi, $url('etykieta', ['id' => $b1, 'n' => 1, 'wzor' => 'prosta']))['body'];
+    ok(substr_count($lab, 'class="l"') === 1 && !str_contains($lab, 'class="lb"'), 'Simple batch label can still be chosen');
     $pv = request($vi, 'admin/product_view.php?id=1')['body'];
-    ok(str_contains($pv, '🏷 Etykieta CLP') && str_contains($pv, 'produkcja.etykieta_produkt') && str_contains($pv, 'AD010LX02ABBA'), 'Product card offers the CLP label with recent batches');
-    $lab = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'ad010lx02abba', 'n' => 3, 'wzor' => $clpId]))['body'];
-    ok(substr_count($lab, 'class="clp round"') === 3 && str_contains($lab, 'ad010lx02abba') && str_contains($lab, 'Najlepiej do: 04.11.2028'), 'Label from the product card with a typed batch number');
-    $lab = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'X1', 'n' => 2, 'pomin' => 3, 'wzor' => $clpId]))['body'];
-    ok(substr_count($lab, 'class="clp-skip clp round"') === 3 && substr_count($lab, 'class="clp round"') === 2 && str_contains($lab, 'size:A4'), 'A4 sheet skips used labels');
-    ok(str_contains(request($vi, $url('etykiety'))['body'], 'domyślny'), 'CLP list marks the default layout');
+    ok(str_contains($pv, '🏷 Etykieta CLP') && str_contains($pv, 'produkcja.etykieta_produkt') && str_contains($pv, 'AD010LX02ABBA') && !str_contains($pv, 'Zmień plik'), 'Product card shows the label and print form (viewer cannot change it)');
+    $lab = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'X1', 'n' => 2, 'pomin' => 3]))['body'];
+    ok(substr_count($lab, 'class="lb lb-skip"') === 3 && substr_count($lab, 'class="lb"') === 2 && str_contains($lab, '>X1</span>') && !str_contains($lab, 'lb-expires')
+        && str_contains($lab, 'nie ma takiej partii'), 'Label from the product card with a typed number skips used places');
+    $old = $lrow['file'];
+    $im = imagecreatetruecolor(1200, 1200); imagepng($im, $png);
+    $rr = request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60', 'boxes' => $box, 'plik' => new CURLFile($png, 'image/png', 'okragla.png')]);
+    $lrow = $pdo->query('SELECT * FROM ext_prod_labels WHERE product_id = 1')->fetch(PDO::FETCH_ASSOC);
+    clearstatcache();
+    ok($rr['status'] === 302 && $lrow['file'] !== $old && !is_file("$temp/storage/uploads/produkcja/etykiety/$old") && (int) $lrow['px_w'] === 1200 && $lrow['source_name'] === 'okragla.png', 'New file replaces the old one');
+    $ls = request($vi, $url('etykiety'))['body'];
+    ok(str_contains($ls, 'GINGERBREAD') && str_contains($ls, '60×60 mm') && str_contains($ls, 'numer partii, najlepiej do') && !str_contains($ls, 'dpi</span>'), 'Labels tab lists products with labels');
+    ok(str_contains(request($ola, $url('wyrob', ['id' => $prod]))['body'], '>jest</a>'), 'Product (wyrób) card says the label exists');
+    $r = request($ola, $url('etykieta_edytuj', ['sku' => 'MW-1L']));
+    ok($r['status'] === 302 && str_contains(urldecode($r['headers']), 'produkt=2'), 'Labels tab: product picked by SKU');
 
     // ---- Test spalania ze zdjęciem
     $img = imagecreatetruecolor(40, 60);

@@ -32,22 +32,18 @@ i numer partii przy zamówieniu. Kod numerów partii pochodzi z wtyczki WordPres
 
 ## Etykiety CLP
 
-Dane i wygląd są rozdzielone:
+Etykietę CLP projektuje się poza CRM (Canva, od dostawcy olejku) i wgrywa gotową do produktu:
 
-- **Klasyfikacja** jest przy olejku w wtyczce **Zapachy** (karta zapachu → „Etykieta CLP - mieszaniny”): osobno dla każdego
-  stężenia (np. 6%, 8%, 10%) - piktogramy GHS, hasło, zwroty H i P (same kody, tekst wstawia się sam), EUH208 / „Zawiera:”, UFI.
-  Na karcie produktu w Magazynie przy zapachu wybiera się stężenie. Zapachy oddają klasyfikację przez filtr `clp.product`.
-- **Wygląd** to wzór w **Produkcja → Etykiety CLP**: okrąg albo prostokąt, rozmiar, tytuł (nazwa zapachu / produktu / własny),
-  podtytuł, linijka ostrzeżenia, obrazek z piktogramami bezpieczeństwa świecy, symbol recyklingu, kod QR (adres z {sku}, {partia},
-  {gtin}), producent, czcionka. Jeden wzór jest domyślny; wyrób może mieć własny. Wzór może mieć też własną klasyfikację
-  dla produktów bez zapachu.
-- **Druk**: z karty partii (wzór i SKU produktu do wyboru, gdy partia nie ma wyrobu) albo z karty produktu (sekcja „Etykieta CLP”,
-  numer partii z podpowiedzi). Na etykiecie: numer partii, GTIN (EAN produktu), UFI, masa netto (waga wyrobu albo produktu).
-  Arkusz drukuje się na A4; „Pomiń” zostawia puste miejsca po etykietach już zużytych na rozpoczętym arkuszu.
-- Podgląd wzoru i lista „Do sprawdzenia”: nieznane kody, „…” do uzupełnienia, piktogram mniejszy niż 1/15 etykiety (puste pole
-  „Piktogram GHS” = najmniejszy dozwolony), czcionka poniżej 1,2 mm wysokości małych liter, brak producenta. Treść, która się nie
-  mieści, ma czerwoną ramkę na ekranie.
-- Wspólny kod: `src/Services/Clp.php` (słownik zwrotów, piktogramy GHS01-GHS09 z domeny publicznej w `src/Services/clp/`).
+- **Karta produktu w Magazynie → „Etykieta CLP” → Wgraj etykietę**: plik PNG, JPG, WEBP albo PDF (pierwsza strona zamienia się
+  w przeglądarce na PNG 600 dpi przez pdf.js z jsdelivr; rozmiar w mm bierze się z PDF). Szerokość w mm (wysokość z proporcji),
+  potem na podglądzie przeciąga się prostokąt na **numer partii** i opcjonalnie na **datę produkcji** i **„najlepiej do”**.
+  Ostrzeżenie, gdy plik ma mniej niż 200 dpi.
+- **Druk**: z karty partii (przycisk „Etykiety”: produkt po SKU wyrobu albo wpisanym SKU; bez pliku zostaje prosta etykieta partii)
+  albo z karty produktu (numer partii z podpowiedzi). Arkusz A4 w prawdziwym rozmiarze, „Pomiń” zostawia miejsca po zużytych
+  etykietach. Tekst wpisuje się w prostokąt (czcionka 80% wysokości, zmniejszana, gdy numer się nie mieści).
+- **Produkcja → Etykiety CLP**: lista produktów z etykietą i wybór produktu do dodania.
+- Treść CLP (piktogramy, zwroty, UFI) jest w pliku - CRM jej nie układa ani nie sprawdza. Pliki: `storage/uploads/produkcja/etykiety`,
+  tabela `ext_prod_labels` (miejsca jako ułamki obrazka w `boxes`). Wersja 5 bazy usuwa wzory z wersji 4 (`ext_prod_clp`).
 
 ## Numer partii
 

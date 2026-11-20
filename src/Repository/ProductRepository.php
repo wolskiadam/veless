@@ -279,6 +279,7 @@ final class ProductRepository
 
     /**
      * Kolejność listy produktów: najnowsze na górze, ale warianty jednego produktu Woo
+<<<<<<< HEAD
      * (wspólny woo_product_id w tym samym sklepie, własny woo_variation_id) zawsze razem,
      * tuż pod sobą. Grupa stoi w miejscu swojego najnowszego wariantu, a w środku warianty
      * idą od najnowszego. Bez tego wariant dodany później (inne id) lądował osobno, a między
@@ -328,6 +329,23 @@ final class ProductRepository
             }
         }
         return $out;
+=======
+     * (wspólny woo_product_id w tym samym sklepie) zawsze razem, tuż pod sobą. Grupa stoi
+     * w miejscu swojego najnowszego wariantu, a w środku warianty idą od najnowszego.
+     * Bez tego wariant dodany później (inne id) lądował osobno, a między warianty
+     * wchodziły zwykłe produkty o podobnej nazwie - lista pokazywała grupę dwa razy.
+     */
+    public const GROUPED_ORDER = 'COALESCE((SELECT MAX(g.id) FROM products g
+            WHERE products.woo_product_id > 0 AND g.woo_product_id = products.woo_product_id
+              AND COALESCE(g.source_integration_id, 0) = COALESCE(products.source_integration_id, 0)), products.id) DESC,
+        products.id DESC';
+
+    /** Klucz grupy wariantów dla listy produktów ('' = produkt bez rodzica, pokazywany osobno). */
+    public static function variantGroupKey(array $row): string
+    {
+        $wpid = (int) ($row['woo_product_id'] ?? 0);
+        return $wpid > 0 ? (int) ($row['source_integration_id'] ?? 0) . ':' . $wpid : '';
+>>>>>>> c335db2fc400dc561521d5756db7babe2f832ea9
     }
 
     public function paged(int $limit, int $offset, string $q = '', ?string $category = null, ?int $integrationId = null,

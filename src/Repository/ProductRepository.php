@@ -279,21 +279,55 @@ final class ProductRepository
 
     /**
      * Kolejność listy produktów: najnowsze na górze, ale warianty jednego produktu Woo
-     * (wspólny woo_product_id w tym samym sklepie) zawsze razem, tuż pod sobą. Grupa stoi
-     * w miejscu swojego najnowszego wariantu, a w środku warianty idą od najnowszego.
-     * Bez tego wariant dodany później (inne id) lądował osobno, a między warianty
-     * wchodziły zwykłe produkty o podobnej nazwie - lista pokazywała grupę dwa razy.
+     * (wspólny woo_product_id w tym samym sklepie, własny woo_variation_id) zawsze razem,
+     * tuż pod sobą. Grupa stoi w miejscu swojego najnowszego wariantu, a w środku warianty
+     * idą od najnowszego. Bez tego wariant dodany później (inne id) lądował osobno, a między
+     * warianty wchodziły zwykłe produkty o podobnej nazwie - lista pokazywała grupę dwa razy.
      */
     public const GROUPED_ORDER = 'COALESCE((SELECT MAX(g.id) FROM products g
-            WHERE products.woo_product_id > 0 AND g.woo_product_id = products.woo_product_id
+            WHERE products.woo_variation_id > 0 AND g.woo_variation_id > 0 AND g.woo_product_id = products.woo_product_id
               AND COALESCE(g.source_integration_id, 0) = COALESCE(products.source_integration_id, 0)), products.id) DESC,
         products.id DESC';
 
-    /** Klucz grupy wariantów dla listy produktów ('' = produkt bez rodzica, pokazywany osobno). */
+    /**
+     * Klucz grupy wariantów dla listy produktów ('' = nie wariant, pokazywany osobno).
+     * Tylko prawdziwe warianty (woo_variation_id) - rodzic produktu wariantowego, jeśli
+     * kiedyś trafił do bazy, ma ten sam woo_product_id, ale wariantem nie jest.
+     */
     public static function variantGroupKey(array $row): string
     {
         $wpid = (int) ($row['woo_product_id'] ?? 0);
-        return $wpid > 0 ? (int) ($row['source_integration_id'] ?? 0) . ':' . $wpid : '';
+        return $wpid > 0 && (int) ($row['woo_variation_id'] ?? 0) > 0
+            ? (int) ($row['source_integration_id'] ?? 0) . ':' . $wpid : '';
+    }
+
+    /**
+     * Które z wierszy (nie-wariantów) to rodzice produktów wariantowych Woo zapisani jako
+     * zwykły produkt - mają warianty o tym samym woo_product_id w tym samym sklepie.
+     * Zwraca [id produktu => true].
+     */
+    public function variableParentIds(array $rows): array
+    {
+        $cand = [];
+        foreach ($rows as $r) {
+            $wpid = (int) ($r['woo_product_id'] ?? 0);
+            if ($wpid > 0 && (int) ($r['woo_variation_id'] ?? 0) <= 0) {
+                $cand[(int) ($r['source_integration_id'] ?? 0) . ':' . $wpid][] = (int) $r['id'];
+            }
+        }
+        if ($cand === []) {
+            return [];
+        }
+        $wpids = array_values(array_unique(array_map(static fn(string $k): int => (int) explode(':', $k)[1], array_keys($cand))));
+        $stmt = $this->pdo->query('SELECT DISTINCT COALESCE(source_integration_id, 0) AS sid, woo_product_id FROM products
+            WHERE woo_variation_id > 0 AND woo_product_id IN (' . implode(',', $wpids) . ')');
+        $out = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $g) {
+            foreach ($cand[(int) $g['sid'] . ':' . (int) $g['woo_product_id']] ?? [] as $id) {
+                $out[$id] = true;
+            }
+        }
+        return $out;
     }
 
     public function paged(int $limit, int $offset, string $q = '', ?string $category = null, ?int $integrationId = null,

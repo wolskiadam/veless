@@ -44,6 +44,12 @@ final class WooProductImportHandler
         return [$w ?: 'kg', $d ?: 'cm'];
     }
 
+    /** Produkt wariantowy Woo (rodzic), nie jego wariant - takiego nie zapisujemy jako produktu. */
+    public static function isVariableParent(array $payload): bool
+    {
+        return ($payload['type'] ?? '') === 'variable' && empty($payload['__is_variation']);
+    }
+
     public static function variationPayload(array $variation, array $parent, int $integrationId): array
     {
         $variation['name']              = $parent['name'] ?? null;
@@ -77,6 +83,12 @@ final class WooProductImportHandler
 
     public function handle(array $payload): void
     {
+        if (self::isVariableParent($payload)) {
+            // Rodzic produktu wariantowego to tylko „pudełko” na warianty - stan i cenę mają
+            // warianty (importowane osobno). Zapisany jako produkt udawał na liście trzeci wariant.
+            Logger::info('WooProductImport: rodzic produktu wariantowego - pomijam', ['id' => $payload['id'] ?? null]);
+            return;
+        }
         $sku = trim((string) ($payload['sku'] ?? ''));
         if ($sku === '') {
             Logger::warn('WooProductImport: produkt bez SKU - pomijam', ['id' => $payload['id'] ?? null]);

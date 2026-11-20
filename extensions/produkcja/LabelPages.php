@@ -400,12 +400,24 @@ final class LabelPages
         $w = (string) ($posted['width_mm'] ?? ($l !== null ? U::n($l['width_mm']) : ''));
         $h = (string) ($posted['height_mm'] ?? ($l !== null ? U::n($l['height_mm']) : ''));
         $sample = self::sample($s, $p);
+        $colors = ['lot' => '#d9480f', 'produced' => '#1971c2', 'expires' => '#2f9e44', 'ean_bar' => '#7048e8', 'ean' => '#c2255c', 'qr' => '#0c8599', 'maker' => '#e67700'];
+        $hints = ['lot' => 'wymagane', 'produced' => 'data z partii', 'expires' => 'data z partii', 'ean_bar' => 'z karty produktu', 'ean' => 'z karty produktu', 'qr' => 'adres poniżej', 'maker' => 'tekst poniżej'];
+        $opts = [
+            'qr' => U::input('qr_url', (string) ($boxes['qr_url'] ?? ''), 'Kod QR prowadzi do', 'id="lb-qr" inputmode="url" placeholder="https://…"', '{partia} = numer partii'),
+            'maker' => '<label>Treść<textarea name="maker_text" id="lb-maker" rows="5" wrap="off" placeholder="' . U::h(self::$maker !== '' ? self::$maker : "Nazwa firmy\nadres\nkontakt") . '">' . U::h((string) ($boxes['maker_text'] ?? '')) . '</textarea>'
+                . '<small>Enter = nowa linia. Puste = producent z ustawień Produkcji.</small></label>'
+                . '<div class="lb-seg" role="radiogroup" aria-label="Układ tekstu producenta">'
+                . '<label><input type="radio" name="lb_mw" value="0"' . (empty($boxes['maker_wrap']) ? ' checked' : '') . '><span>Wiersze jak wpisane</span></label>'
+                . '<label><input type="radio" name="lb_mw" value="1"' . (!empty($boxes['maker_wrap']) ? ' checked' : '') . '><span>Zawijaj w polu</span></label></div>'
+                . '<input type="hidden" id="lb-mwrap" value="' . (!empty($boxes['maker_wrap']) ? '1' : '0') . '">',
+        ];
         $fields = '';
         foreach (Store::LABEL_FIELDS as $k => $label) {
-            $fields .= '<label class="lb-pick"><input type="radio" name="lb_field" value="' . $k . '"' . ($k === 'lot' ? ' checked' : '') . '> <span class="lb-dot" style="background:' . ['lot' => '#d9480f', 'produced' => '#1971c2', 'expires' => '#2f9e44', 'ean_bar' => '#7048e8', 'ean' => '#c2255c', 'qr' => '#0c8599', 'maker' => '#e67700'][$k] . '"></span>' . $label
-                . ($k === 'lot' ? '' : ' <small>(opcjonalnie)</small>') . '</label>';
+            $fields .= '<div class="lb-row" data-k="' . $k . '"><label class="lb-rl"><input type="radio" name="lb_field" value="' . $k . '"' . ($k === 'lot' ? ' checked' : '') . '>'
+                . '<span class="lb-dot" style="background:' . $colors[$k] . '"></span><span class="lb-nm">' . $label . '<small>' . $hints[$k] . '</small></span><span class="lb-st"></span></label>'
+                . (isset($opts[$k]) ? '<div class="lb-opts">' . $opts[$k] . '</div>' : '') . '</div>';
         }
-        $fields .= '<label class="lb-pick" id="lb-pick-frame"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '><input type="radio" name="lb_field" value="frame"> <span class="lb-dot" style="background:#000"></span>Obrys</label>';
+        $noOl = ($boxes['outline'] ?? 'none') === 'none';
         $cfg = json_encode(['img' => $l !== null ? self::fileUrl($l) : '', 'pxW' => (int) ($l['px_w'] ?? 0), 'pxH' => (int) ($l['px_h'] ?? 0),
             'sample' => $sample, 'bar' => self::eanSvg($sample['ean_bar']), 'qr' => self::qrSvg('https://example.com/instrukcja'), 'maker' => self::$maker, 'names' => Store::LABEL_FIELDS, 'pdfjs' => self::PDFJS, 'sri' => self::PDFJS_SRI,
             'tess' => self::TESS, 'check' => self::checkData($s, $p)], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
@@ -418,36 +430,56 @@ final class LabelPages
 .lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}.lb-ed .lb-box[data-k=ean_bar]{border-color:#7048e8;background:rgba(112,72,232,.12)}.lb-ed .lb-box[data-k=ean]{border-color:#c2255c;background:rgba(194,37,92,.12)}.lb-ed .lb-box[data-k=qr]{border-color:#0c8599;background:rgba(12,133,153,.12)}.lb-ed .lb-box[data-k=maker]{border-color:#e67700;background:rgba(230,119,0,.12);align-items:flex-start}.lb-ed .lb-box[data-k=maker] b{white-space:pre;font-weight:400;line-height:1.15}
 .lb-dot{display:inline-block;width:12px;height:12px;border-radius:3px}
 .lb-ed .lb-box.lb-fr{border:2px solid #000;background:transparent;pointer-events:none}.lb-ed .lb-box.lb-fr.on{pointer-events:auto;background:rgba(0,0,0,.04)}.lb-ed .lb-fr-circle{border-radius:50%}
-.lb-tools{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px;align-items:center}.lb-tools .btn{padding:4px 10px}.lb-fsize{display:inline-flex;align-items:center;gap:6px;font-weight:600;white-space:nowrap}.lb-fsize input{width:80px!important;min-width:0;padding:4px 6px}.lb-fsize[hidden],.lb-fsize [hidden]{display:none!important}
 .lb-check{list-style:none;margin:8px 0 0;padding:0;font-size:14px}.lb-check li{padding:4px 0}.lb-check .ok::before{content:"✓ ";color:var(--ok-ink,#2b8a3e);font-weight:700}.lb-check .warn::before{content:"⚠ ";color:var(--warn-ink)}.lb-check .warn{color:var(--warn-ink)}.lb-check .info::before{content:"ℹ ";color:var(--ink-3)}
 .lb-empty{padding:40px 20px;color:var(--ink-3);text-align:center}
-.lb-pick{display:inline-flex!important;flex-direction:row!important;align-items:center;gap:6px;margin-right:14px;font-weight:600}
+#lb-form{max-width:1280px}
+.lb-help summary{cursor:pointer;color:var(--ink-2);font-size:14px;font-weight:600}.lb-help p{margin:6px 0 0}
+.lb-layout{display:grid;gap:16px;grid-template-columns:1fr;align-items:start}
+@media(min-width:1000px){.lb-layout{grid-template-columns:minmax(0,1fr) 360px}}
+.lb-side{order:2;display:flex;flex-direction:column;gap:12px;min-width:0}
+.lb-sec{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface,#fff)}
+.lb-sec h4{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
+.lb-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.lb-pair[hidden]{display:none!important}#lb-form .lb-pair.lb-fsize{display:grid}#lb-form .lb-pair.lb-fsize[hidden]{display:none!important}#lb-fh-w[hidden]{display:none!important}
+.lb-rows{display:flex;flex-direction:column;gap:4px}
+.lb-row{border:1px solid transparent;border-radius:8px}.lb-row.on{border-color:var(--line);background:var(--surface-2)}.lb-row[hidden]{display:none}
+#lb-form .lb-rl{flex-direction:row;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;color:var(--ink);font-size:14px}
+.lb-rl input{margin:0;flex:none}.lb-nm{display:flex;flex-direction:column;flex:1;min-width:0}.lb-nm small{font-size:12px}
+.lb-st{font-size:12px;font-weight:600;color:var(--ink-3);white-space:nowrap}.lb-st::after{content:"brak"}.lb-row.set .lb-st{color:var(--ok-ink,#2b8a3e)}.lb-row.set .lb-st::after{content:"✓ na etykiecie"}.lb-row[data-k=frame] .lb-st{display:none}
+.lb-opts{display:none;flex-direction:column;gap:8px;padding:0 10px 10px 32px}.lb-row.on .lb-opts{display:flex}
+#lb-form .lb-opts textarea{white-space:pre;overflow-x:auto;resize:vertical;min-height:110px;line-height:1.4;font-family:inherit}
+.lb-seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+#lb-form .lb-seg label{flex:1;flex-direction:row;gap:0;margin:0;cursor:pointer}.lb-seg input{position:absolute;opacity:0;pointer-events:none}
+.lb-seg span{flex:1;text-align:center;padding:7px 6px;font-size:13px;font-weight:600;color:var(--ink-2)}.lb-seg label+label span{border-left:1px solid var(--line)}
+.lb-seg input:checked+span{background:var(--ink);color:var(--surface,#fff)}.lb-seg input:focus-visible+span{outline:2px solid var(--ink);outline-offset:-2px}
+.lb-btns{display:flex;flex-wrap:wrap;gap:8px}.lb-btns .btn{padding:6px 10px}
 </style>' . U::back($back, (string) $p['name'])
             . '<form class="card pr-form" id="lb-form" method="post" enctype="multipart/form-data" action="' . U::h(U::url('etykieta_edytuj', ['produkt' => $pid])) . '">'
             . '<h3 style="margin:0">Etykieta CLP · ' . U::h($p['name']) . '</h3>' . U::csrf($ctx)
-            . '<p class="pr-small" style="margin:0">Wgraj gotową etykietę (całą, z piktogramami i tekstami). Najlepiej PNG albo PDF w rozmiarze do druku. '
-            . 'Potem zaznacz myszą albo palcem prostokąt, w który system wpisze numer partii. Zaznaczone pole przesuwasz, chwytając je, a rozmiar zmieniasz białym kwadracikiem w rogu. Strzałki na klawiaturze przesuwają pole o 1 piksel (z Shift o 10). „Odczytaj etykietę” sam znajdzie miejsca na numer partii, daty i EAN oraz porówna EAN, UFI i wagę z kartą produktu. Za zgodność treści z CLP odpowiada plik.</p>'
-            . '<div class="pr-grid">'
+            . '<details class="lb-help"><summary>Jak to działa</summary><p class="pr-small">Wgraj gotową etykietę (całą, z piktogramami i tekstami). Najlepiej PNG albo PDF w rozmiarze do druku. '
+            . 'Potem zaznacz myszą albo palcem prostokąt, w który system wpisze numer partii. Zaznaczone pole przesuwasz, chwytając je, a rozmiar zmieniasz białym kwadracikiem w rogu. Strzałki na klawiaturze przesuwają pole o 1 piksel (z Shift o 10). „Odczytaj etykietę” sam znajdzie miejsca na numer partii, daty i EAN oraz porówna EAN, UFI i wagę z kartą produktu. Za zgodność treści z CLP odpowiada plik.</p></details>'
+            . '<input type="hidden" name="boxes" id="lb-boxes" value="' . U::h(json_encode($boxes)) . '"><input type="hidden" name="source_name" id="lb-src" value="">'
+            . '<div class="lb-layout"><aside class="lb-side">'
+            . '<section class="lb-sec"><h4>Plik i rozmiar</h4>'
             . '<label>' . ($l !== null ? 'Nowy plik (zastąpi obecny)' : 'Plik etykiety') . '<input type="file" name="plik" id="lb-file" accept="image/png,image/jpeg,image/webp,application/pdf,.pdf"' . ($l === null ? ' required' : '') . '>'
             . '<small>' . ($l !== null ? 'Teraz: ' . U::h($l['source_name']) . ', ' . (int) $l['px_w'] . '×' . (int) $l['px_h'] . ' px' : 'PNG, JPG, WEBP albo PDF (pierwsza strona)') . '</small></label>'
-            . U::input('width_mm', $w, 'Szerokość etykiety (mm)', 'id="lb-w" inputmode="decimal" required', 'rozmiar po wydrukowaniu')
-            . U::input('height_mm', $h, 'Wysokość (mm)', 'id="lb-h" inputmode="decimal" placeholder="z proporcji pliku"', 'puste = z proporcji pliku')
-            . U::select('align', ['left' => 'do lewej', 'center' => 'na środku', 'right' => 'do prawej'], (string) ($posted['align'] ?? $boxes['align']), 'Tekst w prostokącie', 'id="lb-align"')
-            . U::input('qr_url', (string) ($boxes['qr_url'] ?? ''), 'Kod QR prowadzi do', 'id="lb-qr" inputmode="url" placeholder="https://…"', 'adres do kodu QR; {partia} = numer partii')
-            . '<label>Dane producenta<textarea name="maker_text" id="lb-maker" rows="4" wrap="off" style="white-space:pre;overflow-x:auto" placeholder="' . U::h(self::$maker !== '' ? self::$maker : 'Nazwa, adres, kontakt') . '">' . U::h((string) ($boxes['maker_text'] ?? '')) . '</textarea>'
-            . '<small>każdy wiersz = osobna linia na etykiecie (Enter); puste = producent z ustawień Produkcji</small></label>'
-            . U::select('maker_wrap', ['0' => 'wiersze jak wpisane', '1' => 'zawijaj do szerokości pola'], !empty($boxes['maker_wrap']) ? '1' : '0', 'Układ tekstu producenta', 'id="lb-mwrap"')
-            . U::select('outline', Store::OUTLINES, (string) ($boxes['outline'] ?? 'none'), 'Obrys (linia cięcia)', 'id="lb-outline"')
-            . '</div>'
-            . '<input type="hidden" name="boxes" id="lb-boxes" value="' . U::h(json_encode($boxes)) . '"><input type="hidden" name="source_name" id="lb-src" value="">'
-            . '<div><div style="margin-bottom:8px">Zaznaczasz: ' . $fields . '</div>'
-            . '<div class="lb-tools"><button type="button" class="btn secondary" id="lb-clear">Usuń zaznaczenie pola</button>'
-            . '<button type="button" class="btn secondary" id="lb-ocr">Odczytaj etykietę (pola + kontrola)</button>'
-            . '<button type="button" class="btn secondary" id="lb-fit"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '>Dopasuj obrys do etykiety</button>'
-            . '<span class="lb-fsize" id="lb-fsize"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '><span id="lb-fw-l">Obrys (mm)</span> <input id="lb-fw" inputmode="decimal" aria-label="Szerokość obrysu w mm">'
-            . '<span id="lb-fh-w"> × <input id="lb-fh" inputmode="decimal" aria-label="Wysokość obrysu w mm"></span></span></div>'
-            . '<div class="lb-ed-wrap"><div class="lb-ed" id="lb-ed">' . ($l !== null ? '<img id="lb-img" src="' . U::h(self::fileUrl($l)) . '" alt="Etykieta">' : '<div class="lb-empty" id="lb-none">Wybierz plik, żeby zobaczyć podgląd.</div>') . '</div></div>'
-            . '<p class="pr-small" id="lb-msg" style="margin:8px 0 0"></p><ul class="lb-check" id="lb-check" hidden></ul></div>'
+            . '<div class="lb-pair">' . U::input('width_mm', $w, 'Szerokość (mm)', 'id="lb-w" inputmode="decimal" required')
+            . U::input('height_mm', $h, 'Wysokość (mm)', 'id="lb-h" inputmode="decimal" placeholder="z pliku"') . '</div></section>'
+            . '<section class="lb-sec"><h4>Obrys (linia cięcia)</h4>'
+            . U::select('outline', Store::OUTLINES, (string) ($boxes['outline'] ?? 'none'), 'Kształt', 'id="lb-outline"')
+            . '<div class="lb-pair lb-fsize" id="lb-fsize"' . ($noOl ? ' hidden' : '') . '><label><span id="lb-fw-l">Szerokość (mm)</span><input id="lb-fw" inputmode="decimal"></label>'
+            . '<label id="lb-fh-w">Wysokość (mm)<input id="lb-fh" inputmode="decimal"></label></div>'
+            . '<div class="lb-btns"><button type="button" class="btn secondary" id="lb-fit"' . ($noOl ? ' hidden' : '') . '>Dopasuj do etykiety</button></div>'
+            . '<div class="lb-row" data-k="frame" id="lb-pick-frame"' . ($noOl ? ' hidden' : '') . '><label class="lb-rl"><input type="radio" name="lb_field" value="frame"><span class="lb-dot" style="background:#000"></span><span class="lb-nm">Przesuń obrys na podglądzie<small>chwyć i przeciągnij, róg = rozmiar</small></span><span class="lb-st"></span></label></div>'
+            . '</section>'
+            . '<section class="lb-sec"><h4>Pola wstawiane przez system</h4>'
+            . '<p class="pr-small" style="margin:0">Wybierz pole i zaznacz jego miejsce na podglądzie.</p>'
+            . '<div class="lb-rows">' . $fields . '</div>'
+            . U::select('align', ['left' => 'do lewej', 'center' => 'na środku', 'right' => 'do prawej'], (string) ($posted['align'] ?? $boxes['align']), 'Wyrównanie tekstu w polach', 'id="lb-align"')
+            . '<div class="lb-btns"><button type="button" class="btn secondary" id="lb-clear">Usuń wybrane pole</button>'
+            . '<button type="button" class="btn secondary" id="lb-ocr">Odczytaj etykietę</button></div>'
+            . '</section></aside>'
+            . '<div class="lb-main"><div class="lb-ed-wrap"><div class="lb-ed" id="lb-ed">' . ($l !== null ? '<img id="lb-img" src="' . U::h(self::fileUrl($l)) . '" alt="Etykieta">' : '<div class="lb-empty" id="lb-none">Wybierz plik, żeby zobaczyć podgląd.</div>') . '</div></div>'
+            . '<p class="pr-small" id="lb-msg" style="margin:8px 0 0"></p><ul class="lb-check" id="lb-check" hidden></ul></div></div>'
             . '<div class="pr-actions"><button class="btn" type="submit">Zapisz</button><a class="btn secondary" href="' . U::h($back) . '">Anuluj</a>'
             . ($l !== null ? '<button class="btn secondary" type="submit" name="delete" value="1" formnovalidate style="margin-left:auto;color:var(--danger-ink)" onclick="return confirm(\'Usunąć etykietę tego produktu?\')">Usuń etykietę</button>' : '')
             . '</div></form>';
@@ -512,7 +544,7 @@ function handle(d){var hd=document.createElement('i');hd.className='lb-h';d.appe
 function place(d,b){d.style.left=b[0]*100+'%';d.style.top=b[1]*100+'%';d.style.width=b[2]*100+'%';d.style.height=b[3]*100+'%';}
 function draw(){ed.querySelectorAll('.lb-box').forEach(function(b){b.remove();});var i=img();if(!i)return;
  var ol=outline();document.getElementById('lb-pick-frame').hidden=ol==='none';document.getElementById('lb-fit').hidden=ol==='none';document.getElementById('lb-fsize').hidden=ol==='none';
- document.getElementById('lb-fw-l').textContent=ol==='circle'?'Średnica (mm)':'Obrys (mm)';document.getElementById('lb-fh-w').hidden=ol==='circle';
+ document.getElementById('lb-fw-l').textContent=ol==='circle'?'Średnica (mm)':'Szerokość (mm)';document.querySelectorAll('.lb-row[data-k]').forEach(function(r){var k=r.dataset.k;r.classList.toggle('on',k===field());r.classList.toggle('set',!!boxes[k]);});document.getElementById('lb-fh-w').hidden=ol==='circle';
  if(ol!=='none'&&wmm()>0){var ff=boxes.frame||[0,0,1,1],FW=document.getElementById('lb-fw'),FH=document.getElementById('lb-fh');
   if(document.activeElement!==FW)FW.value=mmTxt(ff[2]*wmm());if(document.activeElement!==FH)FH.value=mmTxt(ff[3]*hmm());}
  if(ol==='none'&&field()==='frame')pick('lot');
@@ -590,7 +622,7 @@ function fileMm(f,pw,ph){return f.slice(0,262144).arrayBuffer().then(function(b)
  else if(v.byteLength>18&&v.getUint16(0)===0xFFD8&&v.getUint32(6)===0x4A464946){var u=v.getUint8(13),xd=v.getUint16(14);dpi=u===1?xd:(u===2?xd*2.54:0);}
  return dpi>=50&&dpi<=4800?{w:pw/dpi*25.4,h:ph/dpi*25.4,dpi:Math.round(dpi)}:null;}).catch(function(){return null;});}
 OL.onchange=function(){if(outline()!=='none'){fitFrame();pick('frame');}draw();};
-document.getElementById('lb-qr').addEventListener('input',function(){save();info();});document.getElementById('lb-maker').addEventListener('input',draw);document.getElementById('lb-mwrap').onchange=draw;document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
+document.getElementById('lb-qr').addEventListener('input',function(){save();info();});var MK=document.getElementById('lb-maker');function grow(){MK.rows=Math.max(5,MK.value.split('\n').length+1);}grow();MK.addEventListener('input',function(){grow();draw();});document.querySelectorAll('input[name=lb_mw]').forEach(function(r){r.addEventListener('change',function(){document.getElementById('lb-mwrap').value=r.value;draw();});});document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
 window.addEventListener('resize',draw);
 // ---- odczyt etykiety (Tesseract.js w przeglądarce): pola i kontrola z kartą produktu
 function get(k,type){return fetch(C.tess[k][0],{integrity:C.tess[k][1],mode:'cors'}).then(function(r){if(!r.ok)throw new Error(k);return type==='buf'?r.arrayBuffer():r.text();});}

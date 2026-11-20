@@ -364,7 +364,7 @@ try {
         'boxes' => json_encode(['align' => 'left', 'lot' => [0.1, 0.8, 0.5, 0.08], 'maker' => [0.1, 0.1, 0.6, 0.2], 'maker_wrap' => true, 'maker_text' => "  Marka   \n ul. Prosta 1 \n"])]);
     $lab1 = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'];
     $ed1 = request($ola, $url('etykieta_edytuj', ['produkt' => 1]))['body'];
-    ok(str_contains($lab1, 'class="lb-f lb-m lb-mw"') && str_contains($lab1, ">Marka\nul. Prosta 1</span>") && str_contains($ed1, '<option value="1" selected'), 'Producer text wraps to the field width when chosen, lines trimmed');
+    ok(str_contains($lab1, 'class="lb-f lb-m lb-mw"') && str_contains($lab1, ">Marka\nul. Prosta 1</span>") && str_contains($ed1, 'name="lb_mw" value="1" checked'), 'Producer text wraps to the field width when chosen, lines trimmed');
     request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60',
         'boxes' => json_encode(['align' => 'left', 'outline' => 'zly', 'lot' => [0.1, 0.8, 0.5, 0.08]])]);
     ok(!str_contains(request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'], 'class="lb-o'), 'Unknown outline is ignored');

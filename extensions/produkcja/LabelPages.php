@@ -79,7 +79,8 @@ final class LabelPages
     {
         return '.lb{position:relative;box-sizing:border-box;overflow:hidden;flex:none;background:#fff}.lb>img{position:absolute;inset:0;width:100%;height:100%;display:block}'
             . '.lb-bar{position:absolute;display:block;background:#fff}.lb-bar svg{display:block;width:100%;height:100%}'
-            . '.lb-f{position:absolute;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;font-family:Arial,Helvetica,sans-serif;font-weight:700;color:#000}';
+            . '.lb-f{position:absolute;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;font-family:Arial,Helvetica,sans-serif;font-weight:700;color:#000}'
+            . '.lb-o{position:absolute;inset:0;box-sizing:border-box;border:.3mm solid #000;pointer-events:none}.lb-o-circle{border-radius:50%}.lb-o-round{border-radius:3mm}';
     }
 
     /** Jedna etykieta: plik + dane w zaznaczonych miejscach. @param array<string,string> $values lot/produced/expires */
@@ -104,6 +105,10 @@ final class LabelPages
             }
             $html .= '<span class="lb-f lb-' . $k . '" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3])
                 . ';font-size:' . self::mm($b[3] * $h * 0.8) . 'mm;justify-content:' . $just . '">' . U::h($v) . '</span>';
+        }
+        $o = (string) ($l['boxes']['outline'] ?? '');
+        if ($o !== '' && $o !== 'none') {
+            $html .= '<span class="lb-o lb-o-' . U::h($o) . '"></span>';
         }
         return $html . '</div>';
     }
@@ -358,6 +363,7 @@ final class LabelPages
 .lb-ed .lb-box.on{outline:2px dashed #000;outline-offset:2px}.lb-ed .lb-h{position:absolute;right:-7px;bottom:-7px;width:12px;height:12px;background:#fff;border:2px solid #000;border-radius:2px;cursor:nwse-resize;display:none}.lb-ed .lb-box.on .lb-h{display:block}
 .lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}.lb-ed .lb-box[data-k=ean_bar]{border-color:#7048e8;background:rgba(112,72,232,.12)}.lb-ed .lb-box[data-k=ean]{border-color:#c2255c;background:rgba(194,37,92,.12)}
 .lb-dot{display:inline-block;width:12px;height:12px;border-radius:3px}
+.lb-ed .lb-ol{position:absolute;inset:0;box-sizing:border-box;border:2px solid #000;pointer-events:none}.lb-ed .lb-ol-circle{border-radius:50%}.lb-ed .lb-ol-round{border-radius:12px}
 .lb-empty{padding:40px 20px;color:var(--ink-3);text-align:center}
 .lb-pick{display:inline-flex!important;flex-direction:row!important;align-items:center;gap:6px;margin-right:14px;font-weight:600}
 </style>' . U::back($back, (string) $p['name'])
@@ -371,6 +377,7 @@ final class LabelPages
             . U::input('width_mm', $w, 'Szerokość etykiety (mm)', 'id="lb-w" inputmode="decimal" required', 'rozmiar po wydrukowaniu')
             . U::input('height_mm', $h, 'Wysokość (mm)', 'id="lb-h" inputmode="decimal" placeholder="z proporcji pliku"', 'puste = z proporcji pliku')
             . U::select('align', ['left' => 'do lewej', 'center' => 'na środku', 'right' => 'do prawej'], (string) ($posted['align'] ?? $boxes['align']), 'Tekst w prostokącie', 'id="lb-align"')
+            . U::select('outline', Store::OUTLINES, (string) ($boxes['outline'] ?? 'none'), 'Obrys (linia cięcia)', 'id="lb-outline"')
             . '</div>'
             . '<input type="hidden" name="boxes" id="lb-boxes" value="' . U::h(json_encode($boxes)) . '"><input type="hidden" name="source_name" id="lb-src" value="">'
             . '<div><div style="margin-bottom:8px">Zaznaczasz: ' . $fields . '<button type="button" class="btn secondary" id="lb-clear" style="padding:4px 10px">Usuń zaznaczenie pola</button></div>'
@@ -392,12 +399,13 @@ try{boxes=JSON.parse(hid.value)||{};}catch(e){boxes={};}
 var pxW=C.pxW,pxH=C.pxH,hAuto=!H.value;
 function field(){var r=document.querySelector('input[name=lb_field]:checked');return r?r.value:'lot';}
 function img(){return document.getElementById('lb-img');}
-function save(){var o={align:document.getElementById('lb-align').value};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}hid.value=JSON.stringify(o);}
+function save(){var o={align:document.getElementById('lb-align').value,outline:document.getElementById('lb-outline').value};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}hid.value=JSON.stringify(o);}
 function num(v){return parseFloat(String(v).replace(',','.'));}
 function info(){var w=num(W.value),t=[];if(!boxes.lot)t.push('Zaznacz prostokąt na numer partii.');
  if(pxW&&w>0){var dpi=Math.round(pxW/(w/25.4));t.push('Rozdzielczość: '+dpi+' dpi'+(dpi<200?' - mało, wydruk może być nieostry. Wyeksportuj plik w większej rozdzielczości (najlepiej 300 dpi).':'.'));}
  msg.textContent=t.join(' ');msg.style.color=(!boxes.lot||(pxW&&w>0&&pxW/(w/25.4)<200))?'var(--warn-ink)':'';}
-function draw(){ed.querySelectorAll('.lb-box').forEach(function(b){b.remove();});var i=img();if(!i)return;
+function draw(){ed.querySelectorAll('.lb-box,.lb-ol').forEach(function(b){b.remove();});var i=img();if(!i)return;
+ var ol=document.getElementById('lb-outline').value;if(ol!=='none'){var od=document.createElement('div');od.className='lb-ol lb-ol-'+ol;var wm=num(W.value);if(ol==='round'&&wm>0)od.style.borderRadius=(3*i.clientWidth/wm)+'px';ed.appendChild(od);}
  var h=num(H.value)||(num(W.value)*pxH/pxW)||0,scale=h>0?i.clientHeight/h:0;
  for(var k in C.names){var b=boxes[k];if(!b)continue;var d=document.createElement('div');d.className='lb-box';d.dataset.k=k;
   d.style.left=b[0]*100+'%';d.style.top=b[1]*100+'%';d.style.width=b[2]*100+'%';d.style.height=b[3]*100+'%';
@@ -428,7 +436,7 @@ document.addEventListener('keydown',function(e){var k=field(),b=boxes[k],i=img()
  var st=(e.shiftKey?10:1),sx=st/i.clientWidth,sy=st/i.clientHeight,d={ArrowLeft:[-sx,0],ArrowRight:[sx,0],ArrowUp:[0,-sy],ArrowDown:[0,sy]}[e.key];
  if(!d)return;e.preventDefault();boxes[k]=rnd([clamp(b[0]+d[0],0,1-b[2]),clamp(b[1]+d[1],0,1-b[3]),b[2],b[3]]);draw();});
 document.getElementById('lb-clear').onclick=function(){delete boxes[field()];draw();};
-document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
+document.getElementById('lb-align').onchange=draw;document.getElementById('lb-outline').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
 window.addEventListener('resize',draw);
 function loadPdfJs(){if(window.pdfjsLib)return Promise.resolve(window.pdfjsLib);
  var lib=new Promise(function(ok,no){var s=document.createElement('script');s.src=C.pdfjs+'pdf.min.js';s.integrity=C.sri.pdf;s.crossOrigin='anonymous';

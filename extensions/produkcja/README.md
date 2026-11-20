@@ -41,6 +41,9 @@ Etykietę CLP projektuje się poza CRM (Canva, od dostawcy olejku) i wgrywa goto
 - **Druk**: z karty partii (przycisk „Etykiety”: produkt po SKU wyrobu albo wpisanym SKU; bez pliku zostaje prosta etykieta partii)
   albo z karty produktu (numer partii z podpowiedzi). Arkusz A4 w prawdziwym rozmiarze, „Pomiń” zostawia miejsca po zużytych
   etykietach. Tekst wpisuje się w prostokąt (czcionka 80% wysokości, zmniejszana, gdy numer się nie mieści).
+- **Edytor pól**: pole chwyta się i przesuwa, rozmiar zmienia kwadracik w rogu, strzałki przesuwają o 1 px (Shift o 10 px).
+- **Obrys**: plik może być bez obrysu - system dorysuje linię 0,3 mm po krawędzi etykiety (okrąg/elipsa, prostokąt albo
+  prostokąt z zaokrąglonymi rogami 3 mm), w podglądzie i na wydruku. Zapisany w `boxes` jako `outline`.
 - **Warianty**: wariant bez własnej etykiety używa etykiety innego wariantu tego samego produktu z Woo (wspólny `woo_product_id`);
   własna etykieta wariantu ma pierwszeństwo. Wystarczy wgrać jedną do dowolnego wariantu.
 - **EAN**: pola „Kod kreskowy EAN” (EAN-13/EAN-8 rysowany jako SVG) i „EAN (tekst)” wypełnia EAN produktu albo wariantu,

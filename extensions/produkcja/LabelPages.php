@@ -354,7 +354,8 @@ final class LabelPages
 .lb-ed-wrap{background:var(--surface-2);border-radius:8px;padding:12px;overflow:auto}
 .lb-ed{position:relative;display:inline-block;max-width:100%;touch-action:none;user-select:none;cursor:crosshair;background:#fff;box-shadow:0 0 0 1px var(--line)}
 .lb-ed img{display:block;max-width:100%;max-height:70vh;pointer-events:none}
-.lb-ed .lb-box{position:absolute;border:2px solid #d9480f;background:rgba(217,72,15,.12);box-sizing:border-box;display:flex;align-items:center;white-space:nowrap;font:700 12px/1 Arial,sans-serif;color:#000;pointer-events:none}.lb-ed .lb-box b{display:block;overflow:hidden;max-width:100%}
+.lb-ed .lb-box{position:absolute;border:2px solid #d9480f;background:rgba(217,72,15,.12);box-sizing:border-box;display:flex;align-items:center;white-space:nowrap;font:700 12px/1 Arial,sans-serif;color:#000;cursor:move}.lb-ed .lb-box b{display:block;overflow:hidden;max-width:100%;pointer-events:none}
+.lb-ed .lb-box.on{outline:2px dashed #000;outline-offset:2px}.lb-ed .lb-h{position:absolute;right:-7px;bottom:-7px;width:12px;height:12px;background:#fff;border:2px solid #000;border-radius:2px;cursor:nwse-resize;display:none}.lb-ed .lb-box.on .lb-h{display:block}
 .lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}.lb-ed .lb-box[data-k=ean_bar]{border-color:#7048e8;background:rgba(112,72,232,.12)}.lb-ed .lb-box[data-k=ean]{border-color:#c2255c;background:rgba(194,37,92,.12)}
 .lb-dot{display:inline-block;width:12px;height:12px;border-radius:3px}
 .lb-empty{padding:40px 20px;color:var(--ink-3);text-align:center}
@@ -363,7 +364,7 @@ final class LabelPages
             . '<form class="card pr-form" id="lb-form" method="post" enctype="multipart/form-data" action="' . U::h(U::url('etykieta_edytuj', ['produkt' => $pid])) . '">'
             . '<h3 style="margin:0">Etykieta CLP · ' . U::h($p['name']) . '</h3>' . U::csrf($ctx)
             . '<p class="pr-small" style="margin:0">Wgraj gotową etykietę (całą, z piktogramami i tekstami). Najlepiej PNG albo PDF w rozmiarze do druku. '
-            . 'Potem zaznacz myszą albo palcem prostokąt, w który system wpisze numer partii. Za zgodność treści z CLP odpowiada plik.</p>'
+            . 'Potem zaznacz myszą albo palcem prostokąt, w który system wpisze numer partii. Zaznaczone pole przesuwasz, chwytając je, a rozmiar zmieniasz białym kwadracikiem w rogu. Strzałki na klawiaturze przesuwają pole o 1 piksel (z Shift o 10). Za zgodność treści z CLP odpowiada plik.</p>'
             . '<div class="pr-grid">'
             . '<label>' . ($l !== null ? 'Nowy plik (zastąpi obecny)' : 'Plik etykiety') . '<input type="file" name="plik" id="lb-file" accept="image/png,image/jpeg,image/webp,application/pdf,.pdf"' . ($l === null ? ' required' : '') . '>'
             . '<small>' . ($l !== null ? 'Teraz: ' . U::h($l['source_name']) . ', ' . (int) $l['px_w'] . '×' . (int) $l['px_h'] . ' px' : 'PNG, JPG, WEBP albo PDF (pierwsza strona)') . '</small></label>'
@@ -401,18 +402,31 @@ function draw(){ed.querySelectorAll('.lb-box').forEach(function(b){b.remove();})
  for(var k in C.names){var b=boxes[k];if(!b)continue;var d=document.createElement('div');d.className='lb-box';d.dataset.k=k;
   d.style.left=b[0]*100+'%';d.style.top=b[1]*100+'%';d.style.width=b[2]*100+'%';d.style.height=b[3]*100+'%';
   d.style.justifyContent={left:'flex-start',center:'center',right:'flex-end'}[document.getElementById('lb-align').value];
-  var fs=b[3]*i.clientHeight*0.8;d.style.fontSize=fs+'px';var tx=document.createElement('b');d.title=C.names[k];d.appendChild(tx);ed.appendChild(d);
+  var fs=b[3]*i.clientHeight*0.8;d.style.fontSize=fs+'px';var tx=document.createElement('b');d.title=C.names[k];d.appendChild(tx);if(k===field())d.classList.add('on');var hd=document.createElement('i');hd.className='lb-h';d.appendChild(hd);ed.appendChild(d);
   if(k==='ean_bar'){tx.innerHTML=C.bar||'';tx.style.cssText='width:100%;height:100%;background:#fff';var sv=tx.querySelector('svg');if(sv){sv.style.width='100%';sv.style.height='100%';sv.style.display='block';}continue;}
   tx.textContent=C.sample[k]||'';var n=0;while(tx.scrollWidth>d.clientWidth+1&&n++<60){fs*=0.94;d.style.fontSize=fs+'px';}}
  save();info();}
 function setImg(url,w,h){var n=document.getElementById('lb-none');if(n)n.remove();var i=img();if(!i){i=document.createElement('img');i.id='lb-img';i.alt='Etykieta';ed.appendChild(i);}
  pxW=w;pxH=h;i.onload=draw;i.src=url;if(hAuto&&num(W.value)>0)H.value='';}
-var start=null,cur=null;
+var start=null,mode='',orig=null,mk='';
 function pt(e){var r=img().getBoundingClientRect();return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))];}
-ed.addEventListener('pointerdown',function(e){if(!img())return;e.preventDefault();ed.setPointerCapture(e.pointerId);start=pt(e);});
-ed.addEventListener('pointermove',function(e){if(!start)return;var p=pt(e);cur=[Math.min(start[0],p[0]),Math.min(start[1],p[1]),Math.abs(p[0]-start[0]),Math.abs(p[1]-start[1])];
- if(cur[2]>0.005&&cur[3]>0.005){boxes[field()]=cur.map(function(v){return Math.round(v*10000)/10000;});draw();}});
-ed.addEventListener('pointerup',function(){start=null;cur=null;});
+function rnd(b){return b.map(function(v){return Math.round(v*10000)/10000;});}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function pick(k){var r=document.querySelector('input[name=lb_field][value="'+k+'"]');if(r)r.checked=true;}
+ed.addEventListener('pointerdown',function(e){if(!img())return;e.preventDefault();ed.setPointerCapture(e.pointerId);start=pt(e);
+ var bx=e.target.closest?e.target.closest('.lb-box'):null;
+ if(bx&&boxes[bx.dataset.k]){mk=bx.dataset.k;pick(mk);orig=boxes[mk].slice();mode=e.target.classList.contains('lb-h')?'size':'move';draw();}else{mode='new';mk=field();}});
+ed.addEventListener('pointermove',function(e){if(!start)return;var p=pt(e),dx=p[0]-start[0],dy=p[1]-start[1];
+ if(mode==='move'){boxes[mk]=rnd([clamp(orig[0]+dx,0,1-orig[2]),clamp(orig[1]+dy,0,1-orig[3]),orig[2],orig[3]]);draw();return;}
+ if(mode==='size'){boxes[mk]=rnd([orig[0],orig[1],clamp(orig[2]+dx,0.01,1-orig[0]),clamp(orig[3]+dy,0.01,1-orig[1])]);draw();return;}
+ var cur=[Math.min(start[0],p[0]),Math.min(start[1],p[1]),Math.abs(dx),Math.abs(dy)];
+ if(cur[2]>0.005&&cur[3]>0.005){boxes[mk]=rnd(cur);draw();}});
+ed.addEventListener('pointerup',function(){start=null;mode='';orig=null;});
+document.querySelectorAll('input[name=lb_field]').forEach(function(r){r.addEventListener('change',draw);});
+document.addEventListener('keydown',function(e){var k=field(),b=boxes[k],i=img(),t=e.target;
+ if(!b||!i||(t&&/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)&&t.type!=='radio'))return;
+ var st=(e.shiftKey?10:1),sx=st/i.clientWidth,sy=st/i.clientHeight,d={ArrowLeft:[-sx,0],ArrowRight:[sx,0],ArrowUp:[0,-sy],ArrowDown:[0,sy]}[e.key];
+ if(!d)return;e.preventDefault();boxes[k]=rnd([clamp(b[0]+d[0],0,1-b[2]),clamp(b[1]+d[1],0,1-b[3]),b[2],b[3]]);draw();});
 document.getElementById('lb-clear').onclick=function(){delete boxes[field()];draw();};
 document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
 window.addEventListener('resize',draw);

@@ -354,14 +354,24 @@ final class Store
      * Miejsca na etykiecie: pole => [x, y, szer., wys.] jako ułamek obrazka (0..1) + 'align' i opcjonalnie 'outline' (obrys po krawędzi).
      * @return array{align:string}&array<string,list<float>>
      */
+    /** Tekst producenta: bez \r, bez spacji na początku i końcu wierszy, bez pustych wierszy na brzegach. */
+    public static function makerText(string $t): string
+    {
+        return trim(implode("\n", array_map('trim', explode("\n", str_replace("\r", '', $t)))));
+    }
+
     public static function boxes(string $json): array
     {
         $in = json_decode($json, true);
         $out = ['align' => in_array($in['align'] ?? '', ['left', 'center', 'right'], true) ? (string) $in['align'] : 'left'];
         // Własne dane producenta tej etykiety (private label); puste = producent z ustawień Produkcji.
-        $mk = is_string($in['maker_text'] ?? null) ? trim(str_replace("\r", '', $in['maker_text'])) : '';
+        $mk = is_string($in['maker_text'] ?? null) ? self::makerText($in['maker_text']) : '';
         if ($mk !== '') {
             $out['maker_text'] = mb_substr($mk, 0, 600);
+        }
+        // Układ tekstu producenta: wrap = zawijany do szerokości pola, inaczej każdy wpisany wiersz osobno.
+        if (($in['maker_wrap'] ?? false) === true) {
+            $out['maker_wrap'] = true;
         }
         // Adres kodu QR; {partia} = numer partii.
         $qr = is_string($in['qr_url'] ?? null) ? trim($in['qr_url']) : '';

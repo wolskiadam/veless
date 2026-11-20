@@ -91,7 +91,7 @@ final class LabelPages
         return '.lb{position:relative;box-sizing:border-box;overflow:hidden;flex:none;background:#fff}.lb-in{position:absolute}.lb-in>img{position:absolute;inset:0;width:100%;height:100%;display:block}'
             . '.lb-bar{position:absolute;display:block;background:#fff}.lb-bar svg{display:block;width:100%;height:100%}'
             . '.lb-f{position:absolute;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;font-family:Arial,Helvetica,sans-serif;font-weight:700;color:#000}'
-            . '.lb-m{display:block;white-space:pre;line-height:1.15;font-weight:400}.lb-o{position:absolute;inset:0;box-sizing:border-box;border:.3mm solid #000;pointer-events:none;z-index:1}.lb-o-circle{border-radius:50%}.lb-o-round{border-radius:3mm}';
+            . '.lb-m{display:block;white-space:pre;line-height:1.15;font-weight:400}.lb-mw{white-space:pre-wrap;overflow-wrap:anywhere}.lb-o{position:absolute;inset:0;box-sizing:border-box;border:.3mm solid #000;pointer-events:none;z-index:1}.lb-o-circle{border-radius:50%}.lb-o-round{border-radius:3mm}';
     }
 
     /** Jedna etykieta: plik + dane w zaznaczonych miejscach. @param array<string,string> $values lot/produced/expires */
@@ -111,7 +111,7 @@ final class LabelPages
             $b = $l['boxes'][$k] ?? null;
             $v = match ($k) {
                 'qr' => self::qrUrl($l, $values),
-                'maker' => trim((string) ($l['boxes']['maker_text'] ?? '')) ?: trim((string) ($values['maker'] ?? self::$maker)),
+                'maker' => Store::makerText((string) ($l['boxes']['maker_text'] ?? '')) ?: Store::makerText((string) ($values['maker'] ?? self::$maker)),
                 default => trim((string) ($values[$k] ?? '')),
             };
             if ($b === null || $v === '') {
@@ -132,8 +132,8 @@ final class LabelPages
                 continue;
             }
             if ($k === 'maker') {
-                $lines = max(1, substr_count($v, "\n") + 1);
-                $html .= '<span class="lb-f lb-m" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3])
+                $lines = !empty($l['boxes']['maker_wrap']) ? 1 : max(1, substr_count($v, "\n") + 1);
+                $html .= '<span class="lb-f lb-m' . (!empty($l['boxes']['maker_wrap']) ? ' lb-mw' : '') . '" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3])
                     . ';font-size:' . self::mm($b[3] * $h / $lines / 1.2) . 'mm;text-align:' . ['left' => 'left', 'center' => 'center', 'right' => 'right'][$l['boxes']['align']] . '">' . U::h($v) . '</span>';
                 continue;
             }
@@ -434,8 +434,9 @@ final class LabelPages
             . U::input('height_mm', $h, 'Wysokość (mm)', 'id="lb-h" inputmode="decimal" placeholder="z proporcji pliku"', 'puste = z proporcji pliku')
             . U::select('align', ['left' => 'do lewej', 'center' => 'na środku', 'right' => 'do prawej'], (string) ($posted['align'] ?? $boxes['align']), 'Tekst w prostokącie', 'id="lb-align"')
             . U::input('qr_url', (string) ($boxes['qr_url'] ?? ''), 'Kod QR prowadzi do', 'id="lb-qr" inputmode="url" placeholder="https://…"', 'adres do kodu QR; {partia} = numer partii')
-            . '<label>Dane producenta<textarea name="maker_text" id="lb-maker" rows="3" placeholder="' . U::h(self::$maker !== '' ? self::$maker : 'Nazwa, adres, kontakt') . '">' . U::h((string) ($boxes['maker_text'] ?? '')) . '</textarea>'
-            . '<small>puste = producent z ustawień Produkcji; wpisz innego dla private label</small></label>'
+            . '<label>Dane producenta<textarea name="maker_text" id="lb-maker" rows="4" wrap="off" style="white-space:pre;overflow-x:auto" placeholder="' . U::h(self::$maker !== '' ? self::$maker : 'Nazwa, adres, kontakt') . '">' . U::h((string) ($boxes['maker_text'] ?? '')) . '</textarea>'
+            . '<small>każdy wiersz = osobna linia na etykiecie (Enter); puste = producent z ustawień Produkcji</small></label>'
+            . U::select('maker_wrap', ['0' => 'wiersze jak wpisane', '1' => 'zawijaj do szerokości pola'], !empty($boxes['maker_wrap']) ? '1' : '0', 'Układ tekstu producenta', 'id="lb-mwrap"')
             . U::select('outline', Store::OUTLINES, (string) ($boxes['outline'] ?? 'none'), 'Obrys (linia cięcia)', 'id="lb-outline"')
             . '</div>'
             . '<input type="hidden" name="boxes" id="lb-boxes" value="' . U::h(json_encode($boxes)) . '"><input type="hidden" name="source_name" id="lb-src" value="">'
@@ -494,7 +495,9 @@ var pxW=C.pxW,pxH=C.pxH,hAuto=!H.value,lotInFile='',fileNote='';
 function field(){var r=document.querySelector('input[name=lb_field]:checked');return r?r.value:'lot';}
 function img(){return document.getElementById('lb-img');}
 function outline(){return OL.value;}
-function save(){var o={align:document.getElementById('lb-align').value,outline:outline(),qr_url:document.getElementById('lb-qr').value.trim(),maker_text:document.getElementById('lb-maker').value.trim()};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}
+function mwrap(){return document.getElementById('lb-mwrap').value==='1';}
+function mtext(){return document.getElementById('lb-maker').value.split('\n').map(function(x){return x.trim();}).join('\n').trim();}
+function save(){var o={align:document.getElementById('lb-align').value,outline:outline(),qr_url:document.getElementById('lb-qr').value.trim(),maker_text:mtext(),maker_wrap:mwrap()};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}
  if(outline()!=='none'&&boxes.frame)o.frame=boxes.frame;hid.value=JSON.stringify(o);}
 function num(v){return parseFloat(String(v).replace(',','.'));}
 function wmm(){return num(W.value)||0;}
@@ -520,8 +523,8 @@ function draw(){ed.querySelectorAll('.lb-box').forEach(function(b){b.remove();})
   var fs=b[3]*i.clientHeight*0.8;d.style.fontSize=fs+'px';var tx=document.createElement('b');d.title=C.names[k];d.appendChild(tx);if(k===field())d.classList.add('on');handle(d);ed.appendChild(d);
   if(k==='qr'){tx.innerHTML=C.qr||'';tx.style.cssText='width:100%;height:100%;background:#fff';var sq=tx.querySelector('svg');if(sq){sq.style.width='100%';sq.style.height='100%';sq.style.display='block';}continue;}
   if(k==='ean_bar'){tx.innerHTML=C.bar||'';tx.style.cssText='width:100%;height:100%;background:#fff';var sv=tx.querySelector('svg');if(sv){sv.style.width='100%';sv.style.height='100%';sv.style.display='block';}continue;}
-  if(k==='maker'){var mt=document.getElementById('lb-maker').value.trim()||C.maker||'Nazwa producenta\nadres\nkontakt';tx.textContent=mt;fs=b[3]*i.clientHeight/Math.max(1,mt.split('\n').length)/1.2;d.style.fontSize=fs+'px';
-   tx.style.textAlign=document.getElementById('lb-align').value;tx.style.width='100%';var nm=0;while((tx.scrollWidth>d.clientWidth+1||tx.scrollHeight>d.clientHeight+1)&&nm++<60){fs*=0.94;d.style.fontSize=fs+'px';}continue;}
+  if(k==='maker'){var mt=mtext()||C.maker||'Nazwa producenta\nadres\nkontakt';tx.textContent=mt;fs=b[3]*i.clientHeight/(mwrap()?1:Math.max(1,mt.split('\n').length))/1.2;d.style.fontSize=fs+'px';
+   tx.style.whiteSpace=mwrap()?'pre-wrap':'pre';tx.style.overflowWrap=mwrap()?'anywhere':'normal';tx.style.textAlign=document.getElementById('lb-align').value;tx.style.width='100%';var nm=0;while((tx.scrollWidth>d.clientWidth+1||tx.scrollHeight>d.clientHeight+1)&&nm++<60){fs*=0.94;d.style.fontSize=fs+'px';}continue;}
   tx.textContent=C.sample[k]||'';var n=0;while(tx.scrollWidth>d.clientWidth+1&&n++<60){fs*=0.94;d.style.fontSize=fs+'px';}}
  save();info();}
 function setImg(url,w,h,after){var n=document.getElementById('lb-none');if(n)n.remove();var i=img();if(!i){i=document.createElement('img');i.id='lb-img';i.alt='Etykieta';ed.appendChild(i);}
@@ -587,7 +590,7 @@ function fileMm(f,pw,ph){return f.slice(0,262144).arrayBuffer().then(function(b)
  else if(v.byteLength>18&&v.getUint16(0)===0xFFD8&&v.getUint32(6)===0x4A464946){var u=v.getUint8(13),xd=v.getUint16(14);dpi=u===1?xd:(u===2?xd*2.54:0);}
  return dpi>=50&&dpi<=4800?{w:pw/dpi*25.4,h:ph/dpi*25.4,dpi:Math.round(dpi)}:null;}).catch(function(){return null;});}
 OL.onchange=function(){if(outline()!=='none'){fitFrame();pick('frame');}draw();};
-document.getElementById('lb-qr').addEventListener('input',function(){save();info();});document.getElementById('lb-maker').addEventListener('input',draw);document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
+document.getElementById('lb-qr').addEventListener('input',function(){save();info();});document.getElementById('lb-maker').addEventListener('input',draw);document.getElementById('lb-mwrap').onchange=draw;document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
 window.addEventListener('resize',draw);
 // ---- odczyt etykiety (Tesseract.js w przeglądarce): pola i kontrola z kartą produktu
 function get(k,type){return fetch(C.tess[k][0],{integrity:C.tess[k][1],mode:'cors'}).then(function(r){if(!r.ok)throw new Error(k);return type==='buf'?r.arrayBuffer():r.text();});}

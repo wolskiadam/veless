@@ -567,7 +567,7 @@ if ($locations !== []) { echo locPickerData($locations); }
                     <?php else: ?>
                         <?= htmlspecialchars($r['name'] ?? '—') ?>
                     <?php endif; ?>
-                    <?php if (isset($variableParents[$pid])): ?><span class="pill muted" style="font-size:11px;font-weight:400;background:#fde8e8;color:#9b1c1c" title="To produkt główny z WooCommerce, który ma warianty. Stan i cenę mają warianty - ten wiersz można usunąć z magazynu.">produkt główny Woo</span><?php endif; ?>
+                    <?php if (isset($variableParents[$pid])): ?><span class="pill muted" style="font-size:11px;font-weight:400;background:#fde8e8;color:#9b1c1c" title="To produkt główny z WooCommerce, który ma warianty. Stan i cenę mają warianty - ten wiersz można usunąć z magazynu.">produkt główny</span><?php endif; ?>
                     <?php if (!empty($r['is_virtual'])): ?><span class="pill muted" style="font-size:11px;font-weight:400" title="Produkt wirtualny - bez wysyłki">wirtualny</span><?php endif; ?>
                     <?= \Pase\Plugin\Hooks::render('products.name', $r) ?>
                 </td>

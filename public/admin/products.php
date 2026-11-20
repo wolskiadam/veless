@@ -523,8 +523,13 @@ if ($locations !== []) { echo locPickerData($locations); }
             // Kolejność z repozytorium (GROUPED_ORDER) trzyma warianty razem, więc nagłówek grupy
             // pojawia się raz - przy pierwszym wariancie.
             $gk = ProductRepository::variantGroupKey($r);
-            $groupSize = $gk !== '' ? ($parentCounts[$gk] ?? 1) : 1;
-            $isGrouped = $groupSize > 1;
+            $isMainRow = isset($variableParents[$pid]);
+            if ($isMainRow) {
+                // Produkt główny Woo stoi w swojej grupie, nad wariantami (patrz GROUPED_ORDER).
+                $gk = (int) ($r['source_integration_id'] ?? 0) . ':' . (int) $r['woo_product_id'];
+            }
+            $groupSize = $gk !== '' ? ($parentCounts[$gk] ?? 0) : 0;
+            $isGrouped = $groupSize > 1 || ($isMainRow && $groupSize > 0);
             $isFirstOfGroup = $isGrouped && $gk !== $prevParent;
             $prevParent = $gk;
         ?>
@@ -555,14 +560,14 @@ if ($locations !== []) { echo locPickerData($locations); }
                 </td>
                 <td><a href="product_view.php?id=<?= $pid ?>" title="Podgląd produktu" style="color:inherit"><strong><?= htmlspecialchars($r['sku']) ?></strong></a></td>
                 <td>
-                    <?php if ($isGrouped):
+                    <?php if ($isGrouped && !$isMainRow):
                         $label = $variantLabel($r);
                     ?>
                         <span style="color:#888;padding-left:16px">↳ <?= $label !== null ? htmlspecialchars($label) : htmlspecialchars($r['name'] ?? '—') ?></span>
                     <?php else: ?>
                         <?= htmlspecialchars($r['name'] ?? '—') ?>
                     <?php endif; ?>
-                    <?php if (isset($variableParents[$pid])): ?><span class="pill muted" style="font-size:11px;font-weight:400;background:#fde8e8;color:#9b1c1c" title="To produkt główny z WooCommerce, który ma warianty. Stan i cenę mają warianty - ten wiersz można usunąć z magazynu.">produkt główny Woo, nie wariant</span><?php endif; ?>
+                    <?php if (isset($variableParents[$pid])): ?><span class="pill muted" style="font-size:11px;font-weight:400;background:#fde8e8;color:#9b1c1c" title="To produkt główny z WooCommerce, który ma warianty. Stan i cenę mają warianty - ten wiersz można usunąć z magazynu.">produkt główny Woo</span><?php endif; ?>
                     <?php if (!empty($r['is_virtual'])): ?><span class="pill muted" style="font-size:11px;font-weight:400" title="Produkt wirtualny - bez wysyłki">wirtualny</span><?php endif; ?>
                     <?= \Pase\Plugin\Hooks::render('products.name', $r) ?>
                 </td>

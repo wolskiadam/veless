@@ -347,14 +347,20 @@ final class Store
         return $rows;
     }
 
+    /** Obrys dorysowywany przez system po krawędzi etykiety (pliki bez własnego obrysu). */
+    public const OUTLINES = ['none' => 'bez obrysu', 'circle' => 'okrąg / elipsa', 'rect' => 'prostokąt', 'round' => 'prostokąt z zaokrąglonymi rogami'];
+
     /**
-     * Miejsca na etykiecie: pole => [x, y, szer., wys.] jako ułamek obrazka (0..1) + 'align'.
+     * Miejsca na etykiecie: pole => [x, y, szer., wys.] jako ułamek obrazka (0..1) + 'align' i opcjonalnie 'outline' (obrys po krawędzi).
      * @return array{align:string}&array<string,list<float>>
      */
     public static function boxes(string $json): array
     {
         $in = json_decode($json, true);
         $out = ['align' => in_array($in['align'] ?? '', ['left', 'center', 'right'], true) ? (string) $in['align'] : 'left'];
+        if (isset(self::OUTLINES[$in['outline'] ?? '']) && $in['outline'] !== 'none') {
+            $out['outline'] = (string) $in['outline'];
+        }
         foreach (array_keys(self::LABEL_FIELDS) as $k) {
             $b = $in[$k] ?? null;
             if (!is_array($b) || count($b) !== 4) {

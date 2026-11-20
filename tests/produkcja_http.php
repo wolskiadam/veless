@@ -328,6 +328,14 @@ try {
     $lab1 = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'];
     ok(!str_contains($lab1, 'class="lb-bar"') && !str_contains($lab1, 'lb-f lb-ean') && str_contains($lab1, '>W1</span>'), 'Product without EAN leaves the EAN fields empty');
     $pdo->exec('UPDATE products SET woo_product_id = NULL');
+    request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60',
+        'boxes' => json_encode(['align' => 'left', 'outline' => 'circle', 'lot' => [0.1, 0.8, 0.5, 0.08]])]);
+    $lab1 = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'];
+    $ed1 = request($ola, $url('etykieta_edytuj', ['produkt' => 1]))['body'];
+    ok(str_contains($lab1, 'class="lb-o lb-o-circle"') && str_contains($ed1, '<option value="circle" selected>'), 'Outline added by the system is printed and remembered in the editor');
+    request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60',
+        'boxes' => json_encode(['align' => 'left', 'outline' => 'zly', 'lot' => [0.1, 0.8, 0.5, 0.08]])]);
+    ok(!str_contains(request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'], 'class="lb-o'), 'Unknown outline is ignored');
     ok(str_contains(request($vi, $url('etykieta_produkt', ['produkt' => 2]))['body'], 'nie ma etykiety CLP'), 'Different products do not share labels');
     $pdo->exec("INSERT INTO ext_prod_batches (id, code, product_id, product_name, produced_at, qty, person, shift, lines_json, stock_json, is_draft, imported, notes, created_at, updated_at)
         VALUES ('bezwyrobu0000001', 'STARA-01', NULL, 'Stara partia', '2025-01-01', 4, '', '', '[]', '[]', 0, 1, '', '2025-01-01 10:00:00', '2025-01-01 10:00:00')");

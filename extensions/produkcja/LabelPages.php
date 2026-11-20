@@ -78,6 +78,7 @@ final class LabelPages
     public static function css(): string
     {
         return '.lb{position:relative;box-sizing:border-box;overflow:hidden;flex:none;background:#fff}.lb>img{position:absolute;inset:0;width:100%;height:100%;display:block}'
+            . '.lb-bar{position:absolute;display:block;background:#fff}.lb-bar svg{display:block;width:100%;height:100%}'
             . '.lb-f{position:absolute;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;font-family:Arial,Helvetica,sans-serif;font-weight:700;color:#000}';
     }
 
@@ -94,10 +95,66 @@ final class LabelPages
             if ($b === null || $v === '') {
                 continue;
             }
+            if ($k === 'ean_bar') {
+                $svg = self::eanSvg($v);
+                if ($svg !== '') {
+                    $html .= '<span class="lb-bar" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3]) . '">' . $svg . '</span>';
+                }
+                continue;
+            }
             $html .= '<span class="lb-f lb-' . $k . '" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3])
                 . ';font-size:' . self::mm($b[3] * $h * 0.8) . 'mm;justify-content:' . $just . '">' . U::h($v) . '</span>';
         }
         return $html . '</div>';
+    }
+
+    /** Kod kreskowy EAN-13 (12 cyfr = dopisuje cyfrę kontrolną, 8 cyfr = EAN-8) jako SVG bez marginesu. Zły kod = ''. */
+    public static function eanSvg(string $code): string
+    {
+        $d = preg_replace('/\D/', '', $code) ?? '';
+        $check = static function (string $body): int {
+            $sum = 0;
+            foreach (array_reverse(str_split($body)) as $i => $c) {
+                $sum += (int) $c * ($i % 2 === 0 ? 3 : 1);
+            }
+            return (10 - $sum % 10) % 10;
+        };
+        if (strlen($d) === 12) {
+            $d .= $check($d);
+        }
+        if (!in_array(strlen($d), [8, 13], true) || $check(substr($d, 0, -1)) !== (int) substr($d, -1)) {
+            return '';
+        }
+        $L = ['0001101', '0011001', '0010011', '0111101', '0100011', '0110001', '0101111', '0111011', '0110111', '0001011'];
+        $G = ['0100111', '0110011', '0011011', '0100001', '0011101', '0111001', '0000101', '0010001', '0001001', '0010111'];
+        $R = array_map(static fn(string $x): string => strtr($x, '01', '10'), $L);
+        if (strlen($d) === 13) {
+            $parity = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'][(int) $d[0]];
+            $bits = '101';
+            for ($i = 1; $i <= 6; $i++) {
+                $bits .= ($parity[$i - 1] === 'L' ? $L : $G)[(int) $d[$i]];
+            }
+            $bits .= '01010';
+            for ($i = 7; $i <= 12; $i++) {
+                $bits .= $R[(int) $d[$i]];
+            }
+        } else {
+            $bits = '101';
+            for ($i = 0; $i < 4; $i++) {
+                $bits .= $L[(int) $d[$i]];
+            }
+            $bits .= '01010';
+            for ($i = 4; $i < 8; $i++) {
+                $bits .= $R[(int) $d[$i]];
+            }
+        }
+        $bits .= '101';
+        $rects = '';
+        preg_match_all('/1+/', $bits, $m, PREG_OFFSET_CAPTURE);
+        foreach ($m[0] as [$run, $x]) {
+            $rects .= '<rect x="' . $x . '" width="' . strlen($run) . '" height="1"/>';
+        }
+        return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' . strlen($bits) . ' 1" preserveAspectRatio="none" shape-rendering="crispEdges" role="img" aria-label="EAN ' . $d . '">' . $rects . '</svg>';
     }
 
     /** Zmniejsza czcionkę pola, gdy tekst nie mieści się w szerokości prostokąta. */
@@ -124,13 +181,20 @@ final class LabelPages
         $recent = $s->recentBatchesBySku([(string) ($p['sku'] ?? '')], 1)[mb_strtolower(trim((string) ($p['sku'] ?? '')))][0] ?? null;
         $b = $recent !== null ? $s->batchByCode((string) $recent['code']) : null;
         return ['lot' => (string) ($b['code'] ?? 'AQ001LX01AVBZ'), 'produced' => U::date($b['produced_at'] ?? date('Y-m-d')),
-            'expires' => U::date($b['expires_at'] ?? date('Y-m-d', strtotime('+12 months')))];
+            'expires' => U::date($b['expires_at'] ?? date('Y-m-d', strtotime('+12 months')))] + self::eanValues((string) ($p['ean'] ?? '') !== '' ? (string) $p['ean'] : '5901234123457');
+    }
+
+    /** @return array{ean:string,ean_bar:string} */
+    private static function eanValues(string $ean): array
+    {
+        $ean = trim($ean);
+        return ['ean' => $ean, 'ean_bar' => $ean];
     }
 
     /** Dane partii do etykiety. @return array<string,string> */
-    public static function values(?array $batch, string $code = ''): array
+    public static function values(?array $batch, string $code = '', string $ean = ''): array
     {
-        return ['lot' => $batch !== null ? (string) $batch['code'] : $code,
+        return self::eanValues($ean) + ['lot' => $batch !== null ? (string) $batch['code'] : $code,
             'produced' => !empty($batch['produced_at']) ? U::date((string) $batch['produced_at']) : '',
             'expires' => !empty($batch['expires_at']) ? U::date((string) $batch['expires_at']) : ''];
     }
@@ -162,7 +226,7 @@ final class LabelPages
             $crm = null;
             if (($w['sku'] ?? '') !== '') {
                 try {
-                    $crm = $s->one('SELECT id, name FROM products WHERE sku = ?', [(string) $w['sku']]);
+                    $crm = $s->one('SELECT id, name, ean FROM products WHERE sku = ?', [(string) $w['sku']]);
                 } catch (\PDOException) {
                     $crm = null;
                 }
@@ -175,13 +239,13 @@ final class LabelPages
             $n = isset($nIn[$b['id']]) ? max(0, min(500, (int) $nIn[$b['id']])) : max(1, (int) $b['qty']);
             $n = min($n, max(0, 1000 - $total));
             $total += $n;
-            $items[] = [$b, $l, $n];
+            $items[] = [$b, $l, $n, (string) ($crm['ean'] ?? '')];
             $form .= '<label class="it"><b>' . U::h($b['code']) . '</b> <span>' . U::h($crm['name']) . '</span> <input type="number" name="n[' . U::h($b['id']) . ']" min="0" max="500" value="' . $n . '" style="width:64px"> szt.</label>';
         }
         $form .= self::skipInput() . ' <button>Pokaż</button></form>';
         $sheet = $items !== [] ? self::blanks($items[0][1]) : '';
-        foreach ($items as [$b, $l, $n]) {
-            $sheet .= str_repeat(self::render($l, self::fileUrl($l), self::values($b)), $n);
+        foreach ($items as [$b, $l, $n, $ean]) {
+            $sheet .= str_repeat(self::render($l, self::fileUrl($l), self::values($b, '', $ean)), $n);
         }
         $info = $total . ' etykiet z ' . count($items) . ' partii.' . ($missing !== [] ? ' Pominięte, bo nie mają etykiety CLP: ' . implode(', ', $missing) . '.' : '');
         return self::page($form, $info, $sheet !== '' ? $sheet : '<p style="padding:12px">Żadna z zaznaczonych partii nie ma etykiety CLP. Wgraj etykietę na karcie produktu w Magazynie.</p>');
@@ -281,17 +345,17 @@ final class LabelPages
         $sample = self::sample($s, $p);
         $fields = '';
         foreach (Store::LABEL_FIELDS as $k => $label) {
-            $fields .= '<label class="lb-pick"><input type="radio" name="lb_field" value="' . $k . '"' . ($k === 'lot' ? ' checked' : '') . '> <span class="lb-dot" style="background:' . ['lot' => '#d9480f', 'produced' => '#1971c2', 'expires' => '#2f9e44'][$k] . '"></span>' . $label
+            $fields .= '<label class="lb-pick"><input type="radio" name="lb_field" value="' . $k . '"' . ($k === 'lot' ? ' checked' : '') . '> <span class="lb-dot" style="background:' . ['lot' => '#d9480f', 'produced' => '#1971c2', 'expires' => '#2f9e44', 'ean_bar' => '#7048e8', 'ean' => '#c2255c'][$k] . '"></span>' . $label
                 . ($k === 'lot' ? '' : ' <small>(opcjonalnie)</small>') . '</label>';
         }
         $cfg = json_encode(['img' => $l !== null ? self::fileUrl($l) : '', 'pxW' => (int) ($l['px_w'] ?? 0), 'pxH' => (int) ($l['px_h'] ?? 0),
-            'sample' => $sample, 'names' => Store::LABEL_FIELDS, 'pdfjs' => self::PDFJS, 'sri' => self::PDFJS_SRI], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
+            'sample' => $sample, 'bar' => self::eanSvg($sample['ean_bar']), 'names' => Store::LABEL_FIELDS, 'pdfjs' => self::PDFJS, 'sri' => self::PDFJS_SRI], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
         $html = U::style() . '<style>' . self::css() . '
 .lb-ed-wrap{background:var(--surface-2);border-radius:8px;padding:12px;overflow:auto}
 .lb-ed{position:relative;display:inline-block;max-width:100%;touch-action:none;user-select:none;cursor:crosshair;background:#fff;box-shadow:0 0 0 1px var(--line)}
 .lb-ed img{display:block;max-width:100%;max-height:70vh;pointer-events:none}
 .lb-ed .lb-box{position:absolute;border:2px solid #d9480f;background:rgba(217,72,15,.12);box-sizing:border-box;display:flex;align-items:center;white-space:nowrap;font:700 12px/1 Arial,sans-serif;color:#000;pointer-events:none}.lb-ed .lb-box b{display:block;overflow:hidden;max-width:100%}
-.lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}
+.lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}.lb-ed .lb-box[data-k=ean_bar]{border-color:#7048e8;background:rgba(112,72,232,.12)}.lb-ed .lb-box[data-k=ean]{border-color:#c2255c;background:rgba(194,37,92,.12)}
 .lb-dot{display:inline-block;width:12px;height:12px;border-radius:3px}
 .lb-empty{padding:40px 20px;color:var(--ink-3);text-align:center}
 .lb-pick{display:inline-flex!important;flex-direction:row!important;align-items:center;gap:6px;margin-right:14px;font-weight:600}
@@ -337,8 +401,9 @@ function draw(){ed.querySelectorAll('.lb-box').forEach(function(b){b.remove();})
  for(var k in C.names){var b=boxes[k];if(!b)continue;var d=document.createElement('div');d.className='lb-box';d.dataset.k=k;
   d.style.left=b[0]*100+'%';d.style.top=b[1]*100+'%';d.style.width=b[2]*100+'%';d.style.height=b[3]*100+'%';
   d.style.justifyContent={left:'flex-start',center:'center',right:'flex-end'}[document.getElementById('lb-align').value];
-  var fs=b[3]*i.clientHeight*0.8;d.style.fontSize=fs+'px';var tx=document.createElement('b');tx.textContent=C.sample[k]||'';d.title=C.names[k];d.appendChild(tx);ed.appendChild(d);
-  var n=0;while(tx.scrollWidth>d.clientWidth+1&&n++<60){fs*=0.94;d.style.fontSize=fs+'px';}}
+  var fs=b[3]*i.clientHeight*0.8;d.style.fontSize=fs+'px';var tx=document.createElement('b');d.title=C.names[k];d.appendChild(tx);ed.appendChild(d);
+  if(k==='ean_bar'){tx.innerHTML=C.bar||'';tx.style.cssText='width:100%;height:100%;background:#fff';var sv=tx.querySelector('svg');if(sv){sv.style.width='100%';sv.style.height='100%';sv.style.display='block';}continue;}
+  tx.textContent=C.sample[k]||'';var n=0;while(tx.scrollWidth>d.clientWidth+1&&n++<60){fs*=0.94;d.style.fontSize=fs+'px';}}
  save();info();}
 function setImg(url,w,h){var n=document.getElementById('lb-none');if(n)n.remove();var i=img();if(!i){i=document.createElement('img');i.id='lb-img';i.alt='Etykieta';ed.appendChild(i);}
  pxW=w;pxH=h;i.onload=draw;i.src=url;if(hAuto&&num(W.value)>0)H.value='';}

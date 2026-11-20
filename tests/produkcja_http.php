@@ -315,11 +315,18 @@ try {
     ok(str_contains(request($ola, $url('wyrob', ['id' => $prod]))['body'], '>jest</a>'), 'Product (wyrób) card says the label exists');
     $r = request($ola, $url('etykieta_edytuj', ['sku' => 'MW-1L']));
     ok($r['status'] === 302 && str_contains(urldecode($r['headers']), 'produkt=2'), 'Labels tab: product picked by SKU');
+    $pdo->exec("UPDATE products SET ean = '5901234123457' WHERE id = 2");
+    request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60',
+        'boxes' => json_encode(['align' => 'left', 'lot' => [0.1, 0.8, 0.5, 0.08], 'ean_bar' => [0.1, 0.1, 0.5, 0.2], 'ean' => [0.1, 0.31, 0.5, 0.05]])]);
     $pdo->exec('UPDATE products SET woo_product_id = 500 WHERE id IN (1, 2)');
     $lab = request($vi, $url('etykieta_produkt', ['produkt' => 2, 'partia' => 'W2', 'n' => 1]))['body'];
     $pv2 = request($ola, 'admin/product_view.php?id=2')['body'];
     ok(substr_count($lab, 'class="lb"') === 1 && str_contains($lab, '>W2</span>') && str_contains($pv2, 'wspólna z wariantem') && str_contains($pv2, 'Wgraj osobną dla tego wariantu'),
         'Variant without its own label uses the label of another variant of the same Woo product');
+    ok(str_contains($lab, 'aria-label="EAN 5901234123457"') && str_contains($lab, '>5901234123457</span>')
+        && str_contains($lab, '<rect x="0" width="1" height="1"/><rect x="2" width="1" height="1"/><rect x="6" width="1" height="1"/>'), 'Shared label prints the EAN barcode and number of this variant');
+    $lab1 = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'];
+    ok(!str_contains($lab1, 'class="lb-bar"') && !str_contains($lab1, 'lb-f lb-ean') && str_contains($lab1, '>W1</span>'), 'Product without EAN leaves the EAN fields empty');
     $pdo->exec('UPDATE products SET woo_product_id = NULL');
     ok(str_contains(request($vi, $url('etykieta_produkt', ['produkt' => 2]))['body'], 'nie ma etykiety CLP'), 'Different products do not share labels');
     $pdo->exec("INSERT INTO ext_prod_batches (id, code, product_id, product_name, produced_at, qty, person, shift, lines_json, stock_json, is_draft, imported, notes, created_at, updated_at)

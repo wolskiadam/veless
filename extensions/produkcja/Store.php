@@ -299,7 +299,7 @@ final class Store
 
     // ---------------------------------------------------------------- etykiety CLP (gotowy plik przy produkcie CRM)
 
-    public const LABEL_FIELDS = ['lot' => 'Numer partii', 'produced' => 'Data produkcji', 'expires' => 'Najlepiej do'];
+    public const LABEL_FIELDS = ['lot' => 'Numer partii', 'produced' => 'Data produkcji', 'expires' => 'Najlepiej do', 'ean_bar' => 'Kod kreskowy EAN', 'ean' => 'EAN (tekst)'];
 
     public function label(int $productId): ?array
     {

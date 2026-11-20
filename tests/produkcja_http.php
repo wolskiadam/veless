@@ -334,6 +334,13 @@ try {
     $ed1 = request($ola, $url('etykieta_edytuj', ['produkt' => 1]))['body'];
     ok(str_contains($lab1, 'class="lb-o lb-o-circle"') && str_contains($ed1, '<option value="circle" selected>'), 'Outline added by the system is printed and remembered in the editor');
     request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60',
+        'boxes' => json_encode(['align' => 'left', 'outline' => 'circle', 'frame' => [0.1, 0.1, 0.5, 0.5], 'lot' => [0.1, 0.8, 0.5, 0.08]])]);
+    $lab1 = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'];
+    $ed1 = request($ola, $url('etykieta_edytuj', ['produkt' => 1]))['body'];
+    ok(str_contains($lab1, 'class="lb" style="width:30mm;height:30mm"') && str_contains($lab1, 'class="lb-in" style="left:-20%;top:-20%;width:200%;height:200%"')
+        && str_contains($ed1, '&quot;frame&quot;:[0.1,0.1,0.5,0.5]') && str_contains($ed1, 'id="lb-ocr"') && str_contains($ed1, 'tesseract-core-simd-lstm.wasm.js'),
+        'Outline area: label is cropped to the outline for printing; editor offers reading the label');
+    request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60',
         'boxes' => json_encode(['align' => 'left', 'outline' => 'zly', 'lot' => [0.1, 0.8, 0.5, 0.08]])]);
     ok(!str_contains(request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'], 'class="lb-o'), 'Unknown outline is ignored');
     ok(str_contains(request($vi, $url('etykieta_produkt', ['produkt' => 2]))['body'], 'nie ma etykiety CLP'), 'Different products do not share labels');

@@ -348,7 +348,7 @@ final class Store
     }
 
     /** Obrys dorysowywany przez system po krawędzi etykiety (pliki bez własnego obrysu). */
-    public const OUTLINES = ['none' => 'bez obrysu', 'circle' => 'okrąg / elipsa', 'rect' => 'prostokąt', 'round' => 'prostokąt z zaokrąglonymi rogami'];
+    public const OUTLINES = ['none' => 'bez obrysu', 'circle' => 'okrąg', 'rect' => 'prostokąt', 'round' => 'prostokąt z zaokrąglonymi rogami'];
 
     /**
      * Miejsca na etykiecie: pole => [x, y, szer., wys.] jako ułamek obrazka (0..1) + 'align' i opcjonalnie 'outline' (obrys po krawędzi).
@@ -360,6 +360,14 @@ final class Store
         $out = ['align' => in_array($in['align'] ?? '', ['left', 'center', 'right'], true) ? (string) $in['align'] : 'left'];
         if (isset(self::OUTLINES[$in['outline'] ?? '']) && $in['outline'] !== 'none') {
             $out['outline'] = (string) $in['outline'];
+            // Obszar obrysu na obrazku [x, y, szer., wys.]; brak = cały plik. Wydruk przycina etykietę do tego obszaru.
+            $f = $in['frame'] ?? null;
+            if (is_array($f) && count($f) === 4) {
+                [$x, $y, $w, $h] = array_map(static fn($v): float => max(0.0, min(1.0, round((float) $v, 4))), array_values($f));
+                if ($w >= 0.05 && $h >= 0.05) {
+                    $out['frame'] = [$x, $y, min($w, 1 - $x), min($h, 1 - $y)];
+                }
+            }
         }
         foreach (array_keys(self::LABEL_FIELDS) as $k) {
             $b = $in[$k] ?? null;

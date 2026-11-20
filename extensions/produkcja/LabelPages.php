@@ -140,22 +140,90 @@ final class LabelPages
     /** @param array<string,string> $hidden ukryte pola formularza */
     public static function sheet(array $l, array $values, int $n, string $page, array $hidden, string $pickers, string $info): string
     {
-        $skip = max(0, min(200, (int) ($_GET['pomin'] ?? 0))); // zużyte miejsca na rozpoczętym arkuszu
+        $form = self::form($page, $hidden) . $pickers . ' Ile: <input type="number" name="n" min="1" max="500" value="' . $n . '" style="width:70px">' . self::skipInput() . ' <button>Pokaż</button></form>';
+        return self::page($form, $info, self::blanks($l) . str_repeat(self::render($l, self::fileUrl($l), $values), $n));
+    }
+
+    /**
+     * Jeden arkusz A4 z etykietami wielu partii (zaznaczonych na liście Partie): każda partia ze swoją etykietą CLP
+     * (produkt CRM po SKU wyrobu) i swoim numerem; ile sztuk z każdej - n[id], domyślnie ilość z partii.
+     * @param list<array<string,mixed>> $batches
+     */
+    public static function batchesSheet(Store $s, array $batches): string
+    {
+        $nIn = is_array($_GET['n'] ?? null) ? $_GET['n'] : [];
+        $form = self::form('etykiety_partii', []);
+        $items = [];
+        $missing = [];
+        $total = 0;
+        foreach ($batches as $b) {
+            $form .= '<input type="hidden" name="ids[]" value="' . U::h($b['id']) . '">';
+            $w = $b['product_id'] !== null ? $s->product((string) $b['product_id']) : null;
+            $crm = null;
+            if (($w['sku'] ?? '') !== '') {
+                try {
+                    $crm = $s->one('SELECT id, name FROM products WHERE sku = ?', [(string) $w['sku']]);
+                } catch (\PDOException) {
+                    $crm = null;
+                }
+            }
+            $l = $crm !== null ? $s->label((int) $crm['id']) : null;
+            if ($l === null) {
+                $missing[] = $b['code'] . ' (' . ($crm === null ? ($w === null ? 'partia bez wyrobu' : 'brak produktu o SKU wyrobu') : 'produkt bez etykiety') . ')';
+                continue;
+            }
+            $n = isset($nIn[$b['id']]) ? max(0, min(500, (int) $nIn[$b['id']])) : max(1, (int) $b['qty']);
+            $n = min($n, max(0, 1000 - $total));
+            $total += $n;
+            $items[] = [$b, $l, $n];
+            $form .= '<label class="it"><b>' . U::h($b['code']) . '</b> <span>' . U::h($crm['name']) . '</span> <input type="number" name="n[' . U::h($b['id']) . ']" min="0" max="500" value="' . $n . '" style="width:64px"> szt.</label>';
+        }
+        $form .= self::skipInput() . ' <button>Pokaż</button></form>';
+        $sheet = $items !== [] ? self::blanks($items[0][1]) : '';
+        foreach ($items as [$b, $l, $n]) {
+            $sheet .= str_repeat(self::render($l, self::fileUrl($l), self::values($b)), $n);
+        }
+        $info = $total . ' etykiet z ' . count($items) . ' partii.' . ($missing !== [] ? ' Pominięte, bo nie mają etykiety CLP: ' . implode(', ', $missing) . '.' : '');
+        return self::page($form, $info, $sheet !== '' ? $sheet : '<p style="padding:12px">Żadna z zaznaczonych partii nie ma etykiety CLP. Wgraj etykietę na karcie produktu w Magazynie.</p>');
+    }
+
+    /** @param array<string,string> $hidden */
+    private static function form(string $page, array $hidden): string
+    {
         $form = '<form method="get" action="ext.php"><input type="hidden" name="page" value="produkcja.' . U::h($page) . '">';
         foreach ($hidden as $k => $v) {
             $form .= '<input type="hidden" name="' . U::h($k) . '" value="' . U::h($v) . '">';
         }
-        $form .= $pickers . ' Ile: <input type="number" name="n" min="1" max="500" value="' . $n . '" style="width:70px">'
-            . ' Pomiń: <input type="number" name="pomin" min="0" max="200" value="' . $skip . '" style="width:60px" title="Ile etykiet na arkuszu A4 jest już zużytych - druk zacznie się od następnej"> <button>Pokaż</button></form>';
-        $one = self::render($l, self::fileUrl($l), $values);
-        $blank = '<div class="lb lb-skip" aria-hidden="true" style="width:' . self::mm((float) $l['width_mm']) . 'mm;height:' . self::mm((float) $l['height_mm']) . 'mm"></div>';
+        return $form;
+    }
+
+    private static function skipInput(): string
+    {
+        return ' Pomiń: <input type="number" name="pomin" min="0" max="200" value="' . self::skip() . '" style="width:60px" title="Ile etykiet na arkuszu A4 jest już zużytych - druk zacznie się od następnej">';
+    }
+
+    /** Zużyte miejsca na rozpoczętym arkuszu. */
+    private static function skip(): int
+    {
+        return max(0, min(200, (int) ($_GET['pomin'] ?? 0)));
+    }
+
+    private static function blanks(array $l): string
+    {
+        return str_repeat('<div class="lb lb-skip" aria-hidden="true" style="width:' . self::mm((float) $l['width_mm']) . 'mm;height:' . self::mm((float) $l['height_mm']) . 'mm"></div>', self::skip());
+    }
+
+    private static function page(string $form, string $info, string $sheet): string
+    {
         return '<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Etykiety CLP</title>'
             . '<style>@page{size:A4;margin:6mm}body{font-family:system-ui,sans-serif;margin:0}.bar{padding:10px;background:#f6f5f2;display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px}'
-            . '.bar form{margin:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.sheet{display:flex;flex-wrap:wrap;gap:2mm;padding:3mm;align-items:flex-start}'
+            . '.bar form{margin:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center}.bar .it{display:inline-flex;gap:6px;align-items:center;background:#fff;border:1px solid #ddd;border-radius:6px;padding:3px 8px}'
+            . '.bar .it b{font-family:ui-monospace,monospace}.bar .it span{color:#666;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+            . '.sheet{display:flex;flex-wrap:wrap;gap:2mm;padding:3mm;align-items:flex-start}'
             . '.info{color:#666;font-size:13px}.lb-skip{visibility:hidden}.sheet .lb{outline:0.2mm dashed #ccc}' . self::css()
             . '@media print{.bar{display:none!important}.sheet{padding:0}.sheet .lb{outline:0}}</style></head><body>'
             . '<div class="bar">' . $form . '<button onclick="print()">🖨 Drukuj</button><span class="info">' . U::h($info) . '</span></div>'
-            . '<div class="sheet">' . str_repeat($blank, $skip) . str_repeat($one, $n) . '</div>' . self::fitScript() . '</body></html>';
+            . '<div class="sheet">' . $sheet . '</div>' . self::fitScript() . '</body></html>';
     }
 
     /** Podpowiedzi SKU: produkty, które mają etykietę. */

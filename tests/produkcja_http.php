@@ -315,6 +315,15 @@ try {
     ok(str_contains(request($ola, $url('wyrob', ['id' => $prod]))['body'], '>jest</a>'), 'Product (wyrób) card says the label exists');
     $r = request($ola, $url('etykieta_edytuj', ['sku' => 'MW-1L']));
     ok($r['status'] === 302 && str_contains(urldecode($r['headers']), 'produkt=2'), 'Labels tab: product picked by SKU');
+    $pdo->exec("INSERT INTO ext_prod_batches (id, code, product_id, product_name, produced_at, qty, person, shift, lines_json, stock_json, is_draft, imported, notes, created_at, updated_at)
+        VALUES ('bezwyrobu0000001', 'STARA-01', NULL, 'Stara partia', '2025-01-01', 4, '', '', '[]', '[]', 0, 1, '', '2025-01-01 10:00:00', '2025-01-01 10:00:00')");
+    $pl = request($vi, $url('partie'))['body'];
+    ok(str_contains($pl, 'name="ids[]" value="' . $b1 . '" form="pr-lbl"') && str_contains($pl, 'produkcja.etykiety_partii') && str_contains($pl, 'id="pr-lbl-all"'), 'Batch list has checkboxes to print labels of selected batches');
+    $lab = request($vi, 'admin/ext.php?' . http_build_query(['page' => 'produkcja.etykiety_partii', 'ids' => [$b1, 'bezwyrobu0000001', $b2]]))['body'];
+    ok(substr_count($lab, 'class="lb"') === 8 && substr_count($lab, '>AD010LX02ABBA</span>') === 8 && str_contains($lab, 'name="n[' . $b1 . ']" min="0" max="500" value="8"')
+        && str_contains($lab, 'STARA-01 (partia bez wyrobu)') && !str_contains($lab, 'AD015LX02ABBA') && str_contains($lab, 'size:A4'), 'Selected batches print on one sheet; batch without a label is listed, deleted one skipped');
+    $lab = request($vi, 'admin/ext.php?' . http_build_query(['page' => 'produkcja.etykiety_partii', 'ids' => [$b1], 'n' => [$b1 => 3], 'pomin' => 2]))['body'];
+    ok(substr_count($lab, 'class="lb"') === 3 && substr_count($lab, 'class="lb lb-skip"') === 2 && str_contains($lab, '3 etykiet z 1 partii'), 'Count per batch and skip on the multi-batch sheet');
 
     // ---- Test spalania ze zdjęciem
     $img = imagecreatetruecolor(40, 60);

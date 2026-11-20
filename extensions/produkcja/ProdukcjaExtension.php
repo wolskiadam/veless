@@ -362,6 +362,21 @@ final class ProdukcjaExtension extends AbstractExtension
                 echo LabelPages::sheet($l, LabelPages::values($b), $n, 'etykieta', ['id' => (string) $b['id']], $bar, (string) $crm['name'] . ' · partia ' . $b['code']);
             }]);
 
+        Hooks::addPage('etykiety_partii', ['title' => 'Etykiety zaznaczonych partii', 'menu' => false, 'role' => 'viewer', 'raw' => true,
+            'render' => static function (PDO $pdo) use ($store): void {
+                $s = $store();
+                header('Content-Type: text/html; charset=utf-8');
+                $ids = array_slice(array_values(array_unique(array_map('strval', is_array($_GET['ids'] ?? null) ? $_GET['ids'] : []))), 0, 100);
+                $batches = [];
+                foreach ($ids as $id) {
+                    $b = $s->batch($id);
+                    if ($b !== null && (int) $b['is_draft'] === 0 && $b['deleted_at'] === null) {
+                        $batches[] = $b;
+                    }
+                }
+                echo $batches === [] ? 'Nie zaznaczono żadnej partii.' : LabelPages::batchesSheet($s, $batches);
+            }]);
+
         // ---- Etykiety CLP z gotowego pliku (przy produkcie CRM)
         $crmProduct = static function (Store $s, array $q): ?array {
             try {

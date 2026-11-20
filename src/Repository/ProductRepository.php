@@ -277,6 +277,25 @@ final class ProductRepository
         return "pase_stock IS NOT NULL AND pase_stock {$sqlOp} :stock";
     }
 
+    /**
+     * Kolejność listy produktów: najnowsze na górze, ale warianty jednego produktu Woo
+     * (wspólny woo_product_id w tym samym sklepie) zawsze razem, tuż pod sobą. Grupa stoi
+     * w miejscu swojego najnowszego wariantu, a w środku warianty idą od najnowszego.
+     * Bez tego wariant dodany później (inne id) lądował osobno, a między warianty
+     * wchodziły zwykłe produkty o podobnej nazwie - lista pokazywała grupę dwa razy.
+     */
+    public const GROUPED_ORDER = 'COALESCE((SELECT MAX(g.id) FROM products g
+            WHERE products.woo_product_id > 0 AND g.woo_product_id = products.woo_product_id
+              AND COALESCE(g.source_integration_id, 0) = COALESCE(products.source_integration_id, 0)), products.id) DESC,
+        products.id DESC';
+
+    /** Klucz grupy wariantów dla listy produktów ('' = produkt bez rodzica, pokazywany osobno). */
+    public static function variantGroupKey(array $row): string
+    {
+        $wpid = (int) ($row['woo_product_id'] ?? 0);
+        return $wpid > 0 ? (int) ($row['source_integration_id'] ?? 0) . ':' . $wpid : '';
+    }
+
     public function paged(int $limit, int $offset, string $q = '', ?string $category = null, ?int $integrationId = null,
                           ?string $stockOp = null, ?int $stockValue = null, ?int $locationId = null, bool $useActual = false,
                           array $orIds = []): array
@@ -320,7 +339,7 @@ final class ProductRepository
         }
         $where = $conditions !== [] ? 'WHERE ' . implode(' AND ', $conditions) : '';
 
-        $stmt = $this->pdo->prepare("SELECT * FROM products {$where} ORDER BY id DESC LIMIT :lim OFFSET :off");
+        $stmt = $this->pdo->prepare("SELECT * FROM products {$where} ORDER BY " . self::GROUPED_ORDER . " LIMIT :lim OFFSET :off");
         foreach ($params as $key => $value) {
             $stmt->bindValue($key, $value);
         }

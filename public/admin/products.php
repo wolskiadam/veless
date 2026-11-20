@@ -237,9 +237,9 @@ $link = static function (int $p) use ($qs): string { $qs['p'] = $p; return 'prod
 // nigdy przypadkiem nie wpadną do wspólnej grupy.
 $parentCounts = [];
 foreach ($rows as $r) {
-    $wpid = (int) ($r['woo_product_id'] ?? 0);
-    if ($wpid > 0) {
-        $parentCounts[$wpid] = ($parentCounts[$wpid] ?? 0) + 1;
+    $gk = ProductRepository::variantGroupKey($r);
+    if ($gk !== '') {
+        $parentCounts[$gk] = ($parentCounts[$gk] ?? 0) + 1;
     }
 }
 
@@ -517,11 +517,13 @@ if ($locations !== []) { echo locPickerData($locations); }
             <tr><td colspan="<?= $useActual ? 12 : 11 ?>" style="color:#888">Brak produktów. Kliknij „Importuj z WooCommerce”.</td></tr>
         <?php endif; ?>
         <?php $prevParent = null; foreach ($rows as $r): $pid = (int)$r['id'];
-            $wpid = (int) ($r['woo_product_id'] ?? 0);
-            $groupSize = $wpid > 0 ? ($parentCounts[$wpid] ?? 1) : 1;
+            // Kolejność z repozytorium (GROUPED_ORDER) trzyma warianty razem, więc nagłówek grupy
+            // pojawia się raz - przy pierwszym wariancie.
+            $gk = ProductRepository::variantGroupKey($r);
+            $groupSize = $gk !== '' ? ($parentCounts[$gk] ?? 1) : 1;
             $isGrouped = $groupSize > 1;
-            $isFirstOfGroup = $isGrouped && $wpid !== $prevParent;
-            $prevParent = $wpid;
+            $isFirstOfGroup = $isGrouped && $gk !== $prevParent;
+            $prevParent = $gk;
         ?>
             <?php if ($isFirstOfGroup): ?>
             <tr style="background:#f3ede0">

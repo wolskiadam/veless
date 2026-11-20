@@ -46,6 +46,11 @@ Etykietę CLP projektuje się poza CRM (Canva, od dostawcy olejku) i wgrywa goto
   rogami 3 mm). Obrys to pole w edytorze (pozycja „Obrys”): przesuwa się go i rozciąga (okrąg zostaje okręgiem i rośnie od
   środka), „Dopasuj obrys do etykiety” bierze obszar niebiałych pikseli pliku. Wydruk przycina etykietę do obrysu, więc biały
   margines pliku nie zajmuje miejsca na arkuszu. Zapisany w `boxes` jako `outline` + `frame` [x, y, szer., wys.].
+- **Rozmiar z pliku**: PNG (pHYs) i JPG (JFIF) z zapisaną rozdzielczością same wpisują szerokość w mm (np. 709 px przy
+  300 dpi = 60 mm). Wymiar obrysu wpisuje się w mm („Średnica (mm)” dla okręgu, szer. × wys. dla prostokąta) - zmienia obrys
+  wokół środka. „Dopasuj” dla okręgu: narysowany okrąg w pliku albo okrąg opisany na rysunku, najwyżej wielkości pliku.
+- **Kod QR**: pole „Kod QR” + adres w „Kod QR prowadzi do” (`boxes.qr_url`, tylko http/https, `{partia}` = numer partii).
+  Bez adresu kod się nie drukuje. Generator: `QrCode.php` (kopia z wtyczki KSeF, Nayuki MIT). Później: link do instrukcji produktu.
 - **Odczyt etykiety** („Odczytaj etykietę”, też sam po wgraniu pliku): Tesseract.js 5.1.1 w przeglądarce (słownik polski,
   pliki z jsdelivr sprawdzane `integrity`, rdzeń + worker + słownik w jednym blobie, więc CSP potrzebuje tylko
   `'wasm-unsafe-eval'`). Nic nie idzie na serwer ani do zewnętrznego API. Szuka napisów „Nr partii”, „Data produkcji”,

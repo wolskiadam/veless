@@ -106,8 +106,15 @@ final class LabelPages
             . '<img src="' . U::h($img) . '" alt="">';
         foreach (array_keys(Store::LABEL_FIELDS) as $k) {
             $b = $l['boxes'][$k] ?? null;
-            $v = trim((string) ($values[$k] ?? ''));
+            $v = $k === 'qr' ? self::qrUrl($l, $values) : trim((string) ($values[$k] ?? ''));
             if ($b === null || $v === '') {
+                continue;
+            }
+            if ($k === 'qr') {
+                $svg = self::qrSvg($v);
+                if ($svg !== '') {
+                    $html .= '<span class="lb-bar lb-qr" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3]) . '">' . $svg . '</span>';
+                }
                 continue;
             }
             if ($k === 'ean_bar') {
@@ -211,9 +218,27 @@ final class LabelPages
     }
 
     /** Dane partii do etykiety. @return array<string,string> */
-    public static function values(?array $batch, string $code = '', string $ean = ''): array
+    /** Adres w kodzie QR: wpisany przy etykiecie, {partia} = numer partii. Puste = bez kodu. (Później: link do instrukcji produktu.) */
+    public static function qrUrl(array $l, array $values): string
     {
-        return self::eanValues($ean) + ['lot' => $batch !== null ? (string) $batch['code'] : $code,
+        return str_ireplace('{partia}', rawurlencode((string) ($values['lot'] ?? '')), (string) ($l['boxes']['qr_url'] ?? ''));
+    }
+
+    public static function qrSvg(string $url): string
+    {
+        if ($url === '') {
+            return '';
+        }
+        try {
+            return QrCode::encode($url)->svg(0, 'QR ' . $url);
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
+    public static function values(?array $batch, string $code = '', ?array $crm = null): array
+    {
+        return self::eanValues((string) ($crm['ean'] ?? '')) + ['lot' => $batch !== null ? (string) $batch['code'] : $code,
             'produced' => !empty($batch['produced_at']) ? U::date((string) $batch['produced_at']) : '',
             'expires' => !empty($batch['expires_at']) ? U::date((string) $batch['expires_at']) : ''];
     }
@@ -258,13 +283,13 @@ final class LabelPages
             $n = isset($nIn[$b['id']]) ? max(0, min(500, (int) $nIn[$b['id']])) : max(1, (int) $b['qty']);
             $n = min($n, max(0, 1000 - $total));
             $total += $n;
-            $items[] = [$b, $l, $n, (string) ($crm['ean'] ?? '')];
+            $items[] = [$b, $l, $n, $crm];
             $form .= '<label class="it"><b>' . U::h($b['code']) . '</b> <span>' . U::h($crm['name']) . '</span> <input type="number" name="n[' . U::h($b['id']) . ']" min="0" max="500" value="' . $n . '" style="width:64px"> szt.</label>';
         }
         $form .= self::skipInput() . ' <button>Pokaż</button></form>';
         $sheet = $items !== [] ? self::blanks($items[0][1]) : '';
-        foreach ($items as [$b, $l, $n, $ean]) {
-            $sheet .= str_repeat(self::render($l, self::fileUrl($l), self::values($b, '', $ean)), $n);
+        foreach ($items as [$b, $l, $n, $crm]) {
+            $sheet .= str_repeat(self::render($l, self::fileUrl($l), self::values($b, '', $crm)), $n);
         }
         $info = $total . ' etykiet z ' . count($items) . ' partii.' . ($missing !== [] ? ' Pominięte, bo nie mają etykiety CLP: ' . implode(', ', $missing) . '.' : '');
         return self::page($form, $info, $sheet !== '' ? $sheet : '<p style="padding:12px">Żadna z zaznaczonych partii nie ma etykiety CLP. Wgraj etykietę na karcie produktu w Magazynie.</p>');
@@ -364,12 +389,12 @@ final class LabelPages
         $sample = self::sample($s, $p);
         $fields = '';
         foreach (Store::LABEL_FIELDS as $k => $label) {
-            $fields .= '<label class="lb-pick"><input type="radio" name="lb_field" value="' . $k . '"' . ($k === 'lot' ? ' checked' : '') . '> <span class="lb-dot" style="background:' . ['lot' => '#d9480f', 'produced' => '#1971c2', 'expires' => '#2f9e44', 'ean_bar' => '#7048e8', 'ean' => '#c2255c'][$k] . '"></span>' . $label
+            $fields .= '<label class="lb-pick"><input type="radio" name="lb_field" value="' . $k . '"' . ($k === 'lot' ? ' checked' : '') . '> <span class="lb-dot" style="background:' . ['lot' => '#d9480f', 'produced' => '#1971c2', 'expires' => '#2f9e44', 'ean_bar' => '#7048e8', 'ean' => '#c2255c', 'qr' => '#0c8599'][$k] . '"></span>' . $label
                 . ($k === 'lot' ? '' : ' <small>(opcjonalnie)</small>') . '</label>';
         }
         $fields .= '<label class="lb-pick" id="lb-pick-frame"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '><input type="radio" name="lb_field" value="frame"> <span class="lb-dot" style="background:#000"></span>Obrys</label>';
         $cfg = json_encode(['img' => $l !== null ? self::fileUrl($l) : '', 'pxW' => (int) ($l['px_w'] ?? 0), 'pxH' => (int) ($l['px_h'] ?? 0),
-            'sample' => $sample, 'bar' => self::eanSvg($sample['ean_bar']), 'names' => Store::LABEL_FIELDS, 'pdfjs' => self::PDFJS, 'sri' => self::PDFJS_SRI,
+            'sample' => $sample, 'bar' => self::eanSvg($sample['ean_bar']), 'qr' => self::qrSvg('https://example.com/instrukcja'), 'names' => Store::LABEL_FIELDS, 'pdfjs' => self::PDFJS, 'sri' => self::PDFJS_SRI,
             'tess' => self::TESS, 'check' => self::checkData($s, $p)], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
         $html = U::style() . '<style>' . self::css() . '
 .lb-ed-wrap{background:var(--surface-2);border-radius:8px;padding:12px;overflow:auto}
@@ -377,10 +402,10 @@ final class LabelPages
 .lb-ed img{display:block;max-width:100%;max-height:70vh;pointer-events:none}
 .lb-ed .lb-box{position:absolute;border:2px solid #d9480f;background:rgba(217,72,15,.12);box-sizing:border-box;display:flex;align-items:center;white-space:nowrap;font:700 12px/1 Arial,sans-serif;color:#000;cursor:move}.lb-ed .lb-box b{display:block;overflow:hidden;max-width:100%;pointer-events:none}
 .lb-ed .lb-box.on{outline:2px dashed #000;outline-offset:2px}.lb-ed .lb-h{position:absolute;right:-7px;bottom:-7px;width:12px;height:12px;background:#fff;border:2px solid #000;border-radius:2px;cursor:nwse-resize;display:none}.lb-ed .lb-box.on .lb-h{display:block}
-.lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}.lb-ed .lb-box[data-k=ean_bar]{border-color:#7048e8;background:rgba(112,72,232,.12)}.lb-ed .lb-box[data-k=ean]{border-color:#c2255c;background:rgba(194,37,92,.12)}
+.lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}.lb-ed .lb-box[data-k=ean_bar]{border-color:#7048e8;background:rgba(112,72,232,.12)}.lb-ed .lb-box[data-k=ean]{border-color:#c2255c;background:rgba(194,37,92,.12)}.lb-ed .lb-box[data-k=qr]{border-color:#0c8599;background:rgba(12,133,153,.12)}
 .lb-dot{display:inline-block;width:12px;height:12px;border-radius:3px}
 .lb-ed .lb-box.lb-fr{border:2px solid #000;background:transparent;pointer-events:none}.lb-ed .lb-box.lb-fr.on{pointer-events:auto;background:rgba(0,0,0,.04)}.lb-ed .lb-fr-circle{border-radius:50%}
-.lb-tools{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}.lb-tools .btn{padding:4px 10px}
+.lb-tools{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px;align-items:center}.lb-tools .btn{padding:4px 10px}.lb-fsize{display:inline-flex;align-items:center;gap:6px;font-weight:600;white-space:nowrap}.lb-fsize input{width:80px!important;min-width:0;padding:4px 6px}.lb-fsize[hidden],.lb-fsize [hidden]{display:none!important}
 .lb-check{list-style:none;margin:8px 0 0;padding:0;font-size:14px}.lb-check li{padding:4px 0}.lb-check .ok::before{content:"✓ ";color:var(--ok-ink,#2b8a3e);font-weight:700}.lb-check .warn::before{content:"⚠ ";color:var(--warn-ink)}.lb-check .warn{color:var(--warn-ink)}.lb-check .info::before{content:"ℹ ";color:var(--ink-3)}
 .lb-empty{padding:40px 20px;color:var(--ink-3);text-align:center}
 .lb-pick{display:inline-flex!important;flex-direction:row!important;align-items:center;gap:6px;margin-right:14px;font-weight:600}
@@ -395,13 +420,16 @@ final class LabelPages
             . U::input('width_mm', $w, 'Szerokość etykiety (mm)', 'id="lb-w" inputmode="decimal" required', 'rozmiar po wydrukowaniu')
             . U::input('height_mm', $h, 'Wysokość (mm)', 'id="lb-h" inputmode="decimal" placeholder="z proporcji pliku"', 'puste = z proporcji pliku')
             . U::select('align', ['left' => 'do lewej', 'center' => 'na środku', 'right' => 'do prawej'], (string) ($posted['align'] ?? $boxes['align']), 'Tekst w prostokącie', 'id="lb-align"')
+            . U::input('qr_url', (string) ($boxes['qr_url'] ?? ''), 'Kod QR prowadzi do', 'id="lb-qr" inputmode="url" placeholder="https://…"', 'adres do kodu QR; {partia} = numer partii')
             . U::select('outline', Store::OUTLINES, (string) ($boxes['outline'] ?? 'none'), 'Obrys (linia cięcia)', 'id="lb-outline"')
             . '</div>'
             . '<input type="hidden" name="boxes" id="lb-boxes" value="' . U::h(json_encode($boxes)) . '"><input type="hidden" name="source_name" id="lb-src" value="">'
             . '<div><div style="margin-bottom:8px">Zaznaczasz: ' . $fields . '</div>'
             . '<div class="lb-tools"><button type="button" class="btn secondary" id="lb-clear">Usuń zaznaczenie pola</button>'
             . '<button type="button" class="btn secondary" id="lb-ocr">Odczytaj etykietę (pola + kontrola)</button>'
-            . '<button type="button" class="btn secondary" id="lb-fit"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '>Dopasuj obrys do etykiety</button></div>'
+            . '<button type="button" class="btn secondary" id="lb-fit"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '>Dopasuj obrys do etykiety</button>'
+            . '<span class="lb-fsize" id="lb-fsize"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '><span id="lb-fw-l">Obrys (mm)</span> <input id="lb-fw" inputmode="decimal" aria-label="Szerokość obrysu w mm">'
+            . '<span id="lb-fh-w"> × <input id="lb-fh" inputmode="decimal" aria-label="Wysokość obrysu w mm"></span></span></div>'
             . '<div class="lb-ed-wrap"><div class="lb-ed" id="lb-ed">' . ($l !== null ? '<img id="lb-img" src="' . U::h(self::fileUrl($l)) . '" alt="Etykieta">' : '<div class="lb-empty" id="lb-none">Wybierz plik, żeby zobaczyć podgląd.</div>') . '</div></div>'
             . '<p class="pr-small" id="lb-msg" style="margin:8px 0 0"></p><ul class="lb-check" id="lb-check" hidden></ul></div>'
             . '<div class="pr-actions"><button class="btn" type="submit">Zapisz</button><a class="btn secondary" href="' . U::h($back) . '">Anuluj</a>'
@@ -447,11 +475,11 @@ var C=window.LB,ed=document.getElementById('lb-ed'),file=document.getElementById
  hid=document.getElementById('lb-boxes'),msg=document.getElementById('lb-msg'),src=document.getElementById('lb-src'),OL=document.getElementById('lb-outline'),
  chk=document.getElementById('lb-check'),boxes={};
 try{boxes=JSON.parse(hid.value)||{};}catch(e){boxes={};}
-var pxW=C.pxW,pxH=C.pxH,hAuto=!H.value,lotInFile='';
+var pxW=C.pxW,pxH=C.pxH,hAuto=!H.value,lotInFile='',fileNote='';
 function field(){var r=document.querySelector('input[name=lb_field]:checked');return r?r.value:'lot';}
 function img(){return document.getElementById('lb-img');}
 function outline(){return OL.value;}
-function save(){var o={align:document.getElementById('lb-align').value,outline:outline()};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}
+function save(){var o={align:document.getElementById('lb-align').value,outline:outline(),qr_url:document.getElementById('lb-qr').value.trim()};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}
  if(outline()!=='none'&&boxes.frame)o.frame=boxes.frame;hid.value=JSON.stringify(o);}
 function num(v){return parseFloat(String(v).replace(',','.'));}
 function wmm(){return num(W.value)||0;}
@@ -459,18 +487,23 @@ function hmm(){return num(H.value)||(pxW?wmm()*pxH/pxW:0);}
 function mmTxt(v){return (Math.round(v*10)/10+'').replace('.',',');}
 function info(){var w=wmm(),t=[];if(!boxes.lot)t.push('Zaznacz prostokąt na numer partii.');
  if(pxW&&w>0){var dpi=Math.round(pxW/(w/25.4));t.push('Rozdzielczość: '+dpi+' dpi'+(dpi<200?' - mało, wydruk może być nieostry. Wyeksportuj plik w większej rozdzielczości (najlepiej 300 dpi).':'.'));}
+ if(boxes.qr&&!/^https?:\/\/\S+$/i.test(document.getElementById('lb-qr').value.trim()))t.push('Wpisz adres (https://…) w „Kod QR prowadzi do”, inaczej kod QR się nie wydrukuje.');
  if(outline()!=='none'&&w>0){var f=boxes.frame||[0,0,1,1];t.push('Etykieta po przycięciu do obrysu: '+mmTxt(f[2]*w)+' × '+mmTxt(f[3]*hmm())+' mm.');}
  msg.textContent=t.join(' ');msg.style.color=(!boxes.lot||(pxW&&w>0&&pxW/(w/25.4)<200))?'var(--warn-ink)':'';}
 function handle(d){var hd=document.createElement('i');hd.className='lb-h';d.appendChild(hd);}
 function place(d,b){d.style.left=b[0]*100+'%';d.style.top=b[1]*100+'%';d.style.width=b[2]*100+'%';d.style.height=b[3]*100+'%';}
 function draw(){ed.querySelectorAll('.lb-box').forEach(function(b){b.remove();});var i=img();if(!i)return;
- var ol=outline();document.getElementById('lb-pick-frame').hidden=ol==='none';document.getElementById('lb-fit').hidden=ol==='none';
+ var ol=outline();document.getElementById('lb-pick-frame').hidden=ol==='none';document.getElementById('lb-fit').hidden=ol==='none';document.getElementById('lb-fsize').hidden=ol==='none';
+ document.getElementById('lb-fw-l').textContent=ol==='circle'?'Średnica (mm)':'Obrys (mm)';document.getElementById('lb-fh-w').hidden=ol==='circle';
+ if(ol!=='none'&&wmm()>0){var ff=boxes.frame||[0,0,1,1],FW=document.getElementById('lb-fw'),FH=document.getElementById('lb-fh');
+  if(document.activeElement!==FW)FW.value=mmTxt(ff[2]*wmm());if(document.activeElement!==FH)FH.value=mmTxt(ff[3]*hmm());}
  if(ol==='none'&&field()==='frame')pick('lot');
  if(ol!=='none'){var f=boxes.frame||[0,0,1,1],fd=document.createElement('div');fd.className='lb-box lb-fr lb-fr-'+ol;fd.dataset.k='frame';fd.title='Obrys';place(fd,f);
   if(ol==='round'&&wmm()>0)fd.style.borderRadius=(3*i.clientWidth/wmm())+'px';if(field()==='frame')fd.classList.add('on');handle(fd);ed.appendChild(fd);}
  for(var k in C.names){var b=boxes[k];if(!b)continue;var d=document.createElement('div');d.className='lb-box';d.dataset.k=k;place(d,b);
   d.style.justifyContent={left:'flex-start',center:'center',right:'flex-end'}[document.getElementById('lb-align').value];
   var fs=b[3]*i.clientHeight*0.8;d.style.fontSize=fs+'px';var tx=document.createElement('b');d.title=C.names[k];d.appendChild(tx);if(k===field())d.classList.add('on');handle(d);ed.appendChild(d);
+  if(k==='qr'){tx.innerHTML=C.qr||'';tx.style.cssText='width:100%;height:100%;background:#fff';var sq=tx.querySelector('svg');if(sq){sq.style.width='100%';sq.style.height='100%';sq.style.display='block';}continue;}
   if(k==='ean_bar'){tx.innerHTML=C.bar||'';tx.style.cssText='width:100%;height:100%;background:#fff';var sv=tx.querySelector('svg');if(sv){sv.style.width='100%';sv.style.height='100%';sv.style.display='block';}continue;}
   tx.textContent=C.sample[k]||'';var n=0;while(tx.scrollWidth>d.clientWidth+1&&n++<60){fs*=0.94;d.style.fontSize=fs+'px';}}
  save();info();}
@@ -504,7 +537,8 @@ document.addEventListener('keydown',function(e){var k=field(),b=k==='frame'?(box
  var st=(e.shiftKey?10:1),sx=st/i.clientWidth,sy=st/i.clientHeight,d={ArrowLeft:[-sx,0],ArrowRight:[sx,0],ArrowUp:[0,-sy],ArrowDown:[0,sy]}[e.key];
  if(!d)return;e.preventDefault();boxes[k]=rnd([clamp(b[0]+d[0],0,1-b[2]),clamp(b[1]+d[1],0,1-b[3]),b[2],b[3]]);draw();});
 document.getElementById('lb-clear').onclick=function(){var k=field();if(k==='frame')fitFrame();else delete boxes[k];draw();};
-// Obrys do rysunku: obszar niebiałych pikseli; okrąg = kwadrat (w mm) na środku tego obszaru.
+// Obrys do rysunku: obszar niebiałych pikseli. Okrąg: gdy plik ma narysowany okrąg, bierze go; gdy nie (sam tekst),
+// bierze okrąg opisany na tekście, najwyżej tak duży jak plik.
 function fitFrame(){var i=img();if(!i||!i.naturalWidth)return;var sc=Math.min(1,1000/Math.max(i.naturalWidth,i.naturalHeight)),cv=document.createElement('canvas');
  cv.width=Math.max(1,Math.round(i.naturalWidth*sc));cv.height=Math.max(1,Math.round(i.naturalHeight*sc));var cx=cv.getContext('2d'),d;
  try{cx.drawImage(i,0,0,cv.width,cv.height);d=cx.getImageData(0,0,cv.width,cv.height).data;}catch(e){boxes.frame=[0,0,1,1];return;}
@@ -512,12 +546,31 @@ function fitFrame(){var i=img();if(!i||!i.naturalWidth)return;var sc=Math.min(1,
  for(var y=0;y<cv.height;y++)for(var x=0;x<cv.width;x++){var o=(y*cv.width+x)*4;if(d[o+3]>16&&(d[o]+d[o+1]+d[o+2])<690){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}}
  if(x1<0){boxes.frame=[0,0,1,1];return;}
  var f=[x0/cv.width,y0/cv.height,(x1-x0+1)/cv.width,(y1-y0+1)/cv.height];
- if(outline()==='circle'&&wmm()>0&&hmm()>0){var side=Math.max(f[2]*wmm(),f[3]*hmm()),cxm=(f[0]+f[2]/2)*wmm(),cym=(f[1]+f[3]/2)*hmm();
+ if(outline()==='circle'&&wmm()>0&&hmm()>0){var bw=x1-x0+1,bh=y1-y0+1,drawn=false;
+  if(Math.abs(bw-bh)<0.04*Math.max(bw,bh)){var rr=Math.min(bw,bh)/2,ccx=x0+bw/2,ccy=y0+bh/2,hit=0;
+   for(var a=0;a<90;a++){var an=a*Math.PI/45,ok=false;for(var q=0.93;q<=1.001&&!ok;q+=0.01){var px=Math.round(ccx+Math.cos(an)*rr*q),py=Math.round(ccy+Math.sin(an)*rr*q);
+     if(px>=0&&py>=0&&px<cv.width&&py<cv.height){var oo=(py*cv.width+px)*4;if(d[oo+3]>16&&(d[oo]+d[oo+1]+d[oo+2])<450)ok=true;}}if(ok)hit++;}
+   drawn=hit>=63;}
+  var side=drawn?Math.max(f[2]*wmm(),f[3]*hmm()):Math.hypot(f[2]*wmm(),f[3]*hmm()),cxm=(f[0]+f[2]/2)*wmm(),cym=(f[1]+f[3]/2)*hmm();
   side=Math.min(side,wmm(),hmm());var l=clamp(cxm-side/2,0,wmm()-side),t=clamp(cym-side/2,0,hmm()-side);f=[l/wmm(),t/hmm(),side/wmm(),side/hmm()];}
  boxes.frame=rnd(f);}
 document.getElementById('lb-fit').onclick=function(){fitFrame();pick('frame');draw();};
+// Wymiar obrysu wpisany w mm: zmienia obrys wokół jego środka (najwyżej do krawędzi pliku).
+function sizeFrame(){var fw=num(document.getElementById('lb-fw').value),fh=outline()==='circle'?fw:num(document.getElementById('lb-fh').value);
+ if(!(fw>0&&fh>0&&wmm()>0&&hmm()>0))return;var f=boxes.frame||[0,0,1,1],cxm=(f[0]+f[2]/2)*wmm(),cym=(f[1]+f[3]/2)*hmm();
+ fw=Math.min(fw,wmm());fh=Math.min(fh,hmm());var l=clamp(cxm-fw/2,0,wmm()-fw),t=clamp(cym-fh/2,0,hmm()-fh);
+ boxes.frame=rnd([l/wmm(),t/hmm(),fw/wmm(),fh/hmm()]);draw();
+ var big=num(document.getElementById('lb-fw').value)>wmm()+0.05||(outline()!=='circle'&&num(document.getElementById('lb-fh').value)>hmm()+0.05);
+ if(big){msg.textContent='Obrys nie może być większy niż etykieta ('+mmTxt(wmm())+' × '+mmTxt(hmm())+' mm). Zwiększ szerokość etykiety, jeśli plik jest większy.';msg.style.color='var(--warn-ink)';}}
+document.getElementById('lb-fw').addEventListener('change',sizeFrame);document.getElementById('lb-fh').addEventListener('change',sizeFrame);
+// Rozdzielczość zapisana w pliku (PNG pHYs, JPEG JFIF) = prawdziwy rozmiar w mm.
+function fileMm(f,pw,ph){return f.slice(0,262144).arrayBuffer().then(function(b){var v=new DataView(b),dpi=0;
+ if(v.byteLength>24&&v.getUint32(0)===0x89504E47){var o=8;while(o+12<=v.byteLength){var n=v.getUint32(o),t=String.fromCharCode(v.getUint8(o+4),v.getUint8(o+5),v.getUint8(o+6),v.getUint8(o+7));
+   if(t==='pHYs'&&n>=9){if(v.getUint8(o+16)===1)dpi=v.getUint32(o+8)*0.0254;break;}if(t==='IDAT')break;o+=12+n;}}
+ else if(v.byteLength>18&&v.getUint16(0)===0xFFD8&&v.getUint32(6)===0x4A464946){var u=v.getUint8(13),xd=v.getUint16(14);dpi=u===1?xd:(u===2?xd*2.54:0);}
+ return dpi>=50&&dpi<=4800?{w:pw/dpi*25.4,h:ph/dpi*25.4,dpi:Math.round(dpi)}:null;}).catch(function(){return null;});}
 OL.onchange=function(){if(outline()!=='none'){fitFrame();pick('frame');}draw();};
-document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
+document.getElementById('lb-qr').addEventListener('input',function(){save();info();});document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
 window.addEventListener('resize',draw);
 // ---- odczyt etykiety (Tesseract.js w przeglądarce): pola i kontrola z kartą produktu
 function get(k,type){return fetch(C.tess[k][0],{integrity:C.tess[k][1],mode:'cors'}).then(function(r){if(!r.ok)throw new Error(k);return type==='buf'?r.arrayBuffer():r.text();});}
@@ -549,7 +602,7 @@ function findField(lines,re,cw,chh){for(var li=0;li<lines.length;li++){var L=lin
 function eanOk(d){if(!/^(\d{8}|\d{13})$/.test(d))return false;var s=0,n=d.length;for(var i=0;i<n-1;i++){s+=(+d[i])*(((n-1-i)%2)?3:1);}return (10-s%10)%10===+d[n-1];}
 function ufiN(u){return u.toUpperCase().replace(/O/g,'0').replace(/[IL]/g,'1');}
 function row(cls,t){var li=document.createElement('li');li.className=cls;li.textContent=t;chk.appendChild(li);}
-function check(text,found){chk.innerHTML='';chk.hidden=false;var K=C.check,flat=text.replace(/\s+/g,' ');window.lbOcrText=text;
+function check(text,found){chk.innerHTML='';chk.hidden=false;if(fileNote)row('info',fileNote);var K=C.check,flat=text.replace(/\s+/g,' ');window.lbOcrText=text;
  row(found.length?'ok':'warn',found.length?'Zaznaczone automatycznie: '+found.join(', ')+'. Sprawdź położenie i popraw, jeśli trzeba.':'Nie znalazłem napisów „Nr partii”, „Data produkcji” ani „Najlepiej do”. Zaznacz pola ręcznie.');
  var eans=[];(flat.match(/\d[\d ]{6,18}\d/g)||[]).forEach(function(m){var d=m.replace(/ /g,'');if(eanOk(d)&&eans.indexOf(d)<0)eans.push(d);});
  if(eans.length){var e=eans[0];
@@ -568,11 +621,11 @@ function check(text,found){chk.innerHTML='';chk.hidden=false;var K=C.check,flat=
   else if(ws.length)row('warn','Waga na etykiecie ('+ws.join(' g, ')+' g) różni się od karty wyrobu ('+K.weight+' g).');else row('info','Nie znalazłem wagi na etykiecie (karta wyrobu: '+K.weight+' g).');}
  else if(ws.length)row('info','Waga na etykiecie: '+ws.join(' g, ')+' g. Karta wyrobu w Produkcji nie ma wagi do porównania.');
  if(lotInFile)row('warn','W pliku jest już wpisany numer partii ('+lotInFile+'). Usuń go z pliku, bo system wpisze numer w to samo miejsce.');
- if(chk.children.length<2)row('info','Nie znalazłem EAN, UFI ani wagi do sprawdzenia.');}
+ if(chk.children.length<(fileNote?3:2))row('info','Nie znalazłem EAN, UFI ani wagi do sprawdzenia.');}
 function ocr(){var i=img();if(!i){msg.textContent='Najpierw wybierz plik etykiety.';return;}var bt=document.getElementById('lb-ocr');bt.disabled=true;
  msg.style.color='';msg.textContent='Odczytuję etykietę… Za pierwszym razem przeglądarka pobiera ok. 7 MB, to może potrwać do minuty.';
- var sc=Math.min(1,2400/Math.max(i.naturalWidth,i.naturalHeight)),cv=document.createElement('canvas');cv.width=Math.round(i.naturalWidth*sc);cv.height=Math.round(i.naturalHeight*sc);
- var cx=cv.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,cv.width,cv.height);cx.drawImage(i,0,0,cv.width,cv.height);
+ var sc=Math.min(3,2400/Math.max(i.naturalWidth,i.naturalHeight)),cv=document.createElement('canvas');cv.width=Math.round(i.naturalWidth*sc);cv.height=Math.round(i.naturalHeight*sc);
+ var cx=cv.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,cv.width,cv.height);cx.imageSmoothingQuality='high';cx.drawImage(i,0,0,cv.width,cv.height);
  loadTess().then(function(w){return w.recognize(cv).then(function(res){msg.textContent='';info();return res;});}).then(function(res){var D=res.data,lines=D.lines||[],found=[];lotInFile='';
   ['lot','produced','expires','ean'].forEach(function(k){var f=findField(lines,FIND[k],cv.width,cv.height);if(!f)return;
    var b=f.box.map(function(v){return clamp(v,0,1);});b[2]=Math.min(b[2],1-b[0]);b[3]=Math.min(b[3],1-b[1]);
@@ -587,7 +640,7 @@ function loadPdfJs(){if(window.pdfjsLib)return Promise.resolve(window.pdfjsLib);
   s.onload=function(){ok(window.pdfjsLib);};s.onerror=function(){no(new Error('pdf.js'));};document.head.appendChild(s);});
  var wk=fetch(C.pdfjs+'pdf.worker.min.js',{integrity:C.sri.worker,mode:'cors'}).then(function(r){if(!r.ok)throw new Error('worker');return r.blob();});
  return Promise.all([lib,wk]).then(function(a){a[0].GlobalWorkerOptions.workerSrc=URL.createObjectURL(new Blob([a[1]],{type:'text/javascript'}));return a[0];});}
-file.addEventListener('change',function(){var f=file.files[0];if(!f)return;src.value=f.name;chk.hidden=true;
+file.addEventListener('change',function(){var f=file.files[0];if(!f)return;src.value=f.name;chk.hidden=true;fileNote='';
  if(f.type==='application/pdf'||/\.pdf$/i.test(f.name)){msg.textContent='Zamieniam PDF na obrazek do druku…';
   loadPdfJs().then(function(lib){return f.arrayBuffer().then(function(buf){return lib.getDocument({data:buf}).promise;});}).then(function(doc){return doc.getPage(1);}).then(function(pg){
    var v1=pg.getViewport({scale:1}),wm=v1.width*25.4/72,hm=v1.height*25.4/72,sc=Math.min(600/72,8000/Math.max(v1.width,v1.height)),v=pg.getViewport({scale:sc}),cv=document.createElement('canvas');
@@ -597,7 +650,10 @@ file.addEventListener('change',function(){var f=file.files[0];if(!f)return;src.v
    W.value=mmTxt(r[2]);H.value=mmTxt(r[3]);hAuto=false;setImg(URL.createObjectURL(png),r[1].width,r[1].height,ocr);
   }).catch(function(){file.value='';msg.textContent='Nie udało się otworzyć PDF. Zapisz etykietę jako PNG i wgraj ją jeszcze raz.';msg.style.color='var(--danger-ink)';});
   return;}
- if(!hAuto){H.value='';hAuto=true;}var u=URL.createObjectURL(f),t=new Image();t.onload=function(){setImg(u,t.naturalWidth,t.naturalHeight,ocr);};t.src=u;});
+ if(!hAuto){H.value='';hAuto=true;}var u=URL.createObjectURL(f),t=new Image();t.onload=function(){
+  fileMm(f,t.naturalWidth,t.naturalHeight).then(function(m){if(m){W.value=mmTxt(m.w);H.value='';hAuto=true;}
+   setImg(u,t.naturalWidth,t.naturalHeight,function(){if(m){fileNote='Rozmiar z pliku: '+mmTxt(m.w)+' × '+mmTxt(m.h)+' mm ('+m.dpi+' dpi).';chk.innerHTML='';chk.hidden=false;row('info',fileNote);}
+    else if(!(wmm()>0)){msg.textContent='Plik nie ma zapisanego rozmiaru. Wpisz szerokość etykiety w mm.';msg.style.color='var(--warn-ink)';}ocr();});});};t.src=u;});
 document.getElementById('lb-form').addEventListener('submit',function(e){if(e.submitter&&e.submitter.name==='delete')return;save();
  if(!boxes.lot){e.preventDefault();info();msg.scrollIntoView({block:'center'});}});
 if(img()){if(img().complete)draw();else img().onload=draw;}else info();

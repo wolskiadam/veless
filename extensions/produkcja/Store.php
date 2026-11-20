@@ -299,7 +299,7 @@ final class Store
 
     // ---------------------------------------------------------------- etykiety CLP (gotowy plik przy produkcie CRM)
 
-    public const LABEL_FIELDS = ['lot' => 'Numer partii', 'produced' => 'Data produkcji', 'expires' => 'Najlepiej do', 'ean_bar' => 'Kod kreskowy EAN', 'ean' => 'EAN (tekst)'];
+    public const LABEL_FIELDS = ['lot' => 'Numer partii', 'produced' => 'Data produkcji', 'expires' => 'Najlepiej do', 'ean_bar' => 'Kod kreskowy EAN', 'ean' => 'EAN (tekst)', 'qr' => 'Kod QR'];
 
     public function label(int $productId): ?array
     {
@@ -358,6 +358,11 @@ final class Store
     {
         $in = json_decode($json, true);
         $out = ['align' => in_array($in['align'] ?? '', ['left', 'center', 'right'], true) ? (string) $in['align'] : 'left'];
+        // Adres kodu QR (puste = strona produktu w sklepie); {partia} = numer partii.
+        $qr = is_string($in['qr_url'] ?? null) ? trim($in['qr_url']) : '';
+        if ($qr !== '' && mb_strlen($qr) <= 500 && preg_match('#^https?://[^\s<>"]+$#i', $qr)) {
+            $out['qr_url'] = $qr;
+        }
         if (isset(self::OUTLINES[$in['outline'] ?? '']) && $in['outline'] !== 'none') {
             $out['outline'] = (string) $in['outline'];
             // Obszar obrysu na obrazku [x, y, szer., wys.]; brak = cały plik. Wydruk przycina etykietę do tego obszaru.

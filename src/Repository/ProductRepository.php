@@ -281,12 +281,14 @@ final class ProductRepository
      * Kolejność listy produktów: najnowsze na górze, ale warianty jednego produktu Woo
      * (wspólny woo_product_id w tym samym sklepie, własny woo_variation_id) zawsze razem,
      * tuż pod sobą. Grupa stoi w miejscu swojego najnowszego wariantu, a w środku warianty
-     * idą od najnowszego. Bez tego wariant dodany później (inne id) lądował osobno, a między
+     * idą od najnowszego. Produkt główny Woo zapisany jako wiersz (bez woo_variation_id, ten sam
+     * woo_product_id co warianty) stoi w grupie na samej górze, nad wariantami. Bez tego wariant dodany później (inne id) lądował osobno, a między
      * warianty wchodziły zwykłe produkty o podobnej nazwie - lista pokazywała grupę dwa razy.
      */
     public const GROUPED_ORDER = 'COALESCE((SELECT MAX(g.id) FROM products g
-            WHERE products.woo_variation_id > 0 AND g.woo_variation_id > 0 AND g.woo_product_id = products.woo_product_id
+            WHERE products.woo_product_id > 0 AND g.woo_variation_id > 0 AND g.woo_product_id = products.woo_product_id
               AND COALESCE(g.source_integration_id, 0) = COALESCE(products.source_integration_id, 0)), products.id) DESC,
+        CASE WHEN products.woo_variation_id > 0 THEN 1 ELSE 0 END,
         products.id DESC';
 
     /**

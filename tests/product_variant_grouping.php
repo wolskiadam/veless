@@ -32,8 +32,8 @@ $pdo->exec("INSERT INTO products (id, sku, name, source_integration_id, woo_prod
 
 $repo = new ProductRepository($pdo);
 $rows = $repo->paged(30, 0);
-check(array_column($rows, 'sku') === ['MANUAL', 'V-NEW', 'V-OLD', 'OTHER-SHOP', 'NSOS61HW100A', 'NSOS61HW100B', 'AW9BAFYA8384', 'AWBRTIPH9UFW', 'AW61Y4F3F89C', 'AW15LBP1W4VM'],
-    'variants of one product together (newest group first); parent row and plain products separate; same Woo id in another shop separate');
+check(array_column($rows, 'sku') === ['MANUAL', 'V-NEW', 'V-OLD', 'OTHER-SHOP', 'AW15LBP1W4VM', 'NSOS61HW100A', 'NSOS61HW100B', 'AW9BAFYA8384', 'AWBRTIPH9UFW', 'AW61Y4F3F89C'],
+    'variants of one product together (newest group first), Woo main product on top of its group; plain products separate; same Woo id in another shop separate');
 
 $keys = array_combine(array_column($rows, 'sku'), array_map([ProductRepository::class, 'variantGroupKey'], $rows));
 check($keys['NSOS61HW100A'] === '1:11538' && $keys['NSOS61HW100B'] === '1:11538' && $keys['OTHER-SHOP'] === '2:11538',
@@ -45,8 +45,8 @@ check($parents === [10 => true], 'only the Woo parent with variants is flagged')
 
 // Wariant „Grzane Wino” pasuje do „hot wine” przez rozszerzenie (zapach #8 Hot Wine) - $orIds.
 $skus = array_column($repo->paged(30, 0, 'hot wine', null, null, null, null, null, false, [10, 30, 31]), 'sku');
-check($skus === ['MANUAL', 'NSOS61HW100A', 'NSOS61HW100B', 'AW9BAFYA8384', 'AWBRTIPH9UFW', 'AW61Y4F3F89C', 'AW15LBP1W4VM'],
-    'search: two variants under one heading, the rest separate');
+check($skus === ['MANUAL', 'AW15LBP1W4VM', 'NSOS61HW100A', 'NSOS61HW100B', 'AW9BAFYA8384', 'AWBRTIPH9UFW', 'AW61Y4F3F89C'],
+    'search: main product and its two variants together, the rest separate');
 
 check(WooProductImportHandler::isVariableParent(['type' => 'variable', 'sku' => 'AW15LBP1W4VM'])
     && !WooProductImportHandler::isVariableParent(['type' => 'variable', '__is_variation' => true])

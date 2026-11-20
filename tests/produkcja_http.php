@@ -352,6 +352,15 @@ try {
         'boxes' => json_encode(['align' => 'left', 'lot' => [0.1, 0.8, 0.5, 0.08], 'qr' => [0.7, 0.7, 0.2, 0.2], 'qr_url' => 'javascript:alert(1)'])]);
     ok(!str_contains(request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'], 'class="lb-bar lb-qr"'), 'Address other than http(s) is ignored');
     request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60',
+        'boxes' => json_encode(['align' => 'center', 'lot' => [0.1, 0.8, 0.5, 0.08], 'maker' => [0.1, 0.1, 0.6, 0.2]])]);
+    $lab1 = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'];
+    ok(str_contains($lab1, 'class="lb-f lb-m"') && str_contains($lab1, 'text-align:center'), 'Producer field prints the producer from Produkcja settings when the label has none');
+    request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60',
+        'boxes' => json_encode(['align' => 'left', 'lot' => [0.1, 0.8, 0.5, 0.08], 'maker' => [0.1, 0.1, 0.6, 0.2], 'maker_text' => "Marka Klienta Sp. z o.o.\r\nul. Prosta 1 <b>"])]);
+    $lab1 = request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'];
+    $ed1 = request($ola, $url('etykieta_edytuj', ['produkt' => 1]))['body'];
+    ok(str_contains($lab1, ">Marka Klienta Sp. z o.o.\nul. Prosta 1 &lt;b&gt;</span>") && str_contains($ed1, "Marka Klienta Sp. z o.o.\nul. Prosta 1 &lt;b&gt;</textarea>"), 'Own producer (private label) printed and kept in the editor, escaped');
+    request($ola, $url('etykieta_edytuj', ['produkt' => 1]), ['csrf' => csrfOf($ef['body']), 'width_mm' => '60', 'height_mm' => '60',
         'boxes' => json_encode(['align' => 'left', 'outline' => 'zly', 'lot' => [0.1, 0.8, 0.5, 0.08]])]);
     ok(!str_contains(request($vi, $url('etykieta_produkt', ['produkt' => 1, 'partia' => 'W1']))['body'], 'class="lb-o'), 'Unknown outline is ignored');
     ok(str_contains(request($vi, $url('etykieta_produkt', ['produkt' => 2]))['body'], 'nie ma etykiety CLP'), 'Different products do not share labels');

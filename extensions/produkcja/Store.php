@@ -299,7 +299,7 @@ final class Store
 
     // ---------------------------------------------------------------- etykiety CLP (gotowy plik przy produkcie CRM)
 
-    public const LABEL_FIELDS = ['lot' => 'Numer partii', 'produced' => 'Data produkcji', 'expires' => 'Najlepiej do', 'ean_bar' => 'Kod kreskowy EAN', 'ean' => 'EAN (tekst)', 'qr' => 'Kod QR'];
+    public const LABEL_FIELDS = ['lot' => 'Numer partii', 'produced' => 'Data produkcji', 'expires' => 'Najlepiej do', 'ean_bar' => 'Kod kreskowy EAN', 'ean' => 'EAN (tekst)', 'qr' => 'Kod QR', 'maker' => 'Dane producenta'];
 
     public function label(int $productId): ?array
     {
@@ -358,7 +358,12 @@ final class Store
     {
         $in = json_decode($json, true);
         $out = ['align' => in_array($in['align'] ?? '', ['left', 'center', 'right'], true) ? (string) $in['align'] : 'left'];
-        // Adres kodu QR (puste = strona produktu w sklepie); {partia} = numer partii.
+        // Własne dane producenta tej etykiety (private label); puste = producent z ustawień Produkcji.
+        $mk = is_string($in['maker_text'] ?? null) ? trim(str_replace("\r", '', $in['maker_text'])) : '';
+        if ($mk !== '') {
+            $out['maker_text'] = mb_substr($mk, 0, 600);
+        }
+        // Adres kodu QR; {partia} = numer partii.
         $qr = is_string($in['qr_url'] ?? null) ? trim($in['qr_url']) : '';
         if ($qr !== '' && mb_strlen($qr) <= 500 && preg_match('#^https?://[^\s<>"]+$#i', $qr)) {
             $out['qr_url'] = $qr;

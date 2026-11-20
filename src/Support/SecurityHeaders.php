@@ -18,7 +18,7 @@ final class SecurityHeaders
 
     /** Docelowe CSP w trybie raportowania (bez blokowania). */
     public const REPORT_ONLY = "default-src 'self'; "
-        . "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        . "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; "
         . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
         . "font-src 'self' https://fonts.gstatic.com data:; "
         . "img-src 'self' data: blob: https:; "

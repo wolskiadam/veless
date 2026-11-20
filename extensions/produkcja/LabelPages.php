@@ -18,6 +18,14 @@ final class LabelPages
     /** Sumy SRI (npm pack pdfjs-dist@3.11.174, THIRD-PARTY.md). */
     private const PDFJS_SRI = ['pdf' => 'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e',
         'worker' => 'sha384-SnzOobpRMLXZ52iJvZm/C0fYw0OQemTXzTjIsdsfMcrCtCEe9qgzxTd3RSklO5x2'];
+    /** Odczyt tekstu z etykiety w przeglądarce (Tesseract.js, język polski), pliki z jsdelivr sprawdzane przez integrity. */
+    private const TESS = [
+        'main' => ['https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js', 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F'],
+        'worker' => ['https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js', 'sha384-zxn+VqofFzXpH99dUb3fa4ywoSBQJPy6/6oEaJHPlblZXr53a0g1Jl6720vgSzB7'],
+        'simd' => ['https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-simd-lstm.wasm.js', 'sha384-YM1G+zaWYy9VSRP2C101LCgzh7n3Hqb6OEm9qDoZYgCADsni3nnECskC3WialQB7'],
+        'core' => ['https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-lstm.wasm.js', 'sha384-EKWY5JDwphQoyxhvYU7eaCcyQ0EdV6fZK3L2vzfZcv2ichRdNd6pSnyWPNv6fMuR'],
+        'pol' => ['https://cdn.jsdelivr.net/npm/@tesseract.js-data/pol@1.0.0/4.0.0_best_int/pol.traineddata.gz', 'sha384-2CKxwXI7//OlArAuo2Sr69vczHCUSs4kElZB4CGRR5uvTF5x7hwaUeJ0Woiboz/5'],
+    ];
 
     public static function dir(): string
     {
@@ -77,10 +85,10 @@ final class LabelPages
 
     public static function css(): string
     {
-        return '.lb{position:relative;box-sizing:border-box;overflow:hidden;flex:none;background:#fff}.lb>img{position:absolute;inset:0;width:100%;height:100%;display:block}'
+        return '.lb{position:relative;box-sizing:border-box;overflow:hidden;flex:none;background:#fff}.lb-in{position:absolute}.lb-in>img{position:absolute;inset:0;width:100%;height:100%;display:block}'
             . '.lb-bar{position:absolute;display:block;background:#fff}.lb-bar svg{display:block;width:100%;height:100%}'
             . '.lb-f{position:absolute;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;font-family:Arial,Helvetica,sans-serif;font-weight:700;color:#000}'
-            . '.lb-o{position:absolute;inset:0;box-sizing:border-box;border:.3mm solid #000;pointer-events:none}.lb-o-circle{border-radius:50%}.lb-o-round{border-radius:3mm}';
+            . '.lb-o{position:absolute;inset:0;box-sizing:border-box;border:.3mm solid #000;pointer-events:none;z-index:1}.lb-o-circle{border-radius:50%}.lb-o-round{border-radius:3mm}';
     }
 
     /** Jedna etykieta: plik + dane w zaznaczonych miejscach. @param array<string,string> $values lot/produced/expires */
@@ -89,7 +97,13 @@ final class LabelPages
         $w = (float) $l['width_mm'];
         $h = (float) $l['height_mm'];
         $just = ['left' => 'flex-start', 'center' => 'center', 'right' => 'flex-end'][$l['boxes']['align']] ?? 'flex-start';
-        $html = '<div class="lb" style="width:' . self::mm($w) . 'mm;height:' . self::mm($h) . 'mm"><img src="' . U::h($img) . '" alt="">';
+        // Obrys z obszarem: etykieta przycięta do obszaru obrysu (biały margines pliku nie idzie na arkusz).
+        $o = (string) ($l['boxes']['outline'] ?? '');
+        $f = $o !== '' && $o !== 'none' ? ($l['boxes']['frame'] ?? null) : null;
+        [$fx, $fy, $fw, $fh] = is_array($f) ? $f : [0.0, 0.0, 1.0, 1.0];
+        $html = '<div class="lb" style="width:' . self::mm($w * $fw) . 'mm;height:' . self::mm($h * $fh) . 'mm">'
+            . '<div class="lb-in" style="left:' . self::pct(-$fx / $fw) . ';top:' . self::pct(-$fy / $fh) . ';width:' . self::pct(1 / $fw) . ';height:' . self::pct(1 / $fh) . '">'
+            . '<img src="' . U::h($img) . '" alt="">';
         foreach (array_keys(Store::LABEL_FIELDS) as $k) {
             $b = $l['boxes'][$k] ?? null;
             $v = trim((string) ($values[$k] ?? ''));
@@ -106,7 +120,7 @@ final class LabelPages
             $html .= '<span class="lb-f lb-' . $k . '" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3])
                 . ';font-size:' . self::mm($b[3] * $h * 0.8) . 'mm;justify-content:' . $just . '">' . U::h($v) . '</span>';
         }
-        $o = (string) ($l['boxes']['outline'] ?? '');
+        $html .= '</div>';
         if ($o !== '' && $o !== 'none') {
             $html .= '<span class="lb-o lb-o-' . U::h($o) . '"></span>';
         }
@@ -353,8 +367,10 @@ final class LabelPages
             $fields .= '<label class="lb-pick"><input type="radio" name="lb_field" value="' . $k . '"' . ($k === 'lot' ? ' checked' : '') . '> <span class="lb-dot" style="background:' . ['lot' => '#d9480f', 'produced' => '#1971c2', 'expires' => '#2f9e44', 'ean_bar' => '#7048e8', 'ean' => '#c2255c'][$k] . '"></span>' . $label
                 . ($k === 'lot' ? '' : ' <small>(opcjonalnie)</small>') . '</label>';
         }
+        $fields .= '<label class="lb-pick" id="lb-pick-frame"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '><input type="radio" name="lb_field" value="frame"> <span class="lb-dot" style="background:#000"></span>Obrys</label>';
         $cfg = json_encode(['img' => $l !== null ? self::fileUrl($l) : '', 'pxW' => (int) ($l['px_w'] ?? 0), 'pxH' => (int) ($l['px_h'] ?? 0),
-            'sample' => $sample, 'bar' => self::eanSvg($sample['ean_bar']), 'names' => Store::LABEL_FIELDS, 'pdfjs' => self::PDFJS, 'sri' => self::PDFJS_SRI], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
+            'sample' => $sample, 'bar' => self::eanSvg($sample['ean_bar']), 'names' => Store::LABEL_FIELDS, 'pdfjs' => self::PDFJS, 'sri' => self::PDFJS_SRI,
+            'tess' => self::TESS, 'check' => self::checkData($s, $p)], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
         $html = U::style() . '<style>' . self::css() . '
 .lb-ed-wrap{background:var(--surface-2);border-radius:8px;padding:12px;overflow:auto}
 .lb-ed{position:relative;display:inline-block;max-width:100%;touch-action:none;user-select:none;cursor:crosshair;background:#fff;box-shadow:0 0 0 1px var(--line)}
@@ -363,14 +379,16 @@ final class LabelPages
 .lb-ed .lb-box.on{outline:2px dashed #000;outline-offset:2px}.lb-ed .lb-h{position:absolute;right:-7px;bottom:-7px;width:12px;height:12px;background:#fff;border:2px solid #000;border-radius:2px;cursor:nwse-resize;display:none}.lb-ed .lb-box.on .lb-h{display:block}
 .lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}.lb-ed .lb-box[data-k=ean_bar]{border-color:#7048e8;background:rgba(112,72,232,.12)}.lb-ed .lb-box[data-k=ean]{border-color:#c2255c;background:rgba(194,37,92,.12)}
 .lb-dot{display:inline-block;width:12px;height:12px;border-radius:3px}
-.lb-ed .lb-ol{position:absolute;inset:0;box-sizing:border-box;border:2px solid #000;pointer-events:none}.lb-ed .lb-ol-circle{border-radius:50%}.lb-ed .lb-ol-round{border-radius:12px}
+.lb-ed .lb-box.lb-fr{border:2px solid #000;background:transparent;pointer-events:none}.lb-ed .lb-box.lb-fr.on{pointer-events:auto;background:rgba(0,0,0,.04)}.lb-ed .lb-fr-circle{border-radius:50%}
+.lb-tools{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}.lb-tools .btn{padding:4px 10px}
+.lb-check{list-style:none;margin:8px 0 0;padding:0;font-size:14px}.lb-check li{padding:4px 0}.lb-check .ok::before{content:"✓ ";color:var(--ok-ink,#2b8a3e);font-weight:700}.lb-check .warn::before{content:"⚠ ";color:var(--warn-ink)}.lb-check .warn{color:var(--warn-ink)}.lb-check .info::before{content:"ℹ ";color:var(--ink-3)}
 .lb-empty{padding:40px 20px;color:var(--ink-3);text-align:center}
 .lb-pick{display:inline-flex!important;flex-direction:row!important;align-items:center;gap:6px;margin-right:14px;font-weight:600}
 </style>' . U::back($back, (string) $p['name'])
             . '<form class="card pr-form" id="lb-form" method="post" enctype="multipart/form-data" action="' . U::h(U::url('etykieta_edytuj', ['produkt' => $pid])) . '">'
             . '<h3 style="margin:0">Etykieta CLP · ' . U::h($p['name']) . '</h3>' . U::csrf($ctx)
             . '<p class="pr-small" style="margin:0">Wgraj gotową etykietę (całą, z piktogramami i tekstami). Najlepiej PNG albo PDF w rozmiarze do druku. '
-            . 'Potem zaznacz myszą albo palcem prostokąt, w który system wpisze numer partii. Zaznaczone pole przesuwasz, chwytając je, a rozmiar zmieniasz białym kwadracikiem w rogu. Strzałki na klawiaturze przesuwają pole o 1 piksel (z Shift o 10). Za zgodność treści z CLP odpowiada plik.</p>'
+            . 'Potem zaznacz myszą albo palcem prostokąt, w który system wpisze numer partii. Zaznaczone pole przesuwasz, chwytając je, a rozmiar zmieniasz białym kwadracikiem w rogu. Strzałki na klawiaturze przesuwają pole o 1 piksel (z Shift o 10). „Odczytaj etykietę” sam znajdzie miejsca na numer partii, daty i EAN oraz porówna EAN, UFI i wagę z kartą produktu. Za zgodność treści z CLP odpowiada plik.</p>'
             . '<div class="pr-grid">'
             . '<label>' . ($l !== null ? 'Nowy plik (zastąpi obecny)' : 'Plik etykiety') . '<input type="file" name="plik" id="lb-file" accept="image/png,image/jpeg,image/webp,application/pdf,.pdf"' . ($l === null ? ' required' : '') . '>'
             . '<small>' . ($l !== null ? 'Teraz: ' . U::h($l['source_name']) . ', ' . (int) $l['px_w'] . '×' . (int) $l['px_h'] . ' px' : 'PNG, JPG, WEBP albo PDF (pierwsza strona)') . '</small></label>'
@@ -380,13 +398,45 @@ final class LabelPages
             . U::select('outline', Store::OUTLINES, (string) ($boxes['outline'] ?? 'none'), 'Obrys (linia cięcia)', 'id="lb-outline"')
             . '</div>'
             . '<input type="hidden" name="boxes" id="lb-boxes" value="' . U::h(json_encode($boxes)) . '"><input type="hidden" name="source_name" id="lb-src" value="">'
-            . '<div><div style="margin-bottom:8px">Zaznaczasz: ' . $fields . '<button type="button" class="btn secondary" id="lb-clear" style="padding:4px 10px">Usuń zaznaczenie pola</button></div>'
+            . '<div><div style="margin-bottom:8px">Zaznaczasz: ' . $fields . '</div>'
+            . '<div class="lb-tools"><button type="button" class="btn secondary" id="lb-clear">Usuń zaznaczenie pola</button>'
+            . '<button type="button" class="btn secondary" id="lb-ocr">Odczytaj etykietę (pola + kontrola)</button>'
+            . '<button type="button" class="btn secondary" id="lb-fit"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '>Dopasuj obrys do etykiety</button></div>'
             . '<div class="lb-ed-wrap"><div class="lb-ed" id="lb-ed">' . ($l !== null ? '<img id="lb-img" src="' . U::h(self::fileUrl($l)) . '" alt="Etykieta">' : '<div class="lb-empty" id="lb-none">Wybierz plik, żeby zobaczyć podgląd.</div>') . '</div></div>'
-            . '<p class="pr-small" id="lb-msg" style="margin:8px 0 0"></p></div>'
+            . '<p class="pr-small" id="lb-msg" style="margin:8px 0 0"></p><ul class="lb-check" id="lb-check" hidden></ul></div>'
             . '<div class="pr-actions"><button class="btn" type="submit">Zapisz</button><a class="btn secondary" href="' . U::h($back) . '">Anuluj</a>'
             . ($l !== null ? '<button class="btn secondary" type="submit" name="delete" value="1" formnovalidate style="margin-left:auto;color:var(--danger-ink)" onclick="return confirm(\'Usunąć etykietę tego produktu?\')">Usuń etykietę</button>' : '')
             . '</div></form>';
         return $html . '<script>window.LB=' . $cfg . ';</script><script>' . self::editorJs() . '</script>';
+    }
+
+    /** Dane do kontroli odczytanej etykiety: EAN produktu, waga z karty wyrobu, UFI przypisanych zapachów, liczba innych wariantów. */
+    private static function checkData(Store $s, array $p): array
+    {
+        $out = ['ean' => trim((string) ($p['ean'] ?? '')), 'weight' => null, 'ufis' => [], 'variants' => 0];
+        try {
+            $w = $s->one('SELECT weight_g FROM ext_prod_products WHERE sku = ? AND archived = 0 AND weight_g IS NOT NULL', [(string) ($p['sku'] ?? '')]);
+            $out['weight'] = $w !== null && (float) $w['weight_g'] > 0 ? (float) $w['weight_g'] : null;
+        } catch (\PDOException) {
+        }
+        try {
+            foreach ($s->all('SELECT f.ufi FROM ext_zap_links l JOIN ext_zap_fragrances f ON f.id = l.fragrance_id WHERE l.product_id = ?', [(int) $p['id']]) as $f) {
+                foreach (preg_split('/[\s,;]+/', strtoupper((string) $f['ufi'])) ?: [] as $u) {
+                    if (preg_match('/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/', $u)) {
+                        $out['ufis'][] = $u;
+                    }
+                }
+            }
+        } catch (\PDOException) {
+        }
+        if ((int) ($p['woo_product_id'] ?? 0) > 0) {
+            try {
+                $out['variants'] = (int) ($s->one('SELECT COUNT(*) AS n FROM products WHERE woo_product_id = ? AND id <> ?', [(int) $p['woo_product_id'], (int) $p['id']])['n'] ?? 0);
+            } catch (\PDOException) {
+            }
+        }
+        $out['ufis'] = array_values(array_unique($out['ufis']));
+        return $out;
     }
 
     private static function editorJs(): string
@@ -394,66 +444,160 @@ final class LabelPages
         return <<<'JS'
 (function(){
 var C=window.LB,ed=document.getElementById('lb-ed'),file=document.getElementById('lb-file'),W=document.getElementById('lb-w'),H=document.getElementById('lb-h'),
- hid=document.getElementById('lb-boxes'),msg=document.getElementById('lb-msg'),src=document.getElementById('lb-src'),boxes={};
+ hid=document.getElementById('lb-boxes'),msg=document.getElementById('lb-msg'),src=document.getElementById('lb-src'),OL=document.getElementById('lb-outline'),
+ chk=document.getElementById('lb-check'),boxes={};
 try{boxes=JSON.parse(hid.value)||{};}catch(e){boxes={};}
-var pxW=C.pxW,pxH=C.pxH,hAuto=!H.value;
+var pxW=C.pxW,pxH=C.pxH,hAuto=!H.value,lotInFile='';
 function field(){var r=document.querySelector('input[name=lb_field]:checked');return r?r.value:'lot';}
 function img(){return document.getElementById('lb-img');}
-function save(){var o={align:document.getElementById('lb-align').value,outline:document.getElementById('lb-outline').value};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}hid.value=JSON.stringify(o);}
+function outline(){return OL.value;}
+function save(){var o={align:document.getElementById('lb-align').value,outline:outline()};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}
+ if(outline()!=='none'&&boxes.frame)o.frame=boxes.frame;hid.value=JSON.stringify(o);}
 function num(v){return parseFloat(String(v).replace(',','.'));}
-function info(){var w=num(W.value),t=[];if(!boxes.lot)t.push('Zaznacz prostokąt na numer partii.');
+function wmm(){return num(W.value)||0;}
+function hmm(){return num(H.value)||(pxW?wmm()*pxH/pxW:0);}
+function mmTxt(v){return (Math.round(v*10)/10+'').replace('.',',');}
+function info(){var w=wmm(),t=[];if(!boxes.lot)t.push('Zaznacz prostokąt na numer partii.');
  if(pxW&&w>0){var dpi=Math.round(pxW/(w/25.4));t.push('Rozdzielczość: '+dpi+' dpi'+(dpi<200?' - mało, wydruk może być nieostry. Wyeksportuj plik w większej rozdzielczości (najlepiej 300 dpi).':'.'));}
+ if(outline()!=='none'&&w>0){var f=boxes.frame||[0,0,1,1];t.push('Etykieta po przycięciu do obrysu: '+mmTxt(f[2]*w)+' × '+mmTxt(f[3]*hmm())+' mm.');}
  msg.textContent=t.join(' ');msg.style.color=(!boxes.lot||(pxW&&w>0&&pxW/(w/25.4)<200))?'var(--warn-ink)':'';}
-function draw(){ed.querySelectorAll('.lb-box,.lb-ol').forEach(function(b){b.remove();});var i=img();if(!i)return;
- var ol=document.getElementById('lb-outline').value;if(ol!=='none'){var od=document.createElement('div');od.className='lb-ol lb-ol-'+ol;var wm=num(W.value);if(ol==='round'&&wm>0)od.style.borderRadius=(3*i.clientWidth/wm)+'px';ed.appendChild(od);}
- var h=num(H.value)||(num(W.value)*pxH/pxW)||0,scale=h>0?i.clientHeight/h:0;
- for(var k in C.names){var b=boxes[k];if(!b)continue;var d=document.createElement('div');d.className='lb-box';d.dataset.k=k;
-  d.style.left=b[0]*100+'%';d.style.top=b[1]*100+'%';d.style.width=b[2]*100+'%';d.style.height=b[3]*100+'%';
+function handle(d){var hd=document.createElement('i');hd.className='lb-h';d.appendChild(hd);}
+function place(d,b){d.style.left=b[0]*100+'%';d.style.top=b[1]*100+'%';d.style.width=b[2]*100+'%';d.style.height=b[3]*100+'%';}
+function draw(){ed.querySelectorAll('.lb-box').forEach(function(b){b.remove();});var i=img();if(!i)return;
+ var ol=outline();document.getElementById('lb-pick-frame').hidden=ol==='none';document.getElementById('lb-fit').hidden=ol==='none';
+ if(ol==='none'&&field()==='frame')pick('lot');
+ if(ol!=='none'){var f=boxes.frame||[0,0,1,1],fd=document.createElement('div');fd.className='lb-box lb-fr lb-fr-'+ol;fd.dataset.k='frame';fd.title='Obrys';place(fd,f);
+  if(ol==='round'&&wmm()>0)fd.style.borderRadius=(3*i.clientWidth/wmm())+'px';if(field()==='frame')fd.classList.add('on');handle(fd);ed.appendChild(fd);}
+ for(var k in C.names){var b=boxes[k];if(!b)continue;var d=document.createElement('div');d.className='lb-box';d.dataset.k=k;place(d,b);
   d.style.justifyContent={left:'flex-start',center:'center',right:'flex-end'}[document.getElementById('lb-align').value];
-  var fs=b[3]*i.clientHeight*0.8;d.style.fontSize=fs+'px';var tx=document.createElement('b');d.title=C.names[k];d.appendChild(tx);if(k===field())d.classList.add('on');var hd=document.createElement('i');hd.className='lb-h';d.appendChild(hd);ed.appendChild(d);
+  var fs=b[3]*i.clientHeight*0.8;d.style.fontSize=fs+'px';var tx=document.createElement('b');d.title=C.names[k];d.appendChild(tx);if(k===field())d.classList.add('on');handle(d);ed.appendChild(d);
   if(k==='ean_bar'){tx.innerHTML=C.bar||'';tx.style.cssText='width:100%;height:100%;background:#fff';var sv=tx.querySelector('svg');if(sv){sv.style.width='100%';sv.style.height='100%';sv.style.display='block';}continue;}
   tx.textContent=C.sample[k]||'';var n=0;while(tx.scrollWidth>d.clientWidth+1&&n++<60){fs*=0.94;d.style.fontSize=fs+'px';}}
  save();info();}
-function setImg(url,w,h){var n=document.getElementById('lb-none');if(n)n.remove();var i=img();if(!i){i=document.createElement('img');i.id='lb-img';i.alt='Etykieta';ed.appendChild(i);}
- pxW=w;pxH=h;i.onload=draw;i.src=url;if(hAuto&&num(W.value)>0)H.value='';}
+function setImg(url,w,h,after){var n=document.getElementById('lb-none');if(n)n.remove();var i=img();if(!i){i=document.createElement('img');i.id='lb-img';i.alt='Etykieta';ed.appendChild(i);}
+ pxW=w;pxH=h;i.onload=function(){if(outline()!=='none')fitFrame();draw();if(after)after();};i.src=url;if(hAuto&&wmm()>0)H.value='';}
 var start=null,mode='',orig=null,mk='';
 function pt(e){var r=img().getBoundingClientRect();return [Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))];}
 function rnd(b){return b.map(function(v){return Math.round(v*10000)/10000;});}
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 function pick(k){var r=document.querySelector('input[name=lb_field][value="'+k+'"]');if(r)r.checked=true;}
+// Okrąg zostaje okręgiem: wysokość (ułamek obrazka) liczona z szerokości w milimetrach.
+function keepRound(k,b){if(k!=='frame'||outline()!=='circle'||!(wmm()>0&&hmm()>0))return b;var h=b[2]*wmm()/hmm();
+ if(b[1]+h>1){h=1-b[1];b[2]=h*hmm()/wmm();}b[3]=h;return b;}
+function setBox(k,b){boxes[k]=rnd(keepRound(k,b));}
 ed.addEventListener('pointerdown',function(e){if(!img())return;e.preventDefault();ed.setPointerCapture(e.pointerId);start=pt(e);
- var bx=e.target.closest?e.target.closest('.lb-box'):null;
- if(bx&&boxes[bx.dataset.k]){mk=bx.dataset.k;pick(mk);orig=boxes[mk].slice();mode=e.target.classList.contains('lb-h')?'size':'move';draw();}else{mode='new';mk=field();}});
+ var bx=e.target.closest?e.target.closest('.lb-box'):null,k=bx?bx.dataset.k:'';
+ if(bx&&(k==='frame'||boxes[k])){mk=k;pick(mk);orig=(boxes[mk]||[0,0,1,1]).slice();mode=e.target.classList.contains('lb-h')?'size':'move';draw();}else{mode='new';mk=field();}});
 ed.addEventListener('pointermove',function(e){if(!start)return;var p=pt(e),dx=p[0]-start[0],dy=p[1]-start[1];
- if(mode==='move'){boxes[mk]=rnd([clamp(orig[0]+dx,0,1-orig[2]),clamp(orig[1]+dy,0,1-orig[3]),orig[2],orig[3]]);draw();return;}
- if(mode==='size'){boxes[mk]=rnd([orig[0],orig[1],clamp(orig[2]+dx,0.01,1-orig[0]),clamp(orig[3]+dy,0.01,1-orig[1])]);draw();return;}
+ if(mode==='move'){setBox(mk,[clamp(orig[0]+dx,0,1-orig[2]),clamp(orig[1]+dy,0,1-orig[3]),orig[2],orig[3]]);draw();return;}
+ if(mode==='size'&&mk==='frame'&&outline()==='circle'&&wmm()>0&&hmm()>0){
+  // Okrąg rośnie od środka, żeby nie uciekał z etykiety.
+  var cxm=(orig[0]+orig[2]/2)*wmm(),cym=(orig[1]+orig[3]/2)*hmm(),sd=Math.max(2,orig[2]*wmm()+2*dx*wmm());
+  sd=Math.min(sd,2*cxm,2*(wmm()-cxm),2*cym,2*(hmm()-cym));boxes.frame=rnd([(cxm-sd/2)/wmm(),(cym-sd/2)/hmm(),sd/wmm(),sd/hmm()]);draw();return;}
+ if(mode==='size'){setBox(mk,[orig[0],orig[1],clamp(orig[2]+dx,0.01,1-orig[0]),clamp(orig[3]+dy,0.01,1-orig[1])]);draw();return;}
  var cur=[Math.min(start[0],p[0]),Math.min(start[1],p[1]),Math.abs(dx),Math.abs(dy)];
- if(cur[2]>0.005&&cur[3]>0.005){boxes[mk]=rnd(cur);draw();}});
+ if(cur[2]>0.005&&cur[3]>0.005){setBox(mk,cur);draw();}});
 ed.addEventListener('pointerup',function(){start=null;mode='';orig=null;});
 document.querySelectorAll('input[name=lb_field]').forEach(function(r){r.addEventListener('change',draw);});
-document.addEventListener('keydown',function(e){var k=field(),b=boxes[k],i=img(),t=e.target;
+document.addEventListener('keydown',function(e){var k=field(),b=k==='frame'?(boxes.frame||[0,0,1,1]):boxes[k],i=img(),t=e.target;
  if(!b||!i||(t&&/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)&&t.type!=='radio'))return;
  var st=(e.shiftKey?10:1),sx=st/i.clientWidth,sy=st/i.clientHeight,d={ArrowLeft:[-sx,0],ArrowRight:[sx,0],ArrowUp:[0,-sy],ArrowDown:[0,sy]}[e.key];
  if(!d)return;e.preventDefault();boxes[k]=rnd([clamp(b[0]+d[0],0,1-b[2]),clamp(b[1]+d[1],0,1-b[3]),b[2],b[3]]);draw();});
-document.getElementById('lb-clear').onclick=function(){delete boxes[field()];draw();};
-document.getElementById('lb-align').onchange=draw;document.getElementById('lb-outline').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
+document.getElementById('lb-clear').onclick=function(){var k=field();if(k==='frame')fitFrame();else delete boxes[k];draw();};
+// Obrys do rysunku: obszar niebiałych pikseli; okrąg = kwadrat (w mm) na środku tego obszaru.
+function fitFrame(){var i=img();if(!i||!i.naturalWidth)return;var sc=Math.min(1,1000/Math.max(i.naturalWidth,i.naturalHeight)),cv=document.createElement('canvas');
+ cv.width=Math.max(1,Math.round(i.naturalWidth*sc));cv.height=Math.max(1,Math.round(i.naturalHeight*sc));var cx=cv.getContext('2d'),d;
+ try{cx.drawImage(i,0,0,cv.width,cv.height);d=cx.getImageData(0,0,cv.width,cv.height).data;}catch(e){boxes.frame=[0,0,1,1];return;}
+ var x0=cv.width,y0=cv.height,x1=-1,y1=-1;
+ for(var y=0;y<cv.height;y++)for(var x=0;x<cv.width;x++){var o=(y*cv.width+x)*4;if(d[o+3]>16&&(d[o]+d[o+1]+d[o+2])<690){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;}}
+ if(x1<0){boxes.frame=[0,0,1,1];return;}
+ var f=[x0/cv.width,y0/cv.height,(x1-x0+1)/cv.width,(y1-y0+1)/cv.height];
+ if(outline()==='circle'&&wmm()>0&&hmm()>0){var side=Math.max(f[2]*wmm(),f[3]*hmm()),cxm=(f[0]+f[2]/2)*wmm(),cym=(f[1]+f[3]/2)*hmm();
+  side=Math.min(side,wmm(),hmm());var l=clamp(cxm-side/2,0,wmm()-side),t=clamp(cym-side/2,0,hmm()-side);f=[l/wmm(),t/hmm(),side/wmm(),side/hmm()];}
+ boxes.frame=rnd(f);}
+document.getElementById('lb-fit').onclick=function(){fitFrame();pick('frame');draw();};
+OL.onchange=function(){if(outline()!=='none'){fitFrame();pick('frame');}draw();};
+document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
 window.addEventListener('resize',draw);
+// ---- odczyt etykiety (Tesseract.js w przeglądarce): pola i kontrola z kartą produktu
+function get(k,type){return fetch(C.tess[k][0],{integrity:C.tess[k][1],mode:'cors'}).then(function(r){if(!r.ok)throw new Error(k);return type==='buf'?r.arrayBuffer():r.text();});}
+var tessP=null;
+function loadTess(){if(tessP)return tessP;
+ var simd=false;try{simd=WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]));}catch(e){}
+ var lib=window.Tesseract?Promise.resolve(window.Tesseract):new Promise(function(ok,no){var s=document.createElement('script');s.src=C.tess.main[0];s.integrity=C.tess.main[1];s.crossOrigin='anonymous';
+  s.onload=function(){ok(window.Tesseract);};s.onerror=function(){no(new Error('tesseract'));};document.head.appendChild(s);});
+ tessP=Promise.all([lib,get(simd?'simd':'core'),get('worker'),get('pol','buf')]).then(function(a){
+  return new Promise(function(ok){var fr=new FileReader();fr.onload=function(){ok([a[0],a[1],a[2],String(fr.result).split(',')[1]]);};fr.readAsDataURL(new Blob([a[3]]));});
+ }).then(function(a){
+  // Rdzeń, worker i słownik w jednym pliku blob: worker nic nie dociąga (importScripts/fetch), więc CSP zostaje bez blob: w script-src i connect-src.
+  var shim='var __L="'+a[3]+'";(function(){var f=self.fetch;self.fetch=function(u){if(String(u).indexOf("https://veless.invalid/")===0){var s=atob(__L),b=new Uint8Array(s.length);for(var i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return Promise.resolve(new Response(b));}return f.apply(self,arguments);};})();\n';
+  var wurl=URL.createObjectURL(new Blob([shim,a[1],'\n;\n',a[2]],{type:'text/javascript'}));
+  // Tryb „rozrzucony tekst” (PSM 11): etykieta to osobne napisy, nie akapity, a duże napisy (waga, nazwa) nie giną.
+  return a[0].createWorker('pol',1,{workerPath:wurl,workerBlobURL:false,corePath:wurl+'#.js',langPath:'https://veless.invalid',cacheMethod:'none',gzip:true})
+   .then(function(w){return w.setParameters({tessedit_pageseg_mode:'11'}).then(function(){return w;});});
+ });tessP.catch(function(){tessP=null;});return tessP;}
+function bb(ws){var b={x0:1e9,y0:1e9,x1:-1,y1:-1};ws.forEach(function(w){b.x0=Math.min(b.x0,w.bbox.x0);b.y0=Math.min(b.y0,w.bbox.y0);b.x1=Math.max(b.x1,w.bbox.x1);b.y1=Math.max(b.y1,w.bbox.y1);});return b;}
+var FIND={lot:/(nr|numer)\.?\s*partii|partia|\blot\b|batch/i,produced:/data\s*produkcji|wyprodukowano|data\s*prod/i,expires:/najlepiej|zu[żz]y[ćc]|wa[żz]no[śs][ćc]|best\s*before/i,ean:/\bGTIN\b|\bEAN\b/i};
+function findField(lines,re,cw,chh){for(var li=0;li<lines.length;li++){var L=lines[li],ws=(L.words||[]).filter(function(w){return w.text.trim()!=='';});
+  for(var i=0;i<ws.length;i++){var head=ws.slice(0,i+1).map(function(w){return w.text;}).join(' ');if(!re.test(head))continue;
+   var lb=bb(ws.slice(0,i+1)),lh=Math.max(4,lb.y1-lb.y0),vs=i+1;
+   for(var j=i;j<Math.min(ws.length,i+3);j++){if(ws[j].text.indexOf(':')>=0){vs=j+1;break;}}
+   var lbl=bb(ws.slice(0,vs)),val=[];for(var v=vs;v<ws.length;v++){var prev=v===vs?lbl.x1:ws[v-1].bbox.x1;if(ws[v].bbox.x0-prev>lh*2.5)break;val.push(ws[v]);}
+   if(val.length){var vb=bb(val),pad=lh*0.15;return {box:[(vb.x0-pad)/cw,(vb.y0-pad)/chh,(vb.x1-vb.x0+2*pad)/cw,(vb.y1-vb.y0+2*pad)/chh],value:val.map(function(w){return w.text;}).join(' ')};}
+   var x=lbl.x1+lh*0.5;return {box:[x/cw,(lbl.y0-lh*0.1)/chh,Math.min(cw*0.25,cw-x)/cw,lh*1.2/chh],value:''};}}
+ return null;}
+function eanOk(d){if(!/^(\d{8}|\d{13})$/.test(d))return false;var s=0,n=d.length;for(var i=0;i<n-1;i++){s+=(+d[i])*(((n-1-i)%2)?3:1);}return (10-s%10)%10===+d[n-1];}
+function ufiN(u){return u.toUpperCase().replace(/O/g,'0').replace(/[IL]/g,'1');}
+function row(cls,t){var li=document.createElement('li');li.className=cls;li.textContent=t;chk.appendChild(li);}
+function check(text,found){chk.innerHTML='';chk.hidden=false;var K=C.check,flat=text.replace(/\s+/g,' ');window.lbOcrText=text;
+ row(found.length?'ok':'warn',found.length?'Zaznaczone automatycznie: '+found.join(', ')+'. Sprawdź położenie i popraw, jeśli trzeba.':'Nie znalazłem napisów „Nr partii”, „Data produkcji” ani „Najlepiej do”. Zaznacz pola ręcznie.');
+ var eans=[];(flat.match(/\d[\d ]{6,18}\d/g)||[]).forEach(function(m){var d=m.replace(/ /g,'');if(eanOk(d)&&eans.indexOf(d)<0)eans.push(d);});
+ if(eans.length){var e=eans[0];
+  if(K.variants>0)row('warn','Na etykiecie jest EAN '+e+', a produkt ma '+K.variants+' inne warianty. Etykieta wspólna dla wariantów nie może mieć EAN w pliku: usuń go z pliku i zaznacz pole „EAN”.');
+  else if(K.ean&&K.ean!==e)row('warn','EAN na etykiecie ('+e+') różni się od EAN produktu ('+K.ean+').');
+  else if(K.ean)row('ok','EAN '+e+' zgadza się z produktem.');
+  else row('info','Na etykiecie jest EAN '+e+', a produkt nie ma EAN w karcie.');
+  if(boxes.ean||boxes.ean_bar)row('warn','EAN jest w pliku i w zaznaczonym polu. Wydrukuje się dwa razy.');}
+ else if(K.ean&&!boxes.ean&&!boxes.ean_bar)row('info','Nie znalazłem EAN na etykiecie (produkt ma '+K.ean+'). Jeśli ma być, zaznacz pole „EAN”.');
+ var um=flat.match(/UFI\s*[:.]?\s*([A-Z0-9]{4})\s*-\s*([A-Z0-9]{4})\s*-\s*([A-Z0-9]{4})\s*-\s*([A-Z0-9]{4})/i),u=um?[um[1],um[2],um[3],um[4]].join('-').toUpperCase():'';
+ if(u&&K.ufis.length){if(K.ufis.some(function(x){return ufiN(x)===ufiN(u);}))row('ok','UFI '+u+' zgadza się z zapachem w Zapachach.');else row('warn','UFI na etykiecie ('+u+') różni się od UFI zapachu ('+K.ufis.join(', ')+').');}
+ else if(u)row('info','UFI z etykiety: '+u+'. Zapach tego produktu nie ma UFI w Zapachach, więc nie mam z czym porównać.');
+ else if(K.ufis.length)row('warn','Nie znalazłem UFI na etykiecie, a zapach ma UFI '+K.ufis.join(', ')+'.');
+ var ws=[],re=/(^|[^\d,.])(\d+(?:[.,]\d+)?)\s?(kg|g)\b/gi,m;while((m=re.exec(flat))){var g=parseFloat(m[2].replace(',','.'))*(m[3].toLowerCase()==='kg'?1000:1);if(g>0&&ws.indexOf(g)<0)ws.push(g);}
+ if(K.weight){if(ws.some(function(g){return Math.abs(g-K.weight)<0.5;}))row('ok','Waga '+K.weight+' g zgadza się z kartą wyrobu.');
+  else if(ws.length)row('warn','Waga na etykiecie ('+ws.join(' g, ')+' g) różni się od karty wyrobu ('+K.weight+' g).');else row('info','Nie znalazłem wagi na etykiecie (karta wyrobu: '+K.weight+' g).');}
+ else if(ws.length)row('info','Waga na etykiecie: '+ws.join(' g, ')+' g. Karta wyrobu w Produkcji nie ma wagi do porównania.');
+ if(lotInFile)row('warn','W pliku jest już wpisany numer partii ('+lotInFile+'). Usuń go z pliku, bo system wpisze numer w to samo miejsce.');
+ if(chk.children.length<2)row('info','Nie znalazłem EAN, UFI ani wagi do sprawdzenia.');}
+function ocr(){var i=img();if(!i){msg.textContent='Najpierw wybierz plik etykiety.';return;}var bt=document.getElementById('lb-ocr');bt.disabled=true;
+ msg.style.color='';msg.textContent='Odczytuję etykietę… Za pierwszym razem przeglądarka pobiera ok. 7 MB, to może potrwać do minuty.';
+ var sc=Math.min(1,2400/Math.max(i.naturalWidth,i.naturalHeight)),cv=document.createElement('canvas');cv.width=Math.round(i.naturalWidth*sc);cv.height=Math.round(i.naturalHeight*sc);
+ var cx=cv.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,cv.width,cv.height);cx.drawImage(i,0,0,cv.width,cv.height);
+ loadTess().then(function(w){return w.recognize(cv).then(function(res){msg.textContent='';info();return res;});}).then(function(res){var D=res.data,lines=D.lines||[],found=[];lotInFile='';
+  ['lot','produced','expires','ean'].forEach(function(k){var f=findField(lines,FIND[k],cv.width,cv.height);if(!f)return;
+   var b=f.box.map(function(v){return clamp(v,0,1);});b[2]=Math.min(b[2],1-b[0]);b[3]=Math.min(b[3],1-b[1]);
+   if(k==='ean'){if(!f.value){boxes.ean=rnd(b);found.push(C.names.ean);}return;}
+   if(k==='lot'&&f.value)lotInFile=f.value;boxes[k]=rnd(b);found.push(C.names[k]);});
+  draw();check(D.text||'',found);
+ }).catch(function(){msg.textContent='Nie udało się odczytać etykiety (brak połączenia albo stara przeglądarka). Zaznacz pola ręcznie.';msg.style.color='var(--danger-ink)';})
+ .then(function(){bt.disabled=false;});}
+document.getElementById('lb-ocr').onclick=ocr;
 function loadPdfJs(){if(window.pdfjsLib)return Promise.resolve(window.pdfjsLib);
  var lib=new Promise(function(ok,no){var s=document.createElement('script');s.src=C.pdfjs+'pdf.min.js';s.integrity=C.sri.pdf;s.crossOrigin='anonymous';
   s.onload=function(){ok(window.pdfjsLib);};s.onerror=function(){no(new Error('pdf.js'));};document.head.appendChild(s);});
  var wk=fetch(C.pdfjs+'pdf.worker.min.js',{integrity:C.sri.worker,mode:'cors'}).then(function(r){if(!r.ok)throw new Error('worker');return r.blob();});
  return Promise.all([lib,wk]).then(function(a){a[0].GlobalWorkerOptions.workerSrc=URL.createObjectURL(new Blob([a[1]],{type:'text/javascript'}));return a[0];});}
-file.addEventListener('change',function(){var f=file.files[0];if(!f)return;src.value=f.name;
+file.addEventListener('change',function(){var f=file.files[0];if(!f)return;src.value=f.name;chk.hidden=true;
  if(f.type==='application/pdf'||/\.pdf$/i.test(f.name)){msg.textContent='Zamieniam PDF na obrazek do druku…';
   loadPdfJs().then(function(lib){return f.arrayBuffer().then(function(buf){return lib.getDocument({data:buf}).promise;});}).then(function(doc){return doc.getPage(1);}).then(function(pg){
-   var v1=pg.getViewport({scale:1}),wmm=v1.width*25.4/72,hmm=v1.height*25.4/72,sc=Math.min(600/72,8000/Math.max(v1.width,v1.height)),v=pg.getViewport({scale:sc}),cv=document.createElement('canvas');
+   var v1=pg.getViewport({scale:1}),wm=v1.width*25.4/72,hm=v1.height*25.4/72,sc=Math.min(600/72,8000/Math.max(v1.width,v1.height)),v=pg.getViewport({scale:sc}),cv=document.createElement('canvas');
    cv.width=Math.round(v.width);cv.height=Math.round(v.height);var cx=cv.getContext('2d');cx.fillStyle='#fff';cx.fillRect(0,0,cv.width,cv.height);
-   return pg.render({canvasContext:cx,viewport:v}).promise.then(function(){return new Promise(function(ok){cv.toBlob(function(b){ok([b,cv,wmm,hmm]);},'image/png');});});
+   return pg.render({canvasContext:cx,viewport:v}).promise.then(function(){return new Promise(function(ok){cv.toBlob(function(b){ok([b,cv,wm,hm]);},'image/png');});});
   }).then(function(r){var png=new File([r[0]],f.name.replace(/\.pdf$/i,'')+'.png',{type:'image/png'}),dt=new DataTransfer();dt.items.add(png);file.files=dt.files;
-   W.value=(Math.round(r[2]*10)/10+'').replace('.',',');H.value=(Math.round(r[3]*10)/10+'').replace('.',',');hAuto=false;setImg(URL.createObjectURL(png),r[1].width,r[1].height);
+   W.value=mmTxt(r[2]);H.value=mmTxt(r[3]);hAuto=false;setImg(URL.createObjectURL(png),r[1].width,r[1].height,ocr);
   }).catch(function(){file.value='';msg.textContent='Nie udało się otworzyć PDF. Zapisz etykietę jako PNG i wgraj ją jeszcze raz.';msg.style.color='var(--danger-ink)';});
   return;}
- var u=URL.createObjectURL(f),t=new Image();t.onload=function(){setImg(u,t.naturalWidth,t.naturalHeight);};t.src=u;});
+ if(!hAuto){H.value='';hAuto=true;}var u=URL.createObjectURL(f),t=new Image();t.onload=function(){setImg(u,t.naturalWidth,t.naturalHeight,ocr);};t.src=u;});
 document.getElementById('lb-form').addEventListener('submit',function(e){if(e.submitter&&e.submitter.name==='delete')return;save();
  if(!boxes.lot){e.preventDefault();info();msg.scrollIntoView({block:'center'});}});
 if(img()){if(img().complete)draw();else img().onload=draw;}else info();

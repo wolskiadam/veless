@@ -42,8 +42,16 @@ Etykietę CLP projektuje się poza CRM (Canva, od dostawcy olejku) i wgrywa goto
   albo z karty produktu (numer partii z podpowiedzi). Arkusz A4 w prawdziwym rozmiarze, „Pomiń” zostawia miejsca po zużytych
   etykietach. Tekst wpisuje się w prostokąt (czcionka 80% wysokości, zmniejszana, gdy numer się nie mieści).
 - **Edytor pól**: pole chwyta się i przesuwa, rozmiar zmienia kwadracik w rogu, strzałki przesuwają o 1 px (Shift o 10 px).
-- **Obrys**: plik może być bez obrysu - system dorysuje linię 0,3 mm po krawędzi etykiety (okrąg/elipsa, prostokąt albo
-  prostokąt z zaokrąglonymi rogami 3 mm), w podglądzie i na wydruku. Zapisany w `boxes` jako `outline`.
+- **Obrys**: plik może być bez obrysu - system dorysuje linię 0,3 mm (okrąg, prostokąt albo prostokąt z zaokrąglonymi
+  rogami 3 mm). Obrys to pole w edytorze (pozycja „Obrys”): przesuwa się go i rozciąga (okrąg zostaje okręgiem i rośnie od
+  środka), „Dopasuj obrys do etykiety” bierze obszar niebiałych pikseli pliku. Wydruk przycina etykietę do obrysu, więc biały
+  margines pliku nie zajmuje miejsca na arkuszu. Zapisany w `boxes` jako `outline` + `frame` [x, y, szer., wys.].
+- **Odczyt etykiety** („Odczytaj etykietę”, też sam po wgraniu pliku): Tesseract.js 5.1.1 w przeglądarce (słownik polski,
+  pliki z jsdelivr sprawdzane `integrity`, rdzeń + worker + słownik w jednym blobie, więc CSP potrzebuje tylko
+  `'wasm-unsafe-eval'`). Nic nie idzie na serwer ani do zewnętrznego API. Szuka napisów „Nr partii”, „Data produkcji”,
+  „Najlepiej do”, „GTIN/EAN” i stawia tam pola. Kontrola: EAN (z cyfrą kontrolną) z EAN produktu i z wariantami (wspólna
+  etykieta nie może mieć EAN w pliku), UFI z UFI zapachów przypisanych w Zapachach, waga z „Waga (g)” karty wyrobu,
+  ostrzeżenie, gdy numer partii jest już wpisany w pliku.
 - **Warianty**: wariant bez własnej etykiety używa etykiety innego wariantu tego samego produktu z Woo (wspólny `woo_product_id`);
   własna etykieta wariantu ma pierwszeństwo. Wystarczy wgrać jedną do dowolnego wariantu.
 - **EAN**: pola „Kod kreskowy EAN” (EAN-13/EAN-8 rysowany jako SVG) i „EAN (tekst)” wypełnia EAN produktu albo wariantu,

@@ -51,6 +51,8 @@ Etykietę CLP projektuje się poza CRM (Canva, od dostawcy olejku) i wgrywa goto
   wokół środka. „Dopasuj” dla okręgu: narysowany okrąg w pliku albo okrąg opisany na rysunku, najwyżej wielkości pliku.
 - **Kod QR**: pole „Kod QR” + adres w „Kod QR prowadzi do” (`boxes.qr_url`, tylko http/https, `{partia}` = numer partii).
   Bez adresu kod się nie drukuje. Generator: `QrCode.php` (kopia z wtyczki KSeF, Nayuki MIT). Później: link do instrukcji produktu.
+- **Dane producenta**: pole „Dane producenta” (kilka linii, czcionka dopasowana do prostokąta). Tekst z `boxes.maker_text`
+  (własny producent etykiety, np. private label), a gdy pusty - z ustawienia „Producent” wtyczki Produkcja.
 - **Odczyt etykiety** („Odczytaj etykietę”, też sam po wgraniu pliku): Tesseract.js 5.1.1 w przeglądarce (słownik polski,
   pliki z jsdelivr sprawdzane `integrity`, rdzeń + worker + słownik w jednym blobie, więc CSP potrzebuje tylko
   `'wasm-unsafe-eval'`). Nic nie idzie na serwer ani do zewnętrznego API. Szuka napisów „Nr partii”, „Data produkcji”,

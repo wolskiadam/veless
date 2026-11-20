@@ -27,6 +27,9 @@ final class LabelPages
         'pol' => ['https://cdn.jsdelivr.net/npm/@tesseract.js-data/pol@1.0.0/4.0.0_best_int/pol.traineddata.gz', 'sha384-2CKxwXI7//OlArAuo2Sr69vczHCUSs4kElZB4CGRR5uvTF5x7hwaUeJ0Woiboz/5'],
     ];
 
+    /** Producent z ustawień Produkcji (pole „Dane producenta”, gdy etykieta nie ma własnego). */
+    public static string $maker = '';
+
     public static function dir(): string
     {
         return TestPages::dir() . '/etykiety';
@@ -88,7 +91,7 @@ final class LabelPages
         return '.lb{position:relative;box-sizing:border-box;overflow:hidden;flex:none;background:#fff}.lb-in{position:absolute}.lb-in>img{position:absolute;inset:0;width:100%;height:100%;display:block}'
             . '.lb-bar{position:absolute;display:block;background:#fff}.lb-bar svg{display:block;width:100%;height:100%}'
             . '.lb-f{position:absolute;display:flex;align-items:center;white-space:nowrap;overflow:hidden;line-height:1;font-family:Arial,Helvetica,sans-serif;font-weight:700;color:#000}'
-            . '.lb-o{position:absolute;inset:0;box-sizing:border-box;border:.3mm solid #000;pointer-events:none;z-index:1}.lb-o-circle{border-radius:50%}.lb-o-round{border-radius:3mm}';
+            . '.lb-m{display:block;white-space:pre;line-height:1.15;font-weight:400}.lb-o{position:absolute;inset:0;box-sizing:border-box;border:.3mm solid #000;pointer-events:none;z-index:1}.lb-o-circle{border-radius:50%}.lb-o-round{border-radius:3mm}';
     }
 
     /** Jedna etykieta: plik + dane w zaznaczonych miejscach. @param array<string,string> $values lot/produced/expires */
@@ -106,7 +109,11 @@ final class LabelPages
             . '<img src="' . U::h($img) . '" alt="">';
         foreach (array_keys(Store::LABEL_FIELDS) as $k) {
             $b = $l['boxes'][$k] ?? null;
-            $v = $k === 'qr' ? self::qrUrl($l, $values) : trim((string) ($values[$k] ?? ''));
+            $v = match ($k) {
+                'qr' => self::qrUrl($l, $values),
+                'maker' => trim((string) ($l['boxes']['maker_text'] ?? '')) ?: trim((string) ($values['maker'] ?? self::$maker)),
+                default => trim((string) ($values[$k] ?? '')),
+            };
             if ($b === null || $v === '') {
                 continue;
             }
@@ -122,6 +129,12 @@ final class LabelPages
                 if ($svg !== '') {
                     $html .= '<span class="lb-bar" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3]) . '">' . $svg . '</span>';
                 }
+                continue;
+            }
+            if ($k === 'maker') {
+                $lines = max(1, substr_count($v, "\n") + 1);
+                $html .= '<span class="lb-f lb-m" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3])
+                    . ';font-size:' . self::mm($b[3] * $h / $lines / 1.2) . 'mm;text-align:' . ['left' => 'left', 'center' => 'center', 'right' => 'right'][$l['boxes']['align']] . '">' . U::h($v) . '</span>';
                 continue;
             }
             $html .= '<span class="lb-f lb-' . $k . '" style="left:' . self::pct($b[0]) . ';top:' . self::pct($b[1]) . ';width:' . self::pct($b[2]) . ';height:' . self::pct($b[3])
@@ -187,7 +200,7 @@ final class LabelPages
     public static function fitScript(): string
     {
         return '<script>(function(){function fit(){document.querySelectorAll(".lb-f").forEach(function(e){var f=parseFloat(e.style.fontSize);e.dataset.fs=e.dataset.fs||f;'
-            . 'f=parseFloat(e.dataset.fs);e.style.fontSize=f+"mm";var n=0;while(e.scrollWidth>e.clientWidth+1&&n++<60){f*=0.94;e.style.fontSize=f.toFixed(3)+"mm";}});}'
+            . 'f=parseFloat(e.dataset.fs);e.style.fontSize=f+"mm";var n=0;while((e.scrollWidth>e.clientWidth+1||e.scrollHeight>e.clientHeight+1)&&n++<60){f*=0.94;e.style.fontSize=f.toFixed(3)+"mm";}});}'
             . 'window.lbFit=fit;if(document.readyState!=="loading")fit();else document.addEventListener("DOMContentLoaded",fit);})();</script>';
     }
 
@@ -389,12 +402,12 @@ final class LabelPages
         $sample = self::sample($s, $p);
         $fields = '';
         foreach (Store::LABEL_FIELDS as $k => $label) {
-            $fields .= '<label class="lb-pick"><input type="radio" name="lb_field" value="' . $k . '"' . ($k === 'lot' ? ' checked' : '') . '> <span class="lb-dot" style="background:' . ['lot' => '#d9480f', 'produced' => '#1971c2', 'expires' => '#2f9e44', 'ean_bar' => '#7048e8', 'ean' => '#c2255c', 'qr' => '#0c8599'][$k] . '"></span>' . $label
+            $fields .= '<label class="lb-pick"><input type="radio" name="lb_field" value="' . $k . '"' . ($k === 'lot' ? ' checked' : '') . '> <span class="lb-dot" style="background:' . ['lot' => '#d9480f', 'produced' => '#1971c2', 'expires' => '#2f9e44', 'ean_bar' => '#7048e8', 'ean' => '#c2255c', 'qr' => '#0c8599', 'maker' => '#e67700'][$k] . '"></span>' . $label
                 . ($k === 'lot' ? '' : ' <small>(opcjonalnie)</small>') . '</label>';
         }
         $fields .= '<label class="lb-pick" id="lb-pick-frame"' . (($boxes['outline'] ?? 'none') === 'none' ? ' hidden' : '') . '><input type="radio" name="lb_field" value="frame"> <span class="lb-dot" style="background:#000"></span>Obrys</label>';
         $cfg = json_encode(['img' => $l !== null ? self::fileUrl($l) : '', 'pxW' => (int) ($l['px_w'] ?? 0), 'pxH' => (int) ($l['px_h'] ?? 0),
-            'sample' => $sample, 'bar' => self::eanSvg($sample['ean_bar']), 'qr' => self::qrSvg('https://example.com/instrukcja'), 'names' => Store::LABEL_FIELDS, 'pdfjs' => self::PDFJS, 'sri' => self::PDFJS_SRI,
+            'sample' => $sample, 'bar' => self::eanSvg($sample['ean_bar']), 'qr' => self::qrSvg('https://example.com/instrukcja'), 'maker' => self::$maker, 'names' => Store::LABEL_FIELDS, 'pdfjs' => self::PDFJS, 'sri' => self::PDFJS_SRI,
             'tess' => self::TESS, 'check' => self::checkData($s, $p)], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP);
         $html = U::style() . '<style>' . self::css() . '
 .lb-ed-wrap{background:var(--surface-2);border-radius:8px;padding:12px;overflow:auto}
@@ -402,7 +415,7 @@ final class LabelPages
 .lb-ed img{display:block;max-width:100%;max-height:70vh;pointer-events:none}
 .lb-ed .lb-box{position:absolute;border:2px solid #d9480f;background:rgba(217,72,15,.12);box-sizing:border-box;display:flex;align-items:center;white-space:nowrap;font:700 12px/1 Arial,sans-serif;color:#000;cursor:move}.lb-ed .lb-box b{display:block;overflow:hidden;max-width:100%;pointer-events:none}
 .lb-ed .lb-box.on{outline:2px dashed #000;outline-offset:2px}.lb-ed .lb-h{position:absolute;right:-7px;bottom:-7px;width:12px;height:12px;background:#fff;border:2px solid #000;border-radius:2px;cursor:nwse-resize;display:none}.lb-ed .lb-box.on .lb-h{display:block}
-.lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}.lb-ed .lb-box[data-k=ean_bar]{border-color:#7048e8;background:rgba(112,72,232,.12)}.lb-ed .lb-box[data-k=ean]{border-color:#c2255c;background:rgba(194,37,92,.12)}.lb-ed .lb-box[data-k=qr]{border-color:#0c8599;background:rgba(12,133,153,.12)}
+.lb-ed .lb-box[data-k=produced]{border-color:#1971c2;background:rgba(25,113,194,.12)}.lb-ed .lb-box[data-k=expires]{border-color:#2f9e44;background:rgba(47,158,68,.12)}.lb-ed .lb-box[data-k=ean_bar]{border-color:#7048e8;background:rgba(112,72,232,.12)}.lb-ed .lb-box[data-k=ean]{border-color:#c2255c;background:rgba(194,37,92,.12)}.lb-ed .lb-box[data-k=qr]{border-color:#0c8599;background:rgba(12,133,153,.12)}.lb-ed .lb-box[data-k=maker]{border-color:#e67700;background:rgba(230,119,0,.12);align-items:flex-start}.lb-ed .lb-box[data-k=maker] b{white-space:pre;font-weight:400;line-height:1.15}
 .lb-dot{display:inline-block;width:12px;height:12px;border-radius:3px}
 .lb-ed .lb-box.lb-fr{border:2px solid #000;background:transparent;pointer-events:none}.lb-ed .lb-box.lb-fr.on{pointer-events:auto;background:rgba(0,0,0,.04)}.lb-ed .lb-fr-circle{border-radius:50%}
 .lb-tools{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px;align-items:center}.lb-tools .btn{padding:4px 10px}.lb-fsize{display:inline-flex;align-items:center;gap:6px;font-weight:600;white-space:nowrap}.lb-fsize input{width:80px!important;min-width:0;padding:4px 6px}.lb-fsize[hidden],.lb-fsize [hidden]{display:none!important}
@@ -421,6 +434,8 @@ final class LabelPages
             . U::input('height_mm', $h, 'Wysokość (mm)', 'id="lb-h" inputmode="decimal" placeholder="z proporcji pliku"', 'puste = z proporcji pliku')
             . U::select('align', ['left' => 'do lewej', 'center' => 'na środku', 'right' => 'do prawej'], (string) ($posted['align'] ?? $boxes['align']), 'Tekst w prostokącie', 'id="lb-align"')
             . U::input('qr_url', (string) ($boxes['qr_url'] ?? ''), 'Kod QR prowadzi do', 'id="lb-qr" inputmode="url" placeholder="https://…"', 'adres do kodu QR; {partia} = numer partii')
+            . '<label>Dane producenta<textarea name="maker_text" id="lb-maker" rows="3" placeholder="' . U::h(self::$maker !== '' ? self::$maker : 'Nazwa, adres, kontakt') . '">' . U::h((string) ($boxes['maker_text'] ?? '')) . '</textarea>'
+            . '<small>puste = producent z ustawień Produkcji; wpisz innego dla private label</small></label>'
             . U::select('outline', Store::OUTLINES, (string) ($boxes['outline'] ?? 'none'), 'Obrys (linia cięcia)', 'id="lb-outline"')
             . '</div>'
             . '<input type="hidden" name="boxes" id="lb-boxes" value="' . U::h(json_encode($boxes)) . '"><input type="hidden" name="source_name" id="lb-src" value="">'
@@ -479,7 +494,7 @@ var pxW=C.pxW,pxH=C.pxH,hAuto=!H.value,lotInFile='',fileNote='';
 function field(){var r=document.querySelector('input[name=lb_field]:checked');return r?r.value:'lot';}
 function img(){return document.getElementById('lb-img');}
 function outline(){return OL.value;}
-function save(){var o={align:document.getElementById('lb-align').value,outline:outline(),qr_url:document.getElementById('lb-qr').value.trim()};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}
+function save(){var o={align:document.getElementById('lb-align').value,outline:outline(),qr_url:document.getElementById('lb-qr').value.trim(),maker_text:document.getElementById('lb-maker').value.trim()};for(var k in C.names){if(boxes[k])o[k]=boxes[k];}
  if(outline()!=='none'&&boxes.frame)o.frame=boxes.frame;hid.value=JSON.stringify(o);}
 function num(v){return parseFloat(String(v).replace(',','.'));}
 function wmm(){return num(W.value)||0;}
@@ -505,6 +520,8 @@ function draw(){ed.querySelectorAll('.lb-box').forEach(function(b){b.remove();})
   var fs=b[3]*i.clientHeight*0.8;d.style.fontSize=fs+'px';var tx=document.createElement('b');d.title=C.names[k];d.appendChild(tx);if(k===field())d.classList.add('on');handle(d);ed.appendChild(d);
   if(k==='qr'){tx.innerHTML=C.qr||'';tx.style.cssText='width:100%;height:100%;background:#fff';var sq=tx.querySelector('svg');if(sq){sq.style.width='100%';sq.style.height='100%';sq.style.display='block';}continue;}
   if(k==='ean_bar'){tx.innerHTML=C.bar||'';tx.style.cssText='width:100%;height:100%;background:#fff';var sv=tx.querySelector('svg');if(sv){sv.style.width='100%';sv.style.height='100%';sv.style.display='block';}continue;}
+  if(k==='maker'){var mt=document.getElementById('lb-maker').value.trim()||C.maker||'Nazwa producenta\nadres\nkontakt';tx.textContent=mt;fs=b[3]*i.clientHeight/Math.max(1,mt.split('\n').length)/1.2;d.style.fontSize=fs+'px';
+   tx.style.textAlign=document.getElementById('lb-align').value;tx.style.width='100%';var nm=0;while((tx.scrollWidth>d.clientWidth+1||tx.scrollHeight>d.clientHeight+1)&&nm++<60){fs*=0.94;d.style.fontSize=fs+'px';}continue;}
   tx.textContent=C.sample[k]||'';var n=0;while(tx.scrollWidth>d.clientWidth+1&&n++<60){fs*=0.94;d.style.fontSize=fs+'px';}}
  save();info();}
 function setImg(url,w,h,after){var n=document.getElementById('lb-none');if(n)n.remove();var i=img();if(!i){i=document.createElement('img');i.id='lb-img';i.alt='Etykieta';ed.appendChild(i);}
@@ -570,7 +587,7 @@ function fileMm(f,pw,ph){return f.slice(0,262144).arrayBuffer().then(function(b)
  else if(v.byteLength>18&&v.getUint16(0)===0xFFD8&&v.getUint32(6)===0x4A464946){var u=v.getUint8(13),xd=v.getUint16(14);dpi=u===1?xd:(u===2?xd*2.54:0);}
  return dpi>=50&&dpi<=4800?{w:pw/dpi*25.4,h:ph/dpi*25.4,dpi:Math.round(dpi)}:null;}).catch(function(){return null;});}
 OL.onchange=function(){if(outline()!=='none'){fitFrame();pick('frame');}draw();};
-document.getElementById('lb-qr').addEventListener('input',function(){save();info();});document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
+document.getElementById('lb-qr').addEventListener('input',function(){save();info();});document.getElementById('lb-maker').addEventListener('input',draw);document.getElementById('lb-align').onchange=draw;W.oninput=function(){draw();};H.oninput=function(){hAuto=!H.value;draw();};
 window.addEventListener('resize',draw);
 // ---- odczyt etykiety (Tesseract.js w przeglądarce): pola i kontrola z kartą produktu
 function get(k,type){return fetch(C.tess[k][0],{integrity:C.tess[k][1],mode:'cors'}).then(function(r){if(!r.ok)throw new Error(k);return type==='buf'?r.arrayBuffer():r.text();});}

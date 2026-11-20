@@ -47,7 +47,7 @@ final class ProdukcjaExtension extends AbstractExtension
                  'help' => 'Czynsz, prąd, abonamenty. Służy do progu opłacalności na karcie wyrobu.'],
                 ['key' => 'label_w', 'label' => 'Etykieta partii: szerokość (mm)', 'type' => 'text', 'default' => '50'],
                 ['key' => 'label_h', 'label' => 'Etykieta partii: wysokość (mm)', 'type' => 'text', 'default' => '30'],
-                ['key' => 'maker', 'label' => 'Producent na etykiecie partii', 'type' => 'textarea', 'default' => '',
+                ['key' => 'maker', 'label' => 'Producent na etykiecie partii i w polu „Dane producenta” etykiety CLP', 'type' => 'textarea', 'default' => '',
                  'help' => 'Nazwa, adres i kontakt (GPSR). Puste = bez tej linii.'],
             ],
         );
@@ -82,6 +82,7 @@ final class ProdukcjaExtension extends AbstractExtension
         }
         $store = fn(): Store => new Store($this->pdo());
         $prod = fn(Store $s): Production => new Production($s, $this->cfg());
+        LabelPages::$maker = trim((string) $this->setting('maker', ''));
         $user = static fn(array $ctx): string => (string) $ctx['user'];
         $go = static function (string $page, array $q = []): void {
             header('Location: ' . U::url($page, $q));

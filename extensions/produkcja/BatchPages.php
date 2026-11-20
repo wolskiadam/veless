@@ -38,7 +38,17 @@ final class BatchPages
                 $ctx['canEdit'] ? '<a class="btn" href="' . U::h(U::url('partia_nowa')) . '">+ Nowa partia</a>' : '')
                 : '<div class="card pr-muted">' . ($view === 'kosz' ? 'Kosz jest pusty. Usunięte partie leżą tu 30 dni.' : 'Nic nie pasuje do filtrów.') . '</div>');
         }
-        return $html . '<div class="card pr-table" style="padding:6px 10px">' . self::table($rows, $view === 'kosz', $ctx) . '</div>';
+        if ($view !== '') {
+            return $html . '<div class="card pr-table" style="padding:6px 10px">' . self::table($rows, $view === 'kosz', $ctx) . '</div>';
+        }
+        // Zaznaczone partie -> jeden arkusz A4 z etykietami CLP (LabelPages::batchesSheet).
+        return $html . '<form id="pr-lbl" method="get" action="ext.php" target="_blank" class="pr-filter" style="align-items:center">'
+            . '<input type="hidden" name="page" value="produkcja.etykiety_partii"><button class="btn secondary" type="submit" id="pr-lbl-btn" disabled>🖨 Drukuj etykiety zaznaczonych</button>'
+            . '<span class="pr-small" id="pr-lbl-n">Zaznacz partie, żeby wydrukować ich etykiety CLP na jednym arkuszu A4.</span></form>'
+            . '<div class="card pr-table" style="padding:6px 10px">' . self::table($rows, false, $ctx + ['select' => true]) . '</div>'
+            . '<script>(function(){var f=document.getElementById("pr-lbl"),b=document.getElementById("pr-lbl-btn"),t=document.getElementById("pr-lbl-n"),all=document.getElementById("pr-lbl-all");'
+            . 'function upd(){var n=document.querySelectorAll("input.pr-lbl-x:checked").length;b.disabled=!n;t.textContent=n?"Zaznaczone partie: "+n+".":"Zaznacz partie, żeby wydrukować ich etykiety CLP na jednym arkuszu A4.";}'
+            . 'document.addEventListener("change",function(e){if(e.target===all){document.querySelectorAll("input.pr-lbl-x").forEach(function(c){c.checked=all.checked;});}if(e.target===all||e.target.classList.contains("pr-lbl-x"))upd();});upd();})();</script>';
     }
 
     /** Filtry listy partii z adresu (lista i eksport CSV). @return array<string,mixed> */
@@ -61,11 +71,13 @@ final class BatchPages
         if ($rows === []) {
             return '<p class="pr-muted" style="margin:0">Brak partii.</p>';
         }
-        $html = '<table><thead><tr><th>Numer</th><th>Wyrób</th><th>Data</th><th class="pr-num">Szt.</th><th class="pr-hide-m">Ważna do</th>'
+        $sel = !empty($ctx['select']) && !$trash;
+        $html = '<table><thead><tr>' . ($sel ? '<th style="width:28px"><input type="checkbox" id="pr-lbl-all" aria-label="Zaznacz wszystkie"></th>' : '') . '<th>Numer</th><th>Wyrób</th><th>Data</th><th class="pr-num">Szt.</th><th class="pr-hide-m">Ważna do</th>'
             . '<th class="pr-num pr-hide-m">Koszt szt.</th>' . ($trash ? '<th></th>' : '') . '</tr></thead><tbody>';
         foreach ($rows as $b) {
             $unit = $b['cost_materials'] !== null && (int) $b['qty'] > 0 ? ((float) $b['cost_materials'] + (float) $b['cost_labor']) / (int) $b['qty'] : null;
-            $html .= '<tr><td><a class="pr-code" href="' . U::h(U::url('partia', ['id' => $b['id']])) . '">' . U::h($b['code']) . '</a>'
+            $html .= '<tr>' . ($sel ? '<td><input type="checkbox" class="pr-lbl-x" name="ids[]" value="' . U::h($b['id']) . '" form="pr-lbl" aria-label="Zaznacz ' . U::h($b['code']) . '"></td>' : '')
+                . '<td><a class="pr-code" href="' . U::h(U::url('partia', ['id' => $b['id']])) . '">' . U::h($b['code']) . '</a>'
                 . ((int) $b['is_draft'] === 1 ? ' <span class="pill info">wycena</span>' : '') . ((int) $b['imported'] === 1 ? ' <span class="pill muted" title="z Rejestru Partii">import</span>' : '') . '</td>'
                 . '<td>' . U::h($b['product_name']) . '</td><td class="pr-num">' . U::date($b['produced_at']) . '</td><td class="pr-num">' . (int) $b['qty'] . '</td>'
                 . '<td class="pr-hide-m">' . U::date($b['expires_at']) . '</td><td class="pr-num pr-hide-m">' . ($unit !== null ? U::money($unit) : '-') . '</td>'

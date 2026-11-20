@@ -102,7 +102,7 @@ final class Store
             // już jest (nowa instalacja)
         }
         // Wersja 5: wzory etykiet CLP z wersji 4 zastąpione gotowym plikiem etykiety przy produkcie (ext_prod_labels).
-        foreach (['DROP TABLE IF EXISTS ext_prod_clp', 'ALTER TABLE ext_prod_products DROP COLUMN clp_id'] as $sql) {
+        foreach (['DROP TABLE ext_prod_clp', 'ALTER TABLE ext_prod_products DROP COLUMN clp_id'] as $sql) {
             try {
                 $this->pdo->exec($sql);
             } catch (\PDOException) {

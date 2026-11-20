@@ -71,7 +71,7 @@ final class Store
             }
         }
         // Wersja 3: mieszaniny CLP z wersji 2 usunięte (etykieta CLP to teraz gotowy plik przy produkcie, wtyczka Produkcja).
-        foreach (['DROP TABLE IF EXISTS ext_zap_clp', 'ALTER TABLE ext_zap_links DROP COLUMN clp_id'] as $sql) {
+        foreach (['DROP TABLE ext_zap_clp', 'ALTER TABLE ext_zap_links DROP COLUMN clp_id'] as $sql) {
             try {
                 $this->pdo->exec($sql);
             } catch (\PDOException) {

@@ -341,7 +341,7 @@ final class BatchPages
         }
         $p = $s->pickRow($crm);
         return '<dt>Produkt w Magazynie</dt><dd><a href="product_view.php?id=' . $p['id'] . '">' . U::h($p['name']) . '</a>'
-            . ($p['variant'] !== '' ? ' · ' . U::h($p['variant']) : '') . ($p['sku'] !== '' ? ' · <span class="pr-num">' . U::h($p['sku']) . '</span>' : '')
+            . ($p['variant'] !== '' ? ' · ' . U::h($p['variant']) : '') . ($p['weight'] !== '' ? ' · ' . U::h($p['weight']) : '') . ($p['sku'] !== '' ? ' · <span class="pr-num">' . U::h($p['sku']) . '</span>' : '')
             . ' · ' . ($p['label'] ? '<span class="pill ok">etykieta CLP</span>' : '<span class="pill">bez etykiety CLP</span>') . '</dd>';
     }
 

@@ -414,7 +414,31 @@ final class Store
             }
         }
         return ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'sku' => (string) ($r['sku'] ?? ''), 'variant' => self::variantText($r),
+            'weight' => $this->weightText($r), 'img' => self::firstImage($r['images'] ?? null),
             'label' => $l !== null, 'shared' => isset($l['shared_from']), 'parent' => $parent];
+    }
+
+    /** Gramatura do podpowiedzi: waga wyrobu z Produkcji (po SKU), a bez niej waga produktu z Magazynu (kg → g). */
+    private function weightText(array $r): string
+    {
+        $g = null;
+        $sku = trim((string) ($r['sku'] ?? ''));
+        if ($sku !== '') {
+            $w = $this->one('SELECT weight_g FROM ext_prod_products WHERE sku = ? AND archived = 0 AND weight_g IS NOT NULL', [$sku]);
+            $g = $w !== null ? (float) $w['weight_g'] : null;
+        }
+        if (($g === null || $g <= 0) && (float) ($r['weight'] ?? 0) > 0) {
+            $g = (float) $r['weight'] * 1000;
+        }
+        return $g !== null && $g > 0 ? Ui::n(round($g, 1)) . "\u{a0}g" : '';
+    }
+
+    /** Pierwsze zdjęcie produktu (products.images: lista adresów albo {src}); tylko http(s). */
+    private static function firstImage(mixed $json): string
+    {
+        $imgs = is_string($json) ? json_decode($json, true) : null;
+        $first = is_array($imgs) && $imgs !== [] ? (is_array($imgs[0] ?? null) ? ($imgs[0]['src'] ?? '') : ($imgs[0] ?? '')) : '';
+        return is_string($first) && preg_match('~^https?://~i', $first) ? $first : '';
     }
 
     /** Wartości atrybutów wariantu (np. „100 ml · Sojowy”) z products.attributes. */

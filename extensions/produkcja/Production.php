@@ -260,8 +260,15 @@ final class Production
         $person = $this->dictRow('person', (string) ($in['person'] ?? ''));
         $hours = Store::num($in['work_hours'] ?? '');
         $months = $free ? max(0, min(120, (int) ($in['shelf_life_months'] ?? 12))) : (int) $product['shelf_life_months'];
+        // Produkt z Magazynu wybrany z podpowiedzi (partia bez wyrobu) - po nim druk wie, którą etykietę CLP wziąć.
+        // Zatwierdzenie wyceny i ponowne zdjęcie materiałów nie przekazują pola, więc zostaje to, co było.
+        $crm = null;
+        if ($free) {
+            $crmIn = array_key_exists('crm_product_id', $in) ? (int) $in['crm_product_id'] : (int) ($old['crm_product_id'] ?? 0);
+            $crm = $this->s->crmProduct($crmIn) !== null ? $crmIn : null;
+        }
 
-        return $this->s->tx(function () use ($old, $product, $name, $free, $qty, $date, $draft, $shift, $person, $hours, $months, $in, $user): array {
+        return $this->s->tx(function () use ($old, $product, $name, $free, $qty, $date, $draft, $shift, $person, $hours, $months, $in, $user, $crm): array {
             if ($old !== null) {
                 $this->revert($old, $user, 'zmiana partii');
             }
@@ -274,6 +281,7 @@ final class Production
                 'code' => $code,
                 'product_id' => $product['id'] ?? null,
                 'product_name' => $name,
+                'crm_product_id' => $crm,
                 'produced_at' => $date,
                 'qty' => $qty,
                 'expires_at' => $months > 0 ? date('Y-m-d', strtotime($date . ' +' . $months . ' months')) : null,

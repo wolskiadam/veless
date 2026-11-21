@@ -81,6 +81,83 @@ final class Ui
         return $label === '' ? $sel : '<label>' . $label . $sel . '</label>';
     }
 
+    /**
+     * Pole produktu z podpowiedziami na żywo z Magazynu: wpisujesz nazwę, a lista pokazuje pasujące produkty
+     * z wariantem, SKU i informacją o etykiecie CLP. Wybrany produkt trafia do ukrytego pola $idName (id produktu).
+     * Wpisanie własnej nazwy zostawia pole id puste (produkt niepołączony).
+     */
+    public static function productPicker(string $textName, string $text, string $idName, ?array $crm, string $label, string $attrs = '', bool $hint = true): string
+    {
+        $info = '';
+        if ($hint) {
+            $info = '<small class="pr-pick-info">' . ($crm !== null ? self::pickInfo($crm) : 'Zacznij pisać nazwę i wybierz produkt z listy - wtedy druk weźmie jego etykietę CLP.') . '</small>';
+        }
+        return '<div class="pr-pick">' . $label
+            . '<input name="' . self::h($textName) . '" value="' . self::h($text) . '" autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list"'
+            . ' data-pick-url="' . self::h(self::url('produkty_szukaj')) . '" data-pick-name="' . self::h($crm['name'] ?? '') . '" ' . $attrs . '>'
+            . '<input type="hidden" name="' . self::h($idName) . '" value="' . self::h($crm !== null ? (string) (int) $crm['id'] : '') . '">'
+            . '<div class="pr-pick-list" role="listbox" hidden></div>' . $info . '</div>' . self::pickerScript();
+    }
+
+    /** Opis wybranego produktu pod polem (SKU, wariant, etykieta CLP). @param array{sku?:string,variant?:string,label?:bool,shared?:bool} $p */
+    public static function pickInfo(array $p): string
+    {
+        $bits = array_filter([(string) ($p['variant'] ?? ''), ($p['sku'] ?? '') !== '' ? 'SKU ' . $p['sku'] : '']);
+        return '<span class="pr-ok">✓ Połączono z Magazynem</span>' . ($bits !== [] ? ' · ' . self::h(implode(' · ', $bits)) : '') . ' · '
+            . (!empty($p['label']) ? '<span class="pr-ok">ma etykietę CLP' . (!empty($p['shared']) ? ' (wspólną z wariantem)' : '') . '</span>' : '<span class="pr-bad">bez etykiety CLP</span>');
+    }
+
+    private static bool $pickerJs = false;
+
+    private static function pickerScript(): string
+    {
+        if (self::$pickerJs) {
+            return '';
+        }
+        self::$pickerJs = true;
+        return <<<'HTML'
+<style>
+.pr-pick{position:relative;display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-2);font-weight:600}
+.pr-pick input{width:100%;box-sizing:border-box;font-weight:400;color:var(--ink)}
+.pr-pick small{font-weight:400;color:var(--ink-3)}
+.pr-pick-list{position:absolute;z-index:30;left:0;top:100%;margin-top:2px;min-width:100%;width:max-content;max-width:min(560px,92vw);max-height:340px;overflow-y:auto;background:var(--surface,#fff);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px}
+.pr-pick-list[hidden]{display:none}
+.pr-pick-it{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:7px 9px;cursor:pointer;font:inherit;color:var(--ink)}
+.pr-pick-it:hover,.pr-pick-it.on{background:var(--accent-soft)}
+.pr-pick-it b{font-weight:600;font-size:14px}
+.pr-pick-it span{font-weight:400;font-size:12.5px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+.pr-pick-it .pill{font-size:11px;font-style:normal}
+.pr-pick-none{padding:8px 10px;font-weight:400;color:var(--ink-3)}
+</style>
+<script>(function(){if(window.prPick)return;window.prPick=1;
+function esc(t){var d=document.createElement('div');d.textContent=t==null?'':String(t);return d.innerHTML;}
+function info(p){var b=[];if(p.variant)b.push(esc(p.variant));if(p.sku)b.push('SKU '+esc(p.sku));
+return '<span class="pr-ok">✓ Połączono z Magazynem</span>'+(b.length?' · '+b.join(' · '):'')+' · '+(p.label?'<span class="pr-ok">ma etykietę CLP'+(p.shared?' (wspólną z wariantem)':'')+'</span>':'<span class="pr-bad">bez etykiety CLP</span>');}
+function setup(inp){var box=inp.parentNode,hid=box.querySelector('input[type=hidden]'),list=box.querySelector('.pr-pick-list'),inf=box.querySelector('.pr-pick-info'),t,seq=0,items=[],act=-1;
+function close(){list.hidden=true;inp.setAttribute('aria-expanded','false');act=-1;}
+function mark(){list.querySelectorAll('.pr-pick-it').forEach(function(e,i){e.classList.toggle('on',i===act);if(i===act)e.scrollIntoView({block:'nearest'});});}
+function choose(i){var p=items[i];if(!p)return;inp.value=p.name;inp.dataset.pickName=p.name;hid.value=p.id;if(inf)inf.innerHTML=info(p);close();inp.dispatchEvent(new Event('change',{bubbles:true}));}
+function show(r){items=r||[];act=-1;if(!items.length){list.innerHTML='<div class="pr-pick-none">Nie ma takiego produktu w Magazynie. Możesz zostawić własną nazwę.</div>';}
+else{list.innerHTML=items.map(function(p,i){var m=[];if(p.variant)m.push('<i style="font-style:normal">'+esc(p.variant)+'</i>');m.push(p.sku?'SKU '+esc(p.sku):'bez SKU');
+if(p.parent)m.push('<em class="pill">produkt główny</em>');m.push(p.label?'<em class="pill ok">etykieta CLP</em>':'<em class="pill">bez etykiety</em>');
+return '<button type="button" class="pr-pick-it" role="option" data-i="'+i+'"><b>'+esc(p.name)+'</b><span>'+m.join('')+'</span></button>';}).join('');}
+list.hidden=false;inp.setAttribute('aria-expanded','true');}
+function search(){var q=inp.value.trim(),my=++seq;if(q.length<2){close();return;}
+fetch(inp.dataset.pickUrl+'&q='+encodeURIComponent(q),{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(r){if(my===seq&&document.activeElement===inp)show(r.items);}).catch(function(){});}
+inp.addEventListener('input',function(){if(inp.value!==inp.dataset.pickName&&hid.value!==''){hid.value='';if(inf)inf.innerHTML='Nie połączono z produktem z Magazynu - wybierz go z listy, żeby druk wziął etykietę CLP.';}
+clearTimeout(t);t=setTimeout(search,180);});
+inp.addEventListener('focus',function(){if(inp.value.trim().length>=2&&hid.value==='')search();});
+inp.addEventListener('keydown',function(e){if(list.hidden)return;var n=items.length;
+if(e.key==='ArrowDown'){e.preventDefault();act=(act+1)%n;mark();}else if(e.key==='ArrowUp'){e.preventDefault();act=(act-1+n)%n;mark();}
+else if(e.key==='Enter'&&act>=0){e.preventDefault();choose(act);}else if(e.key==='Escape'){close();}});
+inp.addEventListener('blur',function(){setTimeout(close,150);});
+list.addEventListener('mousedown',function(e){e.preventDefault();});
+list.addEventListener('click',function(e){var b=e.target.closest('.pr-pick-it');if(b)choose(+b.dataset.i);});}
+function init(){document.querySelectorAll('input[data-pick-url]').forEach(function(i){if(!i.dataset.pickOn){i.dataset.pickOn=1;setup(i);}});}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();})();</script>
+HTML;
+    }
+
     /** Zakładki wtyczki nad treścią (ta sama nawigacja na telefonie i komputerze). */
     public static function tabs(string $active): string
     {

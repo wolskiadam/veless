@@ -347,8 +347,10 @@ final class ProdukcjaExtension extends AbstractExtension
                     return;
                 }
                 $wyrob = ($b['product_id'] !== null ? $s->product((string) $b['product_id']) : null) ?? [];
-                $sku = trim((string) ($_GET['sku'] ?? ($wyrob['sku'] ?? '')));
-                $crm = $sku !== '' ? $this->crmBySku($s, $sku) : null;
+                // Produkt wybrany przy partii (albo o SKU wyrobu); SKU wpisane nad arkuszem ma pierwszeństwo.
+                $linked = $s->crmForBatch($b);
+                $sku = trim((string) ($_GET['sku'] ?? ($linked['sku'] ?? ($wyrob['sku'] ?? ''))));
+                $crm = isset($_GET['sku']) ? ($sku !== '' ? $this->crmBySku($s, $sku) : null) : ($linked ?? ($sku !== '' ? $this->crmBySku($s, $sku) : null));
                 $l = $crm !== null ? $s->labelFor((int) $crm['id']) : null;
                 $pick = ' Produkt (SKU): <input name="sku" value="' . U::h($sku) . '" list="lb-skus" style="width:150px" onchange="this.form.submit()">' . LabelPages::skuList($s);
                 $simple = ($_GET['wzor'] ?? '') === 'prosta';
@@ -361,6 +363,13 @@ final class ProdukcjaExtension extends AbstractExtension
                 $n = max(1, min(500, (int) ($_GET['n'] ?? $b['qty'])));
                 $bar = $pick . ' <a href="' . U::h(U::url('etykieta', ['id' => $b['id'], 'wzor' => 'prosta'])) . '">prosta etykieta partii</a>';
                 echo LabelPages::sheet($l, LabelPages::values($b, '', $crm), $n, 'etykieta', ['id' => (string) $b['id']], $bar, (string) $crm['name'] . ' · partia ' . $b['code']);
+            }]);
+
+        // Podpowiedzi produktów z Magazynu po nazwie (pole „Produkt” partii, dodawanie etykiety CLP).
+        Hooks::addPage('produkty_szukaj', ['title' => 'Szukaj produktu', 'menu' => false, 'role' => 'viewer', 'raw' => true,
+            'render' => static function (PDO $pdo) use ($store): void {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode(['items' => $store()->findCrmProducts(mb_substr((string) ($_GET['q'] ?? ''), 0, 100))], JSON_UNESCAPED_UNICODE);
             }]);
 
         Hooks::addPage('etykiety_partii', ['title' => 'Etykiety zaznaczonych partii', 'menu' => false, 'role' => 'viewer', 'raw' => true,
@@ -381,7 +390,7 @@ final class ProdukcjaExtension extends AbstractExtension
         // ---- Etykiety CLP z gotowego pliku (przy produkcie CRM)
         $crmProduct = static function (Store $s, array $q): ?array {
             try {
-                if (isset($q['produkt'])) {
+                if ((int) ($q['produkt'] ?? 0) > 0) {
                     return $s->one('SELECT * FROM products WHERE id = ?', [(int) $q['produkt']]);
                 }
                 $v = trim((string) ($q['sku'] ?? ''));
@@ -435,7 +444,7 @@ final class ProdukcjaExtension extends AbstractExtension
                     return '<div class="flash err">Nie ma takiego produktu.</div>';
                 }
                 $pid = (int) $crm['id'];
-                if (!isset($_GET['produkt'])) {
+                if ((int) ($_GET['produkt'] ?? 0) !== $pid) {
                     header('Location: ' . U::url('etykieta_edytuj', ['produkt' => $pid]));
                     exit;
                 }

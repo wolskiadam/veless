@@ -375,7 +375,7 @@ try {
     ok(str_contains($pl, 'name="ids[]" value="' . $b1 . '" form="pr-lbl"') && str_contains($pl, 'produkcja.etykiety_partii') && str_contains($pl, 'id="pr-lbl-all"'), 'Batch list has checkboxes to print labels of selected batches');
     $lab = request($vi, 'admin/ext.php?' . http_build_query(['page' => 'produkcja.etykiety_partii', 'ids' => [$b1, 'bezwyrobu0000001', $b2]]))['body'];
     ok(substr_count($lab, 'class="lb"') === 8 && substr_count($lab, '>AD010LX02ABBA</span>') === 8 && str_contains($lab, 'name="n[' . $b1 . ']" min="0" max="500" value="8"')
-        && str_contains($lab, 'STARA-01 (partia bez wyrobu)') && !str_contains($lab, 'AD015LX02ABBA') && str_contains($lab, 'size:A4'), 'Selected batches print on one sheet; batch without a label is listed, deleted one skipped');
+        && str_contains($lab, 'STARA-01 (nie wybrano produktu z Magazynu)') && !str_contains($lab, 'AD015LX02ABBA') && str_contains($lab, 'size:A4'), 'Selected batches print on one sheet; batch without a label is listed, deleted one skipped');
     $lab = request($vi, 'admin/ext.php?' . http_build_query(['page' => 'produkcja.etykiety_partii', 'ids' => [$b1], 'n' => [$b1 => 3], 'pomin' => 2]))['body'];
     ok(substr_count($lab, 'class="lb"') === 3 && substr_count($lab, 'class="lb lb-skip"') === 2 && str_contains($lab, '3 etykiet z 1 partii'), 'Count per batch and skip on the multi-batch sheet');
 
@@ -524,6 +524,41 @@ try {
     ok((int) $db['is_draft'] === 0 && $db['product_name'] === 'Lawenda próbna' && $stock('Wosk sojowy Golden 464') == $waxBefore - 900, 'Approved free draft takes the materials');
     $r = $post($ola, 'partia_nowa', ['free' => 1, 'save' => 1, 'product_name' => '', 'qty' => '1']);
     ok(str_contains($r['body'], 'Wpisz nazwę produktu'), 'Name is required without a product');
+
+    // ---- Partia bez wyrobu połączona z produktem z Magazynu (wyszukiwanie po nazwie) - druk bierze jego etykietę CLP
+    $pdo->exec("INSERT INTO products (id, sku, name, pase_stock, attributes) VALUES (3, 'AW15LBP1W4VM', 'Grzane Wino Świeca Sojowa', 0, '{\"Pojemność\":[\"180 ml\"]}'),
+        (4, 'NSOS61HW100A', 'Grzane Wino Świeca Sojowa', 0, '[{\"name\":\"Pojemność\",\"options\":[\"100 ml\"]}]')");
+    $fm = request($ola, $url('partia_nowa', ['bez' => 1]))['body'];
+    ok(str_contains($fm, 'data-pick-url=') && str_contains($fm, 'name="crm_product_id" value=""') && !str_contains($fm, 'list="pr-names"'), 'Product field searches the warehouse by name');
+    $hits = request($ola, $url('produkty_szukaj', ['q' => 'grzane wino']))['json']['items'] ?? [];
+    ok(count($hits) === 2 && array_column($hits, 'sku') === ['AW15LBP1W4VM', 'NSOS61HW100A'] && array_column($hits, 'variant') === ['180 ml', '100 ml']
+        && $hits[0]['label'] === false, 'Search by name shows both variants with size, SKU and label state');
+    $hits = request($vi, $url('produkty_szukaj', ['q' => 'ginger']))['json']['items'] ?? [];
+    ok(count($hits) === 1 && $hits[0]['id'] === 1 && $hits[0]['label'] === true, 'Search finds the product with a CLP label (viewer can search too)');
+    ok((request($ola, $url('produkty_szukaj', ['q' => 'nsos61']))['json']['items'][0]['id'] ?? 0) === 4, 'Search by part of the SKU');
+    ok((request($ola, $url('produkty_szukaj', ['q' => ' ']))['json']['items'] ?? null) === [], 'Empty search gives nothing');
+    $r = $post($ola, 'partia_nowa', ['free' => 1, 'save' => 1, 'product_name' => 'GINGERBREAD 1l', 'crm_product_id' => '1', 'qty' => '3', 'produced_at' => '2026-11-21',
+        'f' => ['wosk' => ['id' => $wax]]]);
+    $lid = $locId($r);
+    $lb = $pdo->query("SELECT * FROM ext_prod_batches WHERE id = '$lid'")->fetch(PDO::FETCH_ASSOC);
+    ok($lb && (int) $lb['crm_product_id'] === 1 && $lb['product_id'] === null, 'Free batch remembers the chosen warehouse product');
+    $lc = request($vi, $url('partia', ['id' => $lid]))['body'];
+    ok(str_contains($lc, 'Produkt w Magazynie') && str_contains($lc, 'product_view.php?id=1') && str_contains($lc, 'etykieta CLP'), 'Batch card shows the linked product and its label');
+    $lab = request($vi, $url('etykieta', ['id' => $lid, 'n' => 2]))['body'];
+    ok(substr_count($lab, 'class="lb"') === 2 && str_contains($lab, '>' . $lb['code'] . '</span>') && str_contains($lab, 'value="GB-1L"'), 'Batch prints the CLP label of the linked product with its number');
+    $sheet = request($vi, $url('etykiety_partii', ['ids' => [$lid, $fid]]))['body'];
+    ok(substr_count($sheet, 'class="lb"') === 3 && str_contains($sheet, 'nie wybrano produktu z Magazynu'), 'Many-batch sheet uses the linked product and names the unlinked batch');
+    $le = request($ola, $url('partia_nowa', ['id' => $lid]))['body'];
+    ok(str_contains($le, 'name="crm_product_id" value="1"') && str_contains($le, 'Połączono z Magazynem') && str_contains($le, 'SKU GB-1L'), 'Edit form keeps the linked product');
+    $pv = request($vi, 'admin/product_view.php?id=1')['body'];
+    ok(str_contains($pv, $lb['code']), 'Product card offers the linked batch number for printing');
+    $post($ola, 'partia_nowa', ['id' => $lid, 'free' => 1, 'save' => 1, 'keep_code' => 1, 'product_name' => 'Piernik własny', 'crm_product_id' => '', 'qty' => '3', 'produced_at' => '2026-11-21']);
+    ok($pdo->query("SELECT crm_product_id FROM ext_prod_batches WHERE id = '$lid'")->fetchColumn() === null, 'Typing an own name unlinks the product');
+    $r = request($ola, $url('etykieta_edytuj', ['produkt' => '4', 'sku' => 'Grzane Wino Świeca Sojowa']));
+    ok($r['status'] === 200 && str_contains($r['body'], 'name="plik"') && str_contains($r['body'], 'Grzane Wino'), 'Labels tab: product picked from the suggestions opens its editor');
+    $r = request($ola, $url('etykieta_edytuj', ['produkt' => '', 'sku' => 'MW-1L']));
+    ok($r['status'] === 302 && str_contains(urldecode($r['headers']), 'produkt=2'), 'Labels tab: typed SKU without picking still works');
+    ok(str_contains(request($ola, $url('etykiety'))['body'], 'data-pick-url='), 'Labels tab adds a label with the same live search');
 
     // ---- Osoby i zmiany
     $post($ola, 'ludzie', ['person_name' => ['Adam Wolski', 'Ola'], 'person_rate' => ['40', '25'], 'shift_name' => ['Seria 1', 'Poranna'], 'shift_code' => ['z', 'p']]);

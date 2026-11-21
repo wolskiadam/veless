@@ -15,7 +15,7 @@ use PDO;
  */
 final class Store
 {
-    public const SCHEMA = '5';
+    public const SCHEMA = '6';
     public const CATEGORIES = ['wosk' => 'Wosk', 'zapach' => 'Zapach', 'knot' => 'Knot', 'pojemnik' => 'Pojemnik', 'barwnik' => 'Barwnik',
         'dodatek' => 'Dodatek', 'opakowanie' => 'Opakowanie', 'etykieta' => 'Etykieta', 'inne' => 'Inne'];
     public const UNITS = ['g' => 'g', 'ml' => 'ml', 'szt' => 'szt.'];
@@ -60,7 +60,7 @@ final class Store
                 produced_at VARCHAR(10) NOT NULL, qty INT NOT NULL, expires_at VARCHAR(10) NULL, person VARCHAR(100) NOT NULL, shift VARCHAR(100) NOT NULL,
                 work_hours DECIMAL(8,2) NULL, cost_materials DECIMAL(12,2) NULL, cost_labor DECIMAL(12,2) NULL, lines_json TEXT NOT NULL,
                 stock_json TEXT NOT NULL, is_draft INT NOT NULL DEFAULT 0, imported INT NOT NULL DEFAULT 0, notes TEXT NOT NULL,
-                created_by VARCHAR(100) NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, deleted_at DATETIME NULL',
+                created_by VARCHAR(100) NULL, created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, deleted_at DATETIME NULL, crm_product_id INT NULL',
             'ext_prod_dict' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, kind VARCHAR(10) NOT NULL, name VARCHAR(100) NOT NULL, code VARCHAR(4) NOT NULL,
                 rate DECIMAL(8,2) NULL',
             'ext_prod_moves' => 'id VARCHAR(16) NOT NULL PRIMARY KEY, material_id VARCHAR(16) NOT NULL, delivery_id VARCHAR(16) NULL,
@@ -108,6 +108,12 @@ final class Store
             } catch (\PDOException) {
                 // nie było (instalacja bez wersji 4)
             }
+        }
+        // Wersja 6: partia połączona z produktem z Magazynu (CRM) - wtedy druk bierze jego etykietę CLP.
+        try {
+            $this->pdo->exec('ALTER TABLE ext_prod_batches ADD COLUMN crm_product_id INT NULL');
+        } catch (\PDOException) {
+            // już jest (nowa instalacja)
         }
         // Stary wzór Rejestru Partii (ilość do 999, bez wyrobu i formy) zamieniamy na nowy domyślny. Własny wzór zostaje.
         $cfg = json_decode((string) $settings->get('EXT_PRODUKCJA', ''), true);
@@ -331,6 +337,100 @@ final class Store
             $l['shared_from'] = $row;
         }
         return $l;
+    }
+
+    /** Produkt z Magazynu (CRM) po id. */
+    public function crmProduct(int $id): ?array
+    {
+        if ($id < 1) {
+            return null;
+        }
+        try {
+            return $this->one('SELECT * FROM products WHERE id = ?', [$id]);
+        } catch (\PDOException) {
+            return null;
+        }
+    }
+
+    /**
+     * Produkt z Magazynu, którego etykietę drukuje partia: wybrany przy partii, a bez tego produkt o SKU wyrobu.
+     * @param array<string,mixed> $b partia
+     */
+    public function crmForBatch(array $b): ?array
+    {
+        $crm = $this->crmProduct((int) ($b['crm_product_id'] ?? 0));
+        if ($crm !== null || $b['product_id'] === null) {
+            return $crm;
+        }
+        $sku = trim((string) ($this->product((string) $b['product_id'])['sku'] ?? ''));
+        try {
+            return $sku !== '' ? $this->one('SELECT * FROM products WHERE sku = ?', [$sku]) : null;
+        } catch (\PDOException) {
+            return null;
+        }
+    }
+
+    /**
+     * Podpowiedzi produktów z Magazynu po nazwie (albo SKU / EAN) - każde wpisane słowo musi pasować.
+     * Warianty mają często tę samą nazwę, więc wynik niesie też wariant (atrybuty), SKU i to, czy jest etykieta CLP.
+     * @return list<array{id:int,name:string,sku:string,variant:string,label:bool,shared:bool,parent:bool}>
+     */
+    public function findCrmProducts(string $q, int $limit = 12): array
+    {
+        $words = array_slice(array_values(array_filter(preg_split('/\s+/u', mb_strtolower(trim($q))) ?: [], static fn($w): bool => $w !== '')), 0, 6);
+        if ($words === []) {
+            return [];
+        }
+        $rows = null;
+        foreach ([true, false] as $withEan) {
+            $where = [];
+            $args = [];
+            foreach ($words as $w) {
+                $like = '%' . $w . '%';
+                $where[] = '(LOWER(name) LIKE ? OR LOWER(sku) LIKE ?' . ($withEan ? ' OR ean LIKE ?' : '') . ')';
+                array_push($args, ...array_fill(0, $withEan ? 3 : 2, $like));
+            }
+            $args[] = implode(' ', $words);
+            try {
+                $rows = $this->all('SELECT * FROM products WHERE ' . implode(' AND ', $where) . ' ORDER BY CASE WHEN LOWER(sku) = ? THEN 0 ELSE 1 END, name, sku LIMIT ' . max(1, min(30, $limit)), $args);
+                break;
+            } catch (\PDOException) {
+                $rows = null; // baza bez kolumny ean
+            }
+        }
+        return array_map(fn(array $r): array => $this->pickRow($r), $rows ?? []);
+    }
+
+    /** Produkt z Magazynu w postaci podpowiedzi (nazwa, SKU, wariant, etykieta CLP). @return array{id:int,name:string,sku:string,variant:string,label:bool,shared:bool,parent:bool} */
+    public function pickRow(array $r): array
+    {
+        $l = $this->labelFor((int) $r['id']);
+        $parent = false;
+        if ((int) ($r['woo_product_id'] ?? 0) > 0 && array_key_exists('woo_variation_id', $r) && (int) $r['woo_variation_id'] === 0) {
+            try {
+                $parent = $this->one('SELECT id FROM products WHERE woo_product_id = ? AND woo_variation_id > 0 LIMIT 1', [(int) $r['woo_product_id']]) !== null;
+            } catch (\PDOException) {
+                $parent = false;
+            }
+        }
+        return ['id' => (int) $r['id'], 'name' => (string) $r['name'], 'sku' => (string) ($r['sku'] ?? ''), 'variant' => self::variantText($r),
+            'label' => $l !== null, 'shared' => isset($l['shared_from']), 'parent' => $parent];
+    }
+
+    /** Wartości atrybutów wariantu (np. „100 ml · Sojowy”) z products.attributes. */
+    public static function variantText(array $p): string
+    {
+        $raw = json_decode((string) ($p['attributes'] ?? ''), true);
+        $vals = [];
+        foreach (is_array($raw) ? $raw : [] as $k => $a) {
+            $v = is_array($a) ? ($a['options'] ?? ($a['option'] ?? ($a['value'] ?? (isset($a['name']) ? [] : $a)))) : $a;
+            $v = array_values(array_filter(array_map(static fn($x): string => trim((string) $x), (array) $v), static fn(string $x): bool => $x !== ''));
+            // Przy produkcie głównym Woo atrybut ma wszystkie opcje - to nie jest wariant.
+            if (count($v) === 1) {
+                $vals[] = $v[0];
+            }
+        }
+        return implode(' · ', array_slice(array_unique($vals), 0, 4));
     }
 
     /** Produkty z etykietą (z nazwą i SKU). @return list<array<string,mixed>> */
@@ -858,6 +958,24 @@ final class Store
             if (count($out[$k] ?? []) < $per) {
                 $out[$k][] = ['code' => (string) $r['code'], 'date' => (string) $r['produced_at'], 'qty' => (int) $r['qty']];
             }
+        }
+        // Partie (też bez wyrobu) połączone wprost z produktem z Magazynu.
+        try {
+            $linked = $this->all("SELECT c.sku, b.code, b.produced_at, b.qty, b.created_at FROM ext_prod_batches b JOIN products c ON c.id = b.crm_product_id
+                WHERE LOWER(c.sku) IN ({$in}) AND b.deleted_at IS NULL AND b.is_draft = 0", $skus);
+        } catch (\PDOException) {
+            $linked = [];
+        }
+        foreach ($linked as $r) {
+            $k = mb_strtolower((string) $r['sku']);
+            $row = ['code' => (string) $r['code'], 'date' => (string) $r['produced_at'], 'qty' => (int) $r['qty']];
+            if (!in_array($row['code'], array_column($out[$k] ?? [], 'code'), true)) {
+                $out[$k][] = $row;
+            }
+        }
+        foreach ($out as $k => $list) {
+            usort($list, static fn(array $a, array $b): int => strcmp($b['date'], $a['date']));
+            $out[$k] = array_slice($list, 0, $per);
         }
         return $out;
     }

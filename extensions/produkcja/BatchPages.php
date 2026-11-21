@@ -151,7 +151,7 @@ final class BatchPages
         $total = $b['cost_materials'] !== null ? (float) $b['cost_materials'] + (float) $b['cost_labor'] : null;
         $html .= '<div class="pr-two"><div class="card"><dl class="pr-dl">'
             . '<dt>Data produkcji</dt><dd>' . U::date($b['produced_at']) . '</dd><dt>Ważna do</dt><dd>' . U::date($b['expires_at']) . '</dd>'
-            . '<dt>Ilość</dt><dd>' . (int) $b['qty'] . ' szt.</dd>'
+            . '<dt>Ilość</dt><dd>' . (int) $b['qty'] . ' szt.</dd>' . self::crmRow($s, $b)
             . ($b['person'] !== '' ? '<dt>Robił(a)</dt><dd>' . U::h($b['person']) . '</dd>' : '') . ($b['shift'] !== '' ? '<dt>Zmiana / seria</dt><dd>' . U::h($b['shift']) . '</dd>' : '')
             . ($b['work_hours'] !== null ? '<dt>Czas pracy</dt><dd>' . U::n($b['work_hours']) . ' h</dd>' : '')
             . '<dt>Koszt materiałów</dt><dd>' . U::money($b['cost_materials']) . '</dd>' . ($b['cost_labor'] !== null ? '<dt>Robocizna</dt><dd>' . U::money($b['cost_labor']) . '</dd>' : '')
@@ -251,7 +251,7 @@ final class BatchPages
                 . '<a class="btn secondary' . ($free ? ' on' : '') . '" href="' . U::h(U::url('partia_nowa', ['bez' => 1] + ($draft ? ['wycena' => 1] : []))) . '">Bez wyrobu</a></div>' : '')
             . ($free ? '<input type="hidden" name="free" value="1">' : '')
             . '<div class="pr-grid">'
-            . ($free ? self::freeFields($s, $v('product_name'), $posted !== null ? (string) ($posted['shelf_life_months'] ?? '12') : ($edit ? (string) Production::shelfMonths($b) : '12'), (string) ($posted['product_code'] ?? ''))
+            . ($free ? self::freeFields($s, $v('product_name'), $s->crmProduct((int) ($posted !== null ? ($posted['crm_product_id'] ?? 0) : ($b['crm_product_id'] ?? 0))), $posted !== null ? (string) ($posted['shelf_life_months'] ?? '12') : ($edit ? (string) Production::shelfMonths($b) : '12'), (string) ($posted['product_code'] ?? ''))
                 : U::select('product_id', $opts, $pid, 'Wyrób', 'required onchange="this.form.querySelector(\'[name=reload]\').value=1;this.form.submit()"'))
             . U::input('qty', (string) max(1, $qty), 'Ilość (szt.)', 'type="number" min="1" max="99999" required')
             . U::input('produced_at', $v('produced_at', date('Y-m-d')), 'Data produkcji', 'type="date" required')
@@ -324,23 +324,25 @@ final class BatchPages
     }
 
     /** Nazwa produktu i przydatność partii bez wyrobu. */
-    private static function freeFields(Store $s, string $name, string $months, string $code = ''): string
+    private static function freeFields(Store $s, string $name, ?array $crm, string $months, string $code = ''): string
     {
-        $names = [];
-        foreach ($s->products() as $w) {
-            $names[$w['name']] = true;
-        }
-        foreach ($s->all('SELECT DISTINCT product_name FROM ext_prod_batches WHERE product_id IS NULL AND deleted_at IS NULL ORDER BY product_name LIMIT 300') as $r) {
-            $names[(string) $r['product_name']] = true;
-        }
-        $dl = '';
-        foreach (array_keys($names) as $n) {
-            $dl .= '<option value="' . U::h($n) . '">';
-        }
-        return U::input('product_name', $name, 'Produkt', 'required maxlength="200" list="pr-names" autocomplete="off"')
+        // Nazwa z podpowiedziami z Magazynu: wybrany produkt łączy partię z jego etykietą CLP.
+        return U::productPicker('product_name', $name, 'crm_product_id', $crm !== null ? $s->pickRow($crm) : null, 'Produkt', 'required maxlength="200" placeholder="wpisz nazwę, np. grzane wino"')
             . U::input('product_code', $code, 'Kod do numeru', 'maxlength="2" style="text-transform:uppercase" placeholder="z nazwy"', 'np. WZ dla walca zakręconego')
-            . '<datalist id="pr-names">' . $dl . '</datalist>'
             . U::input('shelf_life_months', $months, 'Przydatność (miesiące)', 'type="number" min="0" max="120"');
+    }
+
+    /** Wiersz karty partii: produkt z Magazynu, którego etykietę CLP drukuje partia. */
+    private static function crmRow(Store $s, array $b): string
+    {
+        $crm = $s->crmForBatch($b);
+        if ($crm === null) {
+            return $b['product_id'] === null ? '<dt>Produkt w Magazynie</dt><dd class="pr-small">nie wybrano - w „Edytuj” wybierz produkt z listy, żeby drukować jego etykietę CLP</dd>' : '';
+        }
+        $p = $s->pickRow($crm);
+        return '<dt>Produkt w Magazynie</dt><dd><a href="product_view.php?id=' . $p['id'] . '">' . U::h($p['name']) . '</a>'
+            . ($p['variant'] !== '' ? ' · ' . U::h($p['variant']) : '') . ($p['sku'] !== '' ? ' · <span class="pr-num">' . U::h($p['sku']) . '</span>' : '')
+            . ' · ' . ($p['label'] ? '<span class="pill ok">etykieta CLP</span>' : '<span class="pill">bez etykiety CLP</span>') . '</dd>';
     }
 
     /** Wosk, zapach, knot i pojemnik do wyboru z ilością na całą partię. */

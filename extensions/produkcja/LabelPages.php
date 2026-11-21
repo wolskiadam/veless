@@ -279,18 +279,10 @@ final class LabelPages
         $total = 0;
         foreach ($batches as $b) {
             $form .= '<input type="hidden" name="ids[]" value="' . U::h($b['id']) . '">';
-            $w = $b['product_id'] !== null ? $s->product((string) $b['product_id']) : null;
-            $crm = null;
-            if (($w['sku'] ?? '') !== '') {
-                try {
-                    $crm = $s->one('SELECT id, name, ean FROM products WHERE sku = ?', [(string) $w['sku']]);
-                } catch (\PDOException) {
-                    $crm = null;
-                }
-            }
+            $crm = $s->crmForBatch($b);
             $l = $crm !== null ? $s->labelFor((int) $crm['id']) : null;
             if ($l === null) {
-                $missing[] = $b['code'] . ' (' . ($crm === null ? ($w === null ? 'partia bez wyrobu' : 'brak produktu o SKU wyrobu') : 'produkt bez etykiety') . ')';
+                $missing[] = $b['code'] . ' (' . ($crm === null ? ($b['product_id'] === null ? 'nie wybrano produktu z Magazynu' : 'brak produktu o SKU wyrobu') : 'produkt bez etykiety') . ')';
                 continue;
             }
             $n = isset($nIn[$b['id']]) ? max(0, min(500, (int) $nIn[$b['id']])) : max(1, (int) $b['qty']);
@@ -722,17 +714,10 @@ JS;
             . U::tabs('etykiety') . '<div class="pr-top"><p>Gotowe etykiety CLP produktów. Plik (np. z Canvy) wgrywasz na karcie produktu w Magazynie i zaznaczasz miejsce na numer partii. '
             . 'Druk z karty partii albo z karty produktu wpisuje tam numer partii.</p></div>';
         if ($ctx['canEdit']) {
-            $opts = '';
-            try {
-                foreach ($s->all('SELECT id, sku, name FROM products ORDER BY name LIMIT 3000') as $p) {
-                    $opts .= '<option value="' . U::h($p['sku'] !== '' ? $p['sku'] : '#' . $p['id']) . '">' . U::h($p['name']) . '</option>';
-                }
-            } catch (\PDOException) {
-                $opts = '';
-            }
             $html .= '<form class="card" method="get" action="ext.php" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:14px">'
-                . '<input type="hidden" name="page" value="produkcja.etykieta_edytuj"><label style="display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600">Dodaj etykietę do produktu (SKU albo nazwa)'
-                . '<input name="sku" list="lb-all" required autocomplete="off" style="width:280px"></label><datalist id="lb-all">' . $opts . '</datalist><button class="btn">Dalej</button></form>';
+                . '<input type="hidden" name="page" value="produkcja.etykieta_edytuj"><div style="width:min(380px,100%)">'
+                . U::productPicker('sku', '', 'produkt', null, 'Dodaj etykietę do produktu', 'required placeholder="wpisz nazwę albo SKU"', false)
+                . '</div><button class="btn">Dalej</button></form>';
         }
         if ($rows === []) {
             return $html . U::empty('Nie ma jeszcze etykiet', 'Wybierz produkt powyżej albo otwórz go w Magazynie i w sekcji „Etykieta CLP” wgraj plik.');

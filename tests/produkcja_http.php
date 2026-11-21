@@ -563,7 +563,8 @@ try {
     ok($r['status'] === 200 && str_contains($r['body'], 'name="plik"') && str_contains($r['body'], 'Grzane Wino'), 'Labels tab: product picked from the suggestions opens its editor');
     $r = request($ola, $url('etykieta_edytuj', ['produkt' => '', 'sku' => 'MW-1L']));
     ok($r['status'] === 302 && str_contains(urldecode($r['headers']), 'produkt=2'), 'Labels tab: typed SKU without picking still works');
-    ok(str_contains(request($ola, $url('etykiety'))['body'], 'data-pick-url='), 'Labels tab adds a label with the same live search');
+    $ls = request($ola, $url('etykiety'))['body'];
+    ok(str_contains($ls, 'data-pick-url=') && str_contains($ls, 'id="lb-find"') && str_contains($ls, 'data-q="ginger'), 'Labels tab adds a label with the same live search and filters the labels list');
 
     // ---- Osoby i zmiany
     $post($ola, 'ludzie', ['person_name' => ['Adam Wolski', 'Ola'], 'person_rate' => ['40', '25'], 'shift_name' => ['Seria 1', 'Poranna'], 'shift_code' => ['z', 'p']]);

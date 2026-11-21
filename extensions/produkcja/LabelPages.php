@@ -722,17 +722,26 @@ JS;
         if ($rows === []) {
             return $html . U::empty('Nie ma jeszcze etykiet', 'Wybierz produkt powyżej albo otwórz go w Magazynie i w sekcji „Etykieta CLP” wgraj plik.');
         }
-        $html .= '<div class="card pr-table" style="padding:6px 10px"><table><thead><tr><th></th><th>Produkt</th><th class="pr-hide-m">SKU</th><th>Rozmiar</th><th class="pr-hide-m">Pola</th><th></th></tr></thead><tbody>';
+        // Wyszukiwarka etykiet: filtruje listę na żywo po nazwie, SKU, wariancie i gramaturze.
+        $html .= '<div class="pr-filter"><input type="search" id="lb-find" placeholder="Szukaj etykiety: nazwa, SKU, pojemność, gramatura" autocomplete="off" aria-label="Szukaj etykiety">'
+            . '<span class="pr-small" id="lb-find-n">' . count($rows) . ' etykiet</span></div>';
+        $html .= '<div class="card pr-table" style="padding:6px 10px"><table id="lb-rows"><thead><tr><th></th><th>Produkt</th><th class="pr-hide-m">SKU</th><th>Rozmiar</th><th class="pr-hide-m">Pola</th><th></th></tr></thead><tbody>';
         foreach ($rows as $r) {
             $f = array_values(array_intersect_key(Store::LABEL_FIELDS, $r['boxes']));
             $dpi = self::dpi($r);
-            $html .= '<tr><td><img class="lb-mini" src="' . U::h(self::fileUrl($r)) . '" alt="" loading="lazy"></td>'
-                . '<td><a href="product_view.php?id=' . (int) $r['product_id'] . '"><b>' . U::h($r['name']) . '</b></a>' . ($dpi < 200 ? ' <span class="pill bad" title="Wydruk może być nieostry">' . $dpi . ' dpi</span>' : '') . '</td>'
+            $meta = implode(' · ', array_filter([Store::variantText($r), $s->weightText($r)]));
+            $q = mb_strtolower(implode(' ', [(string) $r['name'], (string) $r['sku'], $meta]));
+            $html .= '<tr data-q="' . U::h($q) . '"><td><img class="lb-mini" src="' . U::h(self::fileUrl($r)) . '" alt="" loading="lazy"></td>'
+                . '<td><a href="product_view.php?id=' . (int) $r['product_id'] . '"><b>' . U::h($r['name']) . '</b></a>' . ($meta !== '' ? ' <span class="pr-small">' . U::h($meta) . '</span>' : '') . ($dpi < 200 ? ' <span class="pill bad" title="Wydruk może być nieostry">' . $dpi . ' dpi</span>' : '') . '</td>'
                 . '<td class="pr-hide-m">' . U::h($r['sku']) . '</td><td class="pr-num">' . U::n($r['width_mm']) . '×' . U::n($r['height_mm']) . ' mm</td>'
                 . '<td class="pr-hide-m pr-small">' . U::h(mb_strtolower(implode(', ', $f))) . '</td>'
                 . '<td>' . ($ctx['canEdit'] ? '<a href="' . U::h(U::url('etykieta_edytuj', ['produkt' => $r['product_id']])) . '">Edytuj</a> · ' : '')
                 . '<a target="_blank" rel="noopener" href="' . U::h(U::url('etykieta_produkt', ['produkt' => $r['product_id']])) . '">Drukuj</a></td></tr>';
         }
-        return $html . '</tbody></table></div>';
+        return $html . '<tr id="lb-none" hidden><td colspan="6" class="pr-muted">Żadna etykieta nie pasuje. Nowy produkt dodasz polem „Dodaj etykietę do produktu” wyżej.</td></tr></tbody></table></div>'
+            . '<script>(function(){var f=document.getElementById("lb-find"),n=document.getElementById("lb-find-n"),none=document.getElementById("lb-none");if(!f)return;'
+            . 'var rows=[].slice.call(document.querySelectorAll("#lb-rows tr[data-q]"));function go(){var w=f.value.toLowerCase().trim().split(/\\s+/).filter(Boolean),k=0;'
+            . 'rows.forEach(function(r){var ok=w.every(function(x){return r.dataset.q.indexOf(x)>=0;});r.hidden=!ok;if(ok)k++;});n.textContent=k+" z "+rows.length;none.hidden=k>0;if(!w.length)n.textContent=rows.length+" etykiet";}'
+            . 'f.addEventListener("input",go);})();</script>';
     }
 }

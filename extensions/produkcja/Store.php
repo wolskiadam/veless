@@ -419,7 +419,7 @@ final class Store
     }
 
     /** Gramatura do podpowiedzi: waga wyrobu z Produkcji (po SKU), a bez niej waga produktu z Magazynu (kg → g). */
-    private function weightText(array $r): string
+    public function weightText(array $r): string
     {
         $g = null;
         $sku = trim((string) ($r['sku'] ?? ''));
@@ -461,9 +461,13 @@ final class Store
     public function labels(): array
     {
         try {
-            $rows = $this->all('SELECT l.*, p.name, p.sku FROM ext_prod_labels l JOIN products p ON p.id = l.product_id ORDER BY p.name');
+            $rows = $this->all('SELECT l.*, p.name, p.sku, p.attributes, p.weight FROM ext_prod_labels l JOIN products p ON p.id = l.product_id ORDER BY p.name, p.sku');
         } catch (\PDOException) {
-            return [];
+            try {
+                $rows = $this->all('SELECT l.*, p.name, p.sku FROM ext_prod_labels l JOIN products p ON p.id = l.product_id ORDER BY p.name, p.sku');
+            } catch (\PDOException) {
+                return [];
+            }
         }
         foreach ($rows as &$r) {
             $r['boxes'] = self::boxes((string) $r['boxes']);

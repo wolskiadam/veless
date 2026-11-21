@@ -102,7 +102,7 @@ final class Ui
     /** Opis wybranego produktu pod polem (SKU, wariant, etykieta CLP). @param array{sku?:string,variant?:string,label?:bool,shared?:bool} $p */
     public static function pickInfo(array $p): string
     {
-        $bits = array_filter([(string) ($p['variant'] ?? ''), ($p['sku'] ?? '') !== '' ? 'SKU ' . $p['sku'] : '']);
+        $bits = array_filter([(string) ($p['variant'] ?? ''), (string) ($p['weight'] ?? ''), ($p['sku'] ?? '') !== '' ? 'SKU ' . $p['sku'] : '']);
         return '<span class="pr-ok">✓ Połączono z Magazynem</span>' . ($bits !== [] ? ' · ' . self::h(implode(' · ', $bits)) : '') . ' · '
             . (!empty($p['label']) ? '<span class="pr-ok">ma etykietę CLP' . (!empty($p['shared']) ? ' (wspólną z wariantem)' : '') . '</span>' : '<span class="pr-bad">bez etykiety CLP</span>');
     }
@@ -122,25 +122,30 @@ final class Ui
 .pr-pick small{font-weight:400;color:var(--ink-3)}
 .pr-pick-list{position:absolute;z-index:30;left:0;top:100%;margin-top:2px;min-width:100%;width:max-content;max-width:min(560px,92vw);max-height:340px;overflow-y:auto;background:var(--surface,#fff);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:4px}
 .pr-pick-list[hidden]{display:none}
-.pr-pick-it{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:7px 9px;cursor:pointer;font:inherit;color:var(--ink)}
+.pr-pick-it{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-radius:6px;padding:7px 9px;cursor:pointer;font:inherit;color:var(--ink)}
 .pr-pick-it:hover,.pr-pick-it.on{background:var(--accent-soft)}
+.pr-pick-it>img,.pr-pick-it>i{flex:0 0 48px;width:48px;height:48px;border-radius:6px;object-fit:cover;background:var(--surface-2,#f3f1ec);border:1px solid var(--line)}
+.pr-pick-it>div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .pr-pick-it b{font-weight:600;font-size:14px}
+.pr-pick-it strong{font-weight:700;color:var(--ink)}
 .pr-pick-it span{font-weight:400;font-size:12.5px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
 .pr-pick-it .pill{font-size:11px;font-style:normal}
+@media (max-width:700px){.pr-pick-list{width:100%;max-width:none}}
 .pr-pick-none{padding:8px 10px;font-weight:400;color:var(--ink-3)}
 </style>
 <script>(function(){if(window.prPick)return;window.prPick=1;
 function esc(t){var d=document.createElement('div');d.textContent=t==null?'':String(t);return d.innerHTML;}
-function info(p){var b=[];if(p.variant)b.push(esc(p.variant));if(p.sku)b.push('SKU '+esc(p.sku));
+function info(p){var b=[];if(p.variant)b.push(esc(p.variant));if(p.weight)b.push(esc(p.weight));if(p.sku)b.push('SKU '+esc(p.sku));
 return '<span class="pr-ok">✓ Połączono z Magazynem</span>'+(b.length?' · '+b.join(' · '):'')+' · '+(p.label?'<span class="pr-ok">ma etykietę CLP'+(p.shared?' (wspólną z wariantem)':'')+'</span>':'<span class="pr-bad">bez etykiety CLP</span>');}
 function setup(inp){var box=inp.parentNode,hid=box.querySelector('input[type=hidden]'),list=box.querySelector('.pr-pick-list'),inf=box.querySelector('.pr-pick-info'),t,seq=0,items=[],act=-1;
 function close(){list.hidden=true;inp.setAttribute('aria-expanded','false');act=-1;}
 function mark(){list.querySelectorAll('.pr-pick-it').forEach(function(e,i){e.classList.toggle('on',i===act);if(i===act)e.scrollIntoView({block:'nearest'});});}
 function choose(i){var p=items[i];if(!p)return;inp.value=p.name;inp.dataset.pickName=p.name;hid.value=p.id;if(inf)inf.innerHTML=info(p);close();inp.dispatchEvent(new Event('change',{bubbles:true}));}
 function show(r){items=r||[];act=-1;if(!items.length){list.innerHTML='<div class="pr-pick-none">Nie ma takiego produktu w Magazynie. Możesz zostawić własną nazwę.</div>';}
-else{list.innerHTML=items.map(function(p,i){var m=[];if(p.variant)m.push('<i style="font-style:normal">'+esc(p.variant)+'</i>');m.push(p.sku?'SKU '+esc(p.sku):'bez SKU');
+else{list.innerHTML=items.map(function(p,i){var m=[];if(p.weight)m.push('<strong>'+esc(p.weight)+'</strong>');if(p.variant)m.push('<i style="font-style:normal">'+esc(p.variant)+'</i>');m.push(p.sku?'SKU '+esc(p.sku):'bez SKU');
 if(p.parent)m.push('<em class="pill">produkt główny</em>');m.push(p.label?'<em class="pill ok">etykieta CLP</em>':'<em class="pill">bez etykiety</em>');
-return '<button type="button" class="pr-pick-it" role="option" data-i="'+i+'"><b>'+esc(p.name)+'</b><span>'+m.join('')+'</span></button>';}).join('');}
+var im=p.img?'<img src="'+esc(p.img)+'" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(document.createElement(\'i\'))">':'<i></i>';
+return '<button type="button" class="pr-pick-it" role="option" data-i="'+i+'">'+im+'<div><b>'+esc(p.name)+'</b><span>'+m.join('')+'</span></div></button>';}).join('');}
 list.hidden=false;inp.setAttribute('aria-expanded','true');}
 function search(){var q=inp.value.trim(),my=++seq;if(q.length<2){close();return;}
 fetch(inp.dataset.pickUrl+'&q='+encodeURIComponent(q),{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(r){if(my===seq&&document.activeElement===inp)show(r.items);}).catch(function(){});}

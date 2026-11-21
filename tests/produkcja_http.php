@@ -533,6 +533,11 @@ try {
     $hits = request($ola, $url('produkty_szukaj', ['q' => 'grzane wino']))['json']['items'] ?? [];
     ok(count($hits) === 2 && array_column($hits, 'sku') === ['AW15LBP1W4VM', 'NSOS61HW100A'] && array_column($hits, 'variant') === ['180 ml', '100 ml']
         && $hits[0]['label'] === false, 'Search by name shows both variants with size, SKU and label state');
+    $pdo->exec("UPDATE products SET weight = 0.18, images = '[\"https://sklep.example/gw180.jpg\"]' WHERE id = 3");
+    $pdo->exec("UPDATE products SET images = '[{\"src\":\"javascript:alert(1)\"}]' WHERE id = 4");
+    $hits = request($ola, $url('produkty_szukaj', ['q' => 'grzane wino']))['json']['items'] ?? [];
+    ok(($hits[0]['img'] ?? '') === 'https://sklep.example/gw180.jpg' && ($hits[0]['weight'] ?? '') === "180\u{a0}g" && ($hits[1]['img'] ?? 'x') === '' && ($hits[1]['weight'] ?? 'x') === '',
+        'Suggestions carry the product photo (http only) and weight in grams');
     $hits = request($vi, $url('produkty_szukaj', ['q' => 'ginger']))['json']['items'] ?? [];
     ok(count($hits) === 1 && $hits[0]['id'] === 1 && $hits[0]['label'] === true, 'Search finds the product with a CLP label (viewer can search too)');
     ok((request($ola, $url('produkty_szukaj', ['q' => 'nsos61']))['json']['items'][0]['id'] ?? 0) === 4, 'Search by part of the SKU');

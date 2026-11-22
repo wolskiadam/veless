@@ -28,9 +28,10 @@ function check(bool $ok, string $label): void {
 check(!Demo::on(), 'Without DEMO_MODE the installation is not a demo');
 check(!Demo::blocks('/x/public/admin/backup.php', 'GET', true), 'Without DEMO_MODE nothing is blocked');
 check(Demo::bannerHtml() === '', 'Without DEMO_MODE there is no banner');
+check(\Pase\Support\AppVersion::brand() === 'Veless', 'Without APP_BRAND the product name is Veless');
 
 $envFile = tempnam(sys_get_temp_dir(), 'crm-env');
-file_put_contents($envFile, "DEMO_MODE=1\n");
+file_put_contents($envFile, "DEMO_MODE=1\nAPP_BRAND=\"Klub Woskarzy OMS\"\n");
 Env::load($envFile);
 unlink($envFile);
 check(Demo::on(), 'DEMO_MODE=1 switches the demo on');
@@ -43,6 +44,8 @@ check(Demo::blocks('/x/public/admin/products.php', 'POST', true), 'Any uploaded 
 check(Demo::blocks('/x/public/order.php', 'POST', true), 'Customer page uploads are blocked in demo');
 check(!Demo::blocks('/x/public/admin/products.php', 'POST', false), 'Editing demo data is allowed');
 check(str_contains(Demo::bannerHtml(), 'demonstracyjna'), 'Demo banner is shown');
+check(\Pase\Support\AppVersion::brand() === 'Klub Woskarzy OMS', 'APP_BRAND sets the product name');
+check(str_contains(Demo::bannerHtml(), 'demonstracyjna Klub Woskarzy OMS'), 'Demo banner uses the product name');
 $r = Http::request('GET', 'https://example.com/');
 check($r->status === 503 && str_contains($r->body, 'demo'), 'No outgoing HTTP in demo');
 check(\Pase\Services\CompanyLookup::curl('GET', 'https://example.com/', [], null)[0] === 0, 'Company lookup does not go out in demo');
@@ -64,11 +67,20 @@ try {
     check((int) $pdo->query('SELECT COUNT(*) FROM automation_rules')->fetchColumn() === 5, 'Demo has 5 automations');
     check(count(glob($imgDir . '/*.png') ?: []) === 12, 'Product graphics are generated locally');
     $images = (string) $pdo->query("SELECT images FROM products WHERE sku = 'SW-LAW-180'")->fetchColumn();
-    check(json_decode($images, true) === ['/demo-img/sw-law-180.png'], 'Product images point at the demo site itself');
+    check(json_decode($images, true) === ['../demo-img/sw-law-180.png'], 'Product images point at the demo site itself (relative, works under /public/ too)');
     $newest = (string) $pdo->query('SELECT MAX(date_created) FROM woo_orders')->fetchColumn();
     check(strtotime($newest . ' UTC') > time() - 86400, 'Newest demo order is from the last day');
     $emails = $pdo->query("SELECT COUNT(*) FROM woo_orders WHERE customer_email NOT LIKE '%@example.com' AND customer_email NOT LIKE '%@allegromail.pl'")->fetchColumn();
     check((int) $emails === 0, 'Demo customers use example addresses only');
+
+    // Pracownia: Produkcja i Zapachy nie są puste.
+    defined('PASE_ROOT') || define('PASE_ROOT', dirname(__DIR__));
+    \Pase\Services\DemoWorkshop::seed($pdo);
+    check((int) $pdo->query('SELECT COUNT(*) FROM ext_prod_products')->fetchColumn() === 6, 'Demo workshop has 6 candle products with recipes');
+    check((int) $pdo->query('SELECT COUNT(*) FROM ext_prod_batches WHERE deleted_at IS NULL')->fetchColumn() === 6, 'Demo workshop has 6 batches');
+    check((int) $pdo->query("SELECT COUNT(*) FROM ext_prod_deliveries WHERE expires_at IS NOT NULL AND expires_at < CURDATE()")->fetchColumn() === 0, 'No demo delivery is already expired');
+    check((int) $pdo->query('SELECT COUNT(*) FROM ext_zap_fragrances')->fetchColumn() === 8, 'Demo has 8 fragrances');
+    check((int) $pdo->query('SELECT COUNT(*) FROM ext_zap_links')->fetchColumn() === 8, 'Fragrances are linked to products');
 } finally {
     $pdo->exec("DROP DATABASE IF EXISTS `$database`");
     foreach (glob($imgDir . '/*') ?: [] as $f) { unlink($f); }

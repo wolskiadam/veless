@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OMS Klubu Woskarzy – zamówienia, magazyn i produkcja świec w jednym panelu</title>
+<meta name="description" content="System do obsługi zamówień dla twórców świec i produktów z wosku. Zamówienia z WooCommerce, Allegro i Erli, pakowanie telefonem, magazyn, partie, zapachy i etykiety CLP. Dla członków Klubu Woskarzy.">
+<meta property="og:title" content="OMS Klubu Woskarzy">
+<meta property="og:description" content="Zamówienia, magazyn i produkcja świec w jednym panelu. Narzędzie dla członków Klubu Woskarzy.">
+<meta property="og:image" content="assets/screens/orders-desk.jpg">
+<meta name="theme-color" content="#16130d">
+<link rel="icon" type="image/png" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap&subset=latin-ext">
+<style>
+:root{
+  --ink:#16130d; --ink-2:#6a6252; --gold:#b08328; --gold-d:#8a6519; --gold-l:#d3a94e;
+  --line:#e9e2d3; --cream:#faf8f3; --white:#fff; --soft:rgba(176,131,40,.12);
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Baskerville,"Times New Roman",Georgia,serif;
+  --sans:"Work Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --wrap:1180px; --r:3px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--white);color:var(--ink);font:400 15px/1.65 var(--sans);overflow-x:hidden}
+img{max-width:100%;height:auto;display:block}
+a{color:inherit}
+h1,h2,h3{font-family:var(--serif);font-weight:600;line-height:1.15;margin:0;letter-spacing:-.005em}
+h1 em,h2 em{color:var(--gold);font-style:italic}
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 24px}
+.eyebrow{display:block;color:var(--gold);font-size:12px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;margin-bottom:16px}
+.lead{color:var(--ink-2);font-size:17px;max-width:640px}
+.center{text-align:center}.center .lead{margin-left:auto;margin-right:auto}
+.btn{display:inline-flex;align-items:center;gap:10px;padding:14px 26px;border-radius:var(--r);font:500 13px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;text-decoration:none;border:1px solid var(--ink);transition:background .2s,color .2s,border-color .2s}
+.btn-dark{background:var(--ink);color:#fff}.btn-dark:hover{background:var(--gold-d);border-color:var(--gold-d)}
+.btn-line{background:transparent;color:var(--ink)}.btn-line:hover{background:var(--ink);color:#fff}
+.btn-gold{background:var(--gold);border-color:var(--gold);color:#fff}.btn-gold:hover{background:var(--gold-d);border-color:var(--gold-d)}
+.link{color:var(--gold-d);font-weight:500;text-decoration:none;border-bottom:1px solid currentColor}
+.link:hover{color:var(--ink)}
+section{padding:96px 0}
+.sec-head{margin-bottom:48px}
+.sec-head h2{font-size:clamp(28px,3.4vw,38px);margin-bottom:14px}
+
+/* pasek górny + nagłówek jak na klubwoskarzy.pl */
+.topbar{border-bottom:1px solid var(--line);font-size:13px;color:var(--ink-2)}
+.topbar .wrap{display:flex;justify-content:space-between;align-items:center;min-height:38px;gap:16px}
+.topbar a{text-decoration:none}.topbar a:hover{color:var(--gold-d)}
+.topbar .join{letter-spacing:.04em;text-transform:uppercase;font-weight:500}
+header.site{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.94);backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--line)}
+header.site .wrap{display:flex;align-items:center;justify-content:space-between;height:72px;gap:20px}
+.brand{display:flex;align-items:center;gap:12px;text-decoration:none}
+.brand img{width:38px;height:38px}
+.brand b{font-family:var(--serif);font-size:19px;font-weight:600;display:block;line-height:1.1}
+.brand small{display:block;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold-d);font-weight:600}
+nav.main{display:flex;gap:26px;font-size:13px;letter-spacing:.12em;text-transform:uppercase}
+nav.main a{text-decoration:none;padding:6px 0;border-bottom:1px solid transparent}
+nav.main a:hover{border-color:var(--gold)}
+header .btn{padding:11px 18px;font-size:12px}
+.menu-btn{display:none;background:none;border:1px solid var(--line);border-radius:var(--r);width:42px;height:42px;cursor:pointer;color:var(--ink)}
+
+/* hero */
+.hero{position:relative;padding:72px 0 0;overflow:hidden;background:
+  radial-gradient(60% 55% at 50% 8%,rgba(211,169,78,.18),var(--cream) 78%),linear-gradient(transparent 55%,#fff 100%)}
+.hero .wrap{position:relative;text-align:center}
+.hero .mark{width:74px;margin:0 auto 22px}
+.hero h1{font-size:clamp(36px,5.6vw,64px);max-width:900px;margin:0 auto 22px}
+.hero .lead{margin:0 auto 34px;font-size:18px}
+.hero .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.hero .note{margin:18px 0 0;font-size:13px;color:var(--ink-2)}
+.shot-stage{position:relative;max-width:1080px;margin:64px auto 0}
+.browser{background:#fff;border:1px solid var(--line);border-radius:6px 6px 0 0;box-shadow:0 30px 80px -30px rgba(22,19,13,.35);overflow:hidden}
+.browser .bar{display:flex;align-items:center;gap:7px;height:34px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--cream)}
+.browser .bar i{width:10px;height:10px;border-radius:50%;background:#e2d9c6}
+.browser .bar span{margin-left:14px;font-size:12px;color:var(--ink-2)}
+.phone{position:absolute;right:-28px;bottom:-1px;width:210px;border:8px solid var(--ink);border-bottom:0;border-radius:30px 30px 0 0;overflow:hidden;box-shadow:0 20px 60px -20px rgba(22,19,13,.5);background:#fff}
+.phone img{height:330px;object-fit:cover;object-position:top}
+
+/* kanały */
+.channels{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:26px 0;background:#fff}
+.channels .wrap{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:10px 34px;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+.channels b{color:var(--ink);font-weight:600}
+
+/* wartości ✦ */
+.values{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:56px}
+.values .v{border-top:1px solid var(--line);padding-top:24px}
+.values .v i{color:var(--gold);font-style:normal;font-size:18px}
+.values h3{font-size:21px;margin:10px 0 8px}
+.values p{margin:0;color:var(--ink-2)}
+.about{display:grid;grid-template-columns:1.05fr 1fr;gap:64px;align-items:center}
+.about p{color:var(--ink-2);margin:0 0 16px}
+.about .quote{font-family:var(--serif);font-size:21px;color:var(--ink);font-style:italic;border-left:2px solid var(--gold);padding-left:18px;margin-top:24px}
+.about img{border:1px solid var(--line);border-radius:var(--r);box-shadow:0 20px 50px -30px rgba(22,19,13,.4)}
+
+/* karty funkcji jak „Komplet narzędzi dla członków” */
+.cream{background:var(--cream)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:26px 24px 24px;display:flex;flex-direction:column}
+.card .ico{font-size:24px;line-height:1;margin-bottom:16px}
+.card h3{font-size:21px;margin-bottom:8px}
+.card p{margin:0;color:var(--ink-2)}
+.card ul{margin:14px 0 0;padding:0;list-style:none;color:var(--ink-2);font-size:14px}
+.card li{padding:5px 0 5px 18px;position:relative;border-top:1px dashed var(--line)}
+.card li:before{content:"✦";position:absolute;left:0;color:var(--gold);font-size:10px;top:8px}
+.card .tag{align-self:flex-start;margin-top:auto;padding-top:16px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold-d);font-weight:600}
+
+/* kroki */
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:0;counter-reset:s;border-top:1px solid var(--line)}
+.step{padding:28px 24px 0 0;position:relative}
+.step:before{counter-increment:s;content:"0" counter(s);font-family:var(--serif);font-size:44px;color:var(--gold-l);display:block;line-height:1;margin-bottom:14px}
+.step h3{font-size:20px;margin-bottom:8px}
+.step p{margin:0;color:var(--ink-2);font-size:14.5px}
+
+/* galeria */
+.tabs{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:28px}
+.tabs button{font:500 12px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;padding:11px 16px;border:1px solid var(--line);background:#fff;border-radius:var(--r);cursor:pointer;color:var(--ink-2)}
+.tabs button[aria-selected=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+.gallery figure{margin:0;display:none}
+.gallery figure.on{display:block}
+.gallery img{width:100%;border:1px solid var(--line);border-radius:6px;box-shadow:0 30px 70px -40px rgba(22,19,13,.45);cursor:zoom-in}
+.gallery figcaption{text-align:center;color:var(--ink-2);margin-top:16px;font-size:14px}
+
+/* dostęp */
+.dark{background:var(--ink);color:#fff}
+.dark .lead,.dark p{color:rgba(255,255,255,.76)}
+.dark h2 em{color:var(--gold-l)}
+.access{display:grid;grid-template-columns:1.1fr 1fr;gap:56px;align-items:start}
+.access ul{list-style:none;margin:28px 0 0;padding:0}
+.access li{padding:14px 0 14px 30px;border-top:1px solid rgba(255,255,255,.14);position:relative}
+.access li:before{content:"✦";color:var(--gold-l);position:absolute;left:0;top:14px}
+.access li b{color:#fff;font-weight:600}
+.panel{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.16);border-radius:var(--r);padding:32px}
+.panel h3{font-size:24px;margin-bottom:6px}
+.panel .price{font-family:var(--serif);font-size:20px;color:var(--gold-l);margin:4px 0 22px}
+.panel .btn{width:100%;justify-content:center;margin-top:12px}
+.panel .btn-line{color:#fff;border-color:rgba(255,255,255,.5)}.panel .btn-line:hover{background:#fff;color:var(--ink)}
+.panel small{display:block;margin-top:16px;color:rgba(255,255,255,.6);font-size:13px}
+
+/* wymagania */
+.req{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.req .card h3{display:flex;align-items:center;gap:10px}
+
+/* FAQ */
+.faq{max-width:820px;margin:0 auto}
+.faq details{border-top:1px solid var(--line);padding:4px 0}
+.faq details:last-child{border-bottom:1px solid var(--line)}
+.faq summary{cursor:pointer;list-style:none;padding:18px 34px 18px 0;font-family:var(--serif);font-size:19px;font-weight:600;position:relative}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary:after{content:"+";position:absolute;right:4px;top:14px;font:300 26px/1 var(--sans);color:var(--gold)}
+.faq details[open] summary:after{content:"–"}
+.faq p{margin:0 0 20px;color:var(--ink-2)}
+
+/* CTA końcowe */
+.final{text-align:center;padding:96px 0;background:radial-gradient(50% 80% at 50% 0%,rgba(211,169,78,.16),#fff 75%)}
+.final h2{font-size:clamp(28px,3.6vw,42px);margin-bottom:14px}
+.final .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:30px}
+
+footer{border-top:1px solid var(--line);padding:56px 0 28px;font-size:14px;color:var(--ink-2)}
+footer .cols{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:40px}
+footer h4{font:600 12px/1 var(--sans);letter-spacing:.2em;text-transform:uppercase;color:var(--ink);margin:6px 0 16px}
+footer a{display:block;text-decoration:none;padding:3px 0}footer a:hover{color:var(--gold-d)}
+footer .brand{margin-bottom:14px;color:var(--ink)}
+footer .legal{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;border-top:1px solid var(--line);margin-top:40px;padding-top:22px;font-size:13px}
+footer .legal a{display:inline;margin-left:18px}
+
+/* powiększenie zrzutu */
+.lb{position:fixed;inset:0;background:rgba(22,19,13,.88);display:none;align-items:center;justify-content:center;padding:24px;z-index:50;cursor:zoom-out}
+.lb.on{display:flex}.lb img{max-height:92vh;width:auto;border-radius:4px}
+
+@media (max-width:980px){
+  nav.main{display:none}
+  nav.main.open{display:flex;position:absolute;top:72px;left:0;right:0;flex-direction:column;gap:0;background:#fff;border-bottom:1px solid var(--line);padding:8px 24px 16px}
+  nav.main.open a{padding:12px 0;border-bottom:1px solid var(--line)}
+  .menu-btn{display:block}
+  header .btn{display:none}
+  .grid{grid-template-columns:repeat(2,1fr)}
+  .steps{grid-template-columns:repeat(2,1fr);row-gap:28px}
+  .about,.access{grid-template-columns:1fr;gap:40px}
+  .phone{right:8px;width:150px;border-width:6px}.phone img{height:240px}
+}
+@media (max-width:640px){
+  .wrap{padding:0 16px}
+  section{padding:68px 0}
+  .topbar .mail{display:none}
+  .grid,.values,.req,.steps{grid-template-columns:1fr}
+  .values{gap:28px}
+  .hero{padding-top:48px}
+  .hero .lead{font-size:16px}
+  .btn{width:100%;justify-content:center}
+  .browser{display:none}
+  .shot-stage{margin-top:40px}
+  .phone{display:block;position:relative;right:auto;margin:0 auto;width:260px}.phone img{height:440px}
+  footer .cols{grid-template-columns:1fr}
+  footer .legal a{margin:0 18px 0 0}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <a class="mail" href="mailto:kontakt@klubwoskarzy.pl">kontakt@klubwoskarzy.pl</a>
+    <a class="join" href="https://klubwoskarzy.pl/sklep/">Dołącz do nas!</a>
+    <a href="https://klubwoskarzy.pl/moje-konto/strefa-klubowicza/">Strefa klubowicza</a>
+  </div>
+</div>
+
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="OMS Klubu Woskarzy – na górę strony">
+      <img src="assets/logo.png" alt="" width="38" height="38">
+      <span><b>Klub Woskarzy</b><small>OMS dla twórców</small></span>
+    </a>
+    <nav class="main" id="menu">
+      <a href="#funkcje">Funkcje</a>
+      <a href="#pracownia">Pracownia</a>
+      <a href="#zrzuty">Zobacz panel</a>
+      <a href="#dostep">Dostęp</a>
+      <a href="#faq">Pytania</a>
+    </nav>
+    <a class="btn btn-dark" href="https://demo.oms.klubwoskarzy.pl/">Wejdź do demo</a>
+    <button class="menu-btn" aria-label="Menu" aria-controls="menu" aria-expanded="false" onclick="var m=document.getElementById('menu');m.classList.toggle('open');this.setAttribute('aria-expanded',m.classList.contains('open'))">☰</button>
+  </div>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="wrap">
+    <img class="mark" src="assets/logo.png" alt="Klub Woskarzy" width="74" height="74">
+    <span class="eyebrow">Narzędzie dla członków Klubu Woskarzy</span>
+    <h1>Zamówienia, magazyn i produkcja <em>w jednym</em> panelu.</h1>
+    <p class="lead">OMS Klubu Woskarzy zbiera zamówienia ze sklepu i marketplace’ów, prowadzi Cię przez pakowanie, pilnuje stanów i pamięta, z której partii poszła każda świeca. Zrobiony przez woskarzy, w prawdziwej pracowni.</p>
+    <div class="cta">
+      <a class="btn btn-dark" href="https://demo.oms.klubwoskarzy.pl/">Wejdź do demo →</a>
+      <a class="btn btn-line" href="#dostep">Jak dostać dostęp</a>
+    </div>
+    <p class="note">Demo bez rejestracji, login i hasło: <b>demo</b>. Dane są fikcyjne i wracają do stanu wyjściowego co noc.</p>
+
+    <div class="shot-stage">
+      <div class="browser">
+        <div class="bar"><i></i><i></i><i></i><span>twojapracownia.pl/admin</span></div>
+        <img src="assets/screens/orders-desk.jpg" alt="Lista zamówień ze wszystkich kanałów sprzedaży" width="1600" height="951">
+      </div>
+      <div class="phone"><img src="assets/screens/orders-tel.jpg" alt="Lista zamówień na telefonie" width="560" height="1113"></div>
+    </div>
+  </div>
+</section>
+
+<div class="channels">
+  <div class="wrap">
+    <span>Działa z:</span><b>WooCommerce</b><b>Allegro</b><b>Erli</b><b>InPost</b><b>DPD</b><b>wFirma</b><b>KSeF</b><b>PayU</b>
+  </div>
+</div>
+
+<section id="o-systemie">
+  <div class="wrap">
+    <div class="about">
+      <div>
+        <span class="eyebrow">Dlaczego powstał</span>
+        <h2 style="font-size:clamp(28px,3.4vw,38px);margin-bottom:20px">Mniej zakładek, <em>więcej czasu</em> na świece.</h2>
+        <p>Większość programów do zamówień jest pisana dla dużych sklepów z magazynem pełnym kartonów. Pracownia świec działa inaczej: zamówienie to często partia, którą trzeba dopiero wylać, zapach z konkretnej butelki i etykieta CLP z numerem partii.</p>
+        <p>Dlatego OMS Klubu Woskarzy łączy obsługę zamówień z tym, co dzieje się na stole roboczym. Jedna lista zamówień, jedna lista produkcji, jeden stan magazynu.</p>
+        <p class="quote">Bo dobrze prowadzonej pracowni nie robi się w arkuszu. Robi się ją w spokoju.</p>
+      </div>
+      <img src="assets/screens/order-desk.jpg" alt="Karta zamówienia z dokumentami, przesyłką i produktami" width="1600" height="951" loading="lazy">
+    </div>
+    <div class="values">
+      <div class="v"><i>✦</i><h3>Od woskarzy dla woskarzy</h3><p>Zapachy, knoty, partie i etykiety CLP są częścią systemu, a nie dodatkiem doklejonym na końcu.</p></div>
+      <div class="v"><i>✦</i><h3>Twoje dane u Ciebie</h3><p>System stoi na Twoim hostingu. Zamówienia i klienci zostają w Twojej bazie, z logowaniem dwuetapowym i rolami.</p></div>
+      <div class="v"><i>✦</i><h3>Bez abonamentu od zamówienia</h3><p>Nie płacisz za liczbę zamówień ani kanałów. Dostęp masz w ramach członkostwa w Klubie.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="funkcje" class="cream">
+  <div class="wrap">
+    <div class="sec-head center">
+      <span class="eyebrow">Funkcje</span>
+      <h2>Wszystko, czego potrzebuje <em>pracownia</em></h2>
+      <p class="lead">Od pierwszego zamówienia po paczkę u klienta i dokument w księgowości.</p>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="ico">🛒</div><h3>Zamówienia z wielu kanałów</h3><p>Sklep WooCommerce, Allegro, Erli i zamówienia ręczne na jednej liście z Twoimi statusami.</p>
+        <ul><li>Termin „wyślij do” z Allegro przy zamówieniu</li><li>Powracający klient od razu widoczny</li><li>Nowe zamówienie na bazie poprzedniego</li></ul></div>
+      <div class="card"><div class="ico">📦</div><h3>Pakowanie telefonem</h3><p>Ekran pakowania prowadzi pozycja po pozycji. Skanujesz EAN aparatem albo czytnikiem.</p>
+        <ul><li>Numer partii wpisywany przy pakowaniu</li><li>Zdjęcie zawartości paczki</li><li>Etykieta kuriera z jednego kliknięcia</li></ul></div>
+      <div class="card"><div class="ico">🕯️</div><h3>Produkcja i partie</h3><p>Wyroby z recepturą, koszt sztuki i marża, partie z numerem do śledzenia.</p>
+        <ul><li>Materiały i dostawy z datą ważności</li><li>Lista produkcji z zaznaczonych zamówień</li><li>Testy spalania przy wyrobie</li></ul></div>
+      <div class="card"><div class="ico">🌸</div><h3>Zapachy</h3><p>Każdy olejek ma swój numer miejsca i nuty. Zapach widać przy produkcie i na liście produkcji.</p>
+        <ul><li>Import z Aroma Helper</li><li>Stan olejku z magazynu Produkcji</li><li>Szukanie po nazwie, numerze i nucie</li></ul></div>
+      <div class="card"><div class="ico">🏷️</div><h3>Etykiety CLP</h3><p>Wgrywasz gotową etykietę, a system dopisuje numer partii, datę i kod przy druku.</p>
+        <ul><li>Wiele partii na jednym arkuszu A4</li><li>Kontrola EAN, UFI i wagi</li><li>Druk z karty partii lub produktu</li></ul></div>
+      <div class="card"><div class="ico">📊</div><h3>Magazyn i statystyki</h3><p>Stany wysyłane do sklepu i na Allegro, alerty niskiego stanu, sprzedaż i marża na wykresach.</p>
+        <ul><li>Warianty produktu trzymane razem</li><li>Koszty zakupu przy każdym produkcie</li><li>Odbiory kurierów w jednym miejscu</li></ul></div>
+      <div class="card"><div class="ico">🧾</div><h3>Dokumenty i KSeF</h3><p>Faktury i paragony w wFirma, faktury z KSeF i własna księgowość w wtyczce Księgowość.</p>
+        <ul><li>Paragon po opłaceniu bez klikania</li><li>Automatyczne pobieranie faktur z KSeF</li><li>Wyciągi bankowe i rozrachunki</li></ul></div>
+      <div class="card"><div class="ico">⚙️</div><h3>Automatyzacje</h3><p>Reguły pisane zwykłym językiem: gdy zamówienie zostanie opłacone, wystaw paragon i wyślij e-mail.</p>
+        <ul><li>E-maile i SMS-y z szablonów</li><li>Prośba o opinię po doręczeniu</li><li>Powiadomienia push o nowych zamówieniach</li></ul></div>
+      <div class="card"><div class="ico">🧩</div><h3>Wtyczki</h3><p>Integracje i rozszerzenia włączasz w panelu. Klub dodaje kolejne, a Ty dostajesz je w aktualizacjach.</p>
+        <ul><li>Messenger i Instagram w panelu</li><li>Paragony z ChatGPT</li><li>Kontrola stanu systemu</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="pracownia">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Jak to działa</span>
+      <h2>Od zamówienia <em>do paczki</em> u klienta</h2>
+      <p class="lead">Tak wygląda dzień w pracowni, która prowadzi zamówienia w OMS.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><h3>Zamówienie wpada samo</h3><p>Ze sklepu, z Allegro albo z Erli. Opłacone przechodzi do realizacji, a Ty dostajesz powiadomienie na telefon.</p></div>
+      <div class="step"><h3>Lista produkcji</h3><p>Zaznaczasz zamówienia i drukujesz listę: ile świec, jaki zapach z którego miejsca, jaki knot i ile wosku.</p></div>
+      <div class="step"><h3>Partia i etykieta</h3><p>Zapisujesz partię, system zdejmuje materiały z magazynu i drukuje etykiety CLP z numerem partii.</p></div>
+      <div class="step"><h3>Pakowanie i wysyłka</h3><p>Pakujesz z telefonem w ręku, drukujesz etykietę kuriera, a klient dostaje e-mail z numerem przesyłki.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="zrzuty" class="cream">
+  <div class="wrap">
+    <div class="sec-head center">
+      <span class="eyebrow">Zobacz panel</span>
+      <h2>Prawdziwy system, <em>fikcyjna</em> pracownia</h2>
+      <p class="lead">Zrzuty z wersji demo. Wszystko, co tu widzisz, możesz przeklikać sam.</p>
+    </div>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-i="0">Zamówienia</button>
+      <button role="tab" aria-selected="false" data-i="1">Pakowanie</button>
+      <button role="tab" aria-selected="false" data-i="2">Produkcja</button>
+      <button role="tab" aria-selected="false" data-i="3">Partie</button>
+      <button role="tab" aria-selected="false" data-i="4">Zapachy</button>
+      <button role="tab" aria-selected="false" data-i="5">Wyroby</button>
+      <button role="tab" aria-selected="false" data-i="6">Magazyn</button>
+      <button role="tab" aria-selected="false" data-i="7">Automatyzacje</button>
+      <button role="tab" aria-selected="false" data-i="8">Klienci</button>
+    </div>
+    <div class="gallery">
+      <figure class="on"><img src="assets/screens/orders-desk.jpg" alt="Lista zamówień" loading="lazy"><figcaption>Lista zamówień ze wszystkich kanałów, z paskiem „do realizacji, bez etykiety, w drodze”.</figcaption></figure>
+      <figure><img src="assets/screens/packing-desk.jpg" alt="Pakowanie" loading="lazy"><figcaption>Pakowanie pozycja po pozycji, z numerem zapachu i numerem partii.</figcaption></figure>
+      <figure><img src="assets/screens/produkcja-desk.jpg" alt="Pulpit produkcji" loading="lazy"><figcaption>Pulpit produkcji: co zrobić, co się kończy, daty ważności i ostatnie partie.</figcaption></figure>
+      <figure><img src="assets/screens/partie-desk.jpg" alt="Partie" loading="lazy"><figcaption>Partie z numerem, datą ważności i kosztem sztuki.</figcaption></figure>
+      <figure><img src="assets/screens/zapachy-desk.jpg" alt="Zapachy" loading="lazy"><figcaption>Zapachy z numerem miejsca, nutami i stanem olejku.</figcaption></figure>
+      <figure><img src="assets/screens/wyroby-desk.jpg" alt="Wyroby" loading="lazy"><figcaption>Wyroby z recepturą: koszt sztuki, cena, marża i ile zrobisz z tego, co masz.</figcaption></figure>
+      <figure><img src="assets/screens/products-desk.jpg" alt="Magazyn" loading="lazy"><figcaption>Magazyn z niskimi stanami i progiem dla każdego produktu.</figcaption></figure>
+      <figure><img src="assets/screens/automations-desk.jpg" alt="Automatyzacje" loading="lazy"><figcaption>Automatyzacje: paragon, status i e-mail bez klikania.</figcaption></figure>
+      <figure><img src="assets/screens/customers-desk.jpg" alt="Klienci" loading="lazy"><figcaption>Klienci ze wszystkich kanałów, z historią zakupów.</figcaption></figure>
+    </div>
+    <p class="center" style="margin-top:36px"><a class="btn btn-dark" href="https://demo.oms.klubwoskarzy.pl/">Przeklikaj demo →</a></p>
+  </div>
+</section>
+
+<section id="dostep" class="dark">
+  <div class="wrap access">
+    <div>
+      <span class="eyebrow">Dostęp</span>
+      <h2 style="font-size:clamp(28px,3.4vw,40px);margin-bottom:16px">Dla członków <em>Klubu Woskarzy</em></h2>
+      <p class="lead">OMS jest jednym z narzędzi klubowych, tak jak SDS Manager, kalkulator czy generator etykiet. Pobierasz go ze Strefy Klubowicza i instalujesz na swoim hostingu.</p>
+      <ul>
+        <li><b>Instalacja w kreatorze.</b> Wgrywasz jeden plik na hosting, a kreator w przeglądarce zakłada bazę, konto i zadanie cron.</li>
+        <li><b>Aktualizacje z panelu.</b> Nowe funkcje i poprawki instalujesz jednym kliknięciem albo automatycznie w nocy.</li>
+        <li><b>System zostaje Twój.</b> Gdy członkostwo wygaśnie, OMS działa dalej. Kończą się tylko aktualizacje.</li>
+        <li><b>Wsparcie społeczności.</b> Pytania o konfigurację zadajesz na czacie klubowym, wśród ludzi, którzy pracują na tym samym systemie.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <span class="eyebrow">Członkostwo w klubie</span>
+      <h3>OMS w pakiecie narzędzi</h3>
+      <p class="price">Bez opłat za zamówienia i kanały</p>
+      <p>Dołącz do klubu, a w Strefie Klubowicza znajdziesz paczkę instalacyjną i instrukcję krok po kroku.</p>
+      <a class="btn btn-gold" href="https://klubwoskarzy.pl/sklep/">Dołącz do klubu</a>
+      <a class="btn btn-line" href="https://klubwoskarzy.pl/moje-konto/strefa-klubowicza/">Mam konto, pobieram</a>
+      <small>Najpierw chcesz zobaczyć? <a class="link" style="color:var(--gold-l)" href="https://demo.oms.klubwoskarzy.pl/">Wejdź do demo</a>, bez rejestracji.</small>
+    </div>
+  </div>
+</section>
+
+<section id="wymagania">
+  <div class="wrap">
+    <div class="sec-head center">
+      <span class="eyebrow">Wymagania</span>
+      <h2>Wystarczy <em>zwykły</em> hosting</h2>
+    </div>
+    <div class="req">
+      <div class="card"><h3><span class="ico" style="margin:0">🌐</span> Na hostingu</h3><p>Zamówienia przychodzą od razu, a panel jest dostępny z każdego miejsca, także z telefonu.</p>
+        <ul><li>PHP 8.1 lub nowszy</li><li>MySQL lub MariaDB</li><li>Jedno zadanie cron co minutę</li><li>Bez Composera, Node i dodatkowych usług</li></ul></div>
+      <div class="card"><h3><span class="ico" style="margin:0">💻</span> Na własnym komputerze</h3><p>Tryb lokalny w Dockerze: dane zostają na komputerze, a system sam pobiera zamówienia, gdy komputer jest włączony.</p>
+        <ul><li>Docker Desktop (Windows, macOS, Linux)</li><li>Pakowanie z telefonu w tej samej sieci Wi-Fi</li><li>Przeniesienie na hosting w każdej chwili</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="cream">
+  <div class="wrap">
+    <div class="sec-head center">
+      <span class="eyebrow">Pytania</span>
+      <h2>Częste <em>pytania</em></h2>
+    </div>
+    <div class="faq">
+      <details open><summary>Dla kogo jest OMS Klubu Woskarzy?</summary><p>Dla twórców świec i produktów z wosku, którzy sprzedają we własnym sklepie WooCommerce, na Allegro albo na Erli i chcą mieć zamówienia, magazyn i produkcję w jednym miejscu. Sprawdzi się też w innych pracowniach rękodzielniczych.</p></details>
+      <details><summary>Ile to kosztuje?</summary><p>OMS jest w pakiecie narzędzi dla członków Klubu Woskarzy. Nie ma opłat za liczbę zamówień ani kanałów sprzedaży. Płacisz tylko za swój hosting.</p></details>
+      <details><summary>Co się stanie, gdy skończy się moje członkostwo?</summary><p>System działa dalej z wszystkimi danymi. Przestajesz tylko dostawać aktualizacje i nowe wtyczki, dopóki nie odnowisz członkostwa.</p></details>
+      <details><summary>Czy potrzebuję programisty?</summary><p>Nie. Wgrywasz plik instalacyjny na hosting i przechodzisz kreator w przeglądarce. Instrukcja jest w Strefie Klubowicza, a w razie pytań pomoże społeczność klubu.</p></details>
+      <details><summary>Gdzie są moje dane?</summary><p>W Twojej bazie danych, na Twoim hostingu albo komputerze. Klub nie ma do nich dostępu. Klucze do integracji są szyfrowane, a do panelu można włączyć logowanie dwuetapowe.</p></details>
+      <details><summary>Czy mogę przenieść dane z innego systemu?</summary><p>Zamówienia i produkty pobierzesz z WooCommerce i Allegro po podłączeniu integracji. Zapachy zaimportujesz z Aroma Helper, a dokumenty księgowe z plików JPK z wFirma.</p></details>
+      <details><summary>Czym różni się demo od mojej instalacji?</summary><p>Demo ma fikcyjną pracownię i wyłączoną wysyłkę, integracje oraz wgrywanie plików. Co noc wraca do stanu wyjściowego, więc możesz klikać bez obaw.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <span class="eyebrow">Spróbuj sam</span>
+    <h2>Przeklikaj pracownię, <em>zanim</em> zdecydujesz.</h2>
+    <p class="lead" style="margin:0 auto">Demo ma 140 zamówień, sześć wyrobów, partie i zapachy. Bez rejestracji, login i hasło: demo.</p>
+    <div class="cta">
+      <a class="btn btn-dark" href="https://demo.oms.klubwoskarzy.pl/">Wejdź do demo →</a>
+      <a class="btn btn-line" href="https://klubwoskarzy.pl/sklep/">Dołącz do klubu</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div>
+        <a class="brand" href="https://klubwoskarzy.pl/"><img src="assets/logo.png" alt="" width="38" height="38"><span><b>Klub Woskarzy</b><small>OMS dla twórców</small></span></a>
+        <p style="margin:0;max-width:360px">Unikalna przestrzeń dla pasjonatów świec i produktów z wosku. Wymiana doświadczeń zamiast konkurencji.</p>
+      </div>
+      <div>
+        <h4>OMS</h4>
+        <a href="#funkcje">Funkcje</a><a href="#zrzuty">Zobacz panel</a><a href="https://demo.oms.klubwoskarzy.pl/">Demo</a><a href="#wymagania">Wymagania</a><a href="#faq">Pytania</a>
+      </div>
+      <div>
+        <h4>Klub</h4>
+        <a href="https://klubwoskarzy.pl/">Strona główna</a><a href="https://klubwoskarzy.pl/sklep/">Dołącz do klubu</a><a href="https://klubwoskarzy.pl/moje-konto/strefa-klubowicza/">Strefa Klubowicza</a><a href="https://klubwoskarzy.pl/kontakt/">Kontakt</a>
+      </div>
+    </div>
+    <div class="legal">
+      <span>© 2026 Klub Woskarzy. Wszelkie prawa zastrzeżone.</span>
+      <span><a href="https://klubwoskarzy.pl/regulamin/">Regulamin</a><a href="https://klubwoskarzy.pl/polityka-prywatnosci/">Polityka prywatności</a></span>
+    </div>
+  </div>
+</footer>
+
+<div class="lb" id="lb" aria-hidden="true"><img alt=""></div>
+<script>
+(function(){
+  var tabs=document.querySelectorAll('.tabs button'), figs=document.querySelectorAll('.gallery figure');
+  tabs.forEach(function(b){b.addEventListener('click',function(){
+    tabs.forEach(function(t){t.setAttribute('aria-selected','false')});
+    figs.forEach(function(f){f.classList.remove('on')});
+    b.setAttribute('aria-selected','true'); figs[+b.dataset.i].classList.add('on');
+  })});
+  var lb=document.getElementById('lb'), li=lb.querySelector('img');
+  document.querySelectorAll('.gallery img').forEach(function(i){i.addEventListener('click',function(){li.src=i.src;li.alt=i.alt;lb.classList.add('on')})});
+  lb.addEventListener('click',function(){lb.classList.remove('on')});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')lb.classList.remove('on')});
+  document.querySelectorAll('nav.main a').forEach(function(a){a.addEventListener('click',function(){document.getElementById('menu').classList.remove('open')})});
+})();
+</script>
+</body>
+</html>

@@ -24,6 +24,17 @@ final class AppVersion
     public const NAME    = 'Veless';
     public const VERSION = '1.0';
 
+    /**
+     * Nazwa produktu widoczna dla użytkownika (tytuły stron, aplikacja na telefonie, demo).
+     * „Veless” to nazwa kodowa; instalacja może pokazywać własną nazwę przez APP_BRAND w .env,
+     * np. APP_BRAND="Klub Woskarzy OMS" na oms.klubwoskarzy.pl.
+     */
+    public static function brand(): string
+    {
+        $brand = trim((string) Env::get('APP_BRAND', ''));
+        return $brand !== '' ? mb_substr($brand, 0, 60) : self::NAME;
+    }
+
     private const CHECK_EVERY = 300;   // co ile sekund sprawdzać pliki
     private const SETTLE      = 120;   // ile sekund „ciszy" po ostatnim pliku przed nowym buildem
     private const DIRS = ['src', 'public', 'integrations', 'extensions', 'config', 'lang', 'cli'];
@@ -67,7 +78,7 @@ final class AppVersion
         }
         return [
             'name' => self::NAME, 'version' => $ver, 'build' => $build, 'date' => $date,
-            'label' => self::NAME . ' v' . $ver . ($date !== '' ? '  |  ' . $date : ''),
+            'label' => self::brand() . ' v' . $ver . ($date !== '' ? '  |  ' . $date : ''),
             'commit' => (string) ($state['commit'] ?? ''),
         ];
     }

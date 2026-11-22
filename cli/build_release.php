@@ -64,7 +64,7 @@ if (!str_starts_with($out, '/')) {
 }
 
 // --- Co pomijamy (jak w wdrożeniu FTP w veless-awien/.github/workflows/deploy.yml) ---
-const RELEASE_SKIP_TOP = ['.git', '.github', 'tests', 'mockup', 'agent-app', '_to_delete_tmp_stage', 'examples', 'docker', 'site', 'updates-server',
+const RELEASE_SKIP_TOP = ['.git', '.github', 'tests', 'mockup', 'agent-app', '_to_delete_tmp_stage', 'examples', 'docker', 'site', 'oms-site', 'updates-server',
     'dane', 'dist', 'storage', 'Dockerfile', 'docker-compose.yml', '.dockerignore', '.gitignore', '.gitattributes', '.push-request',
     '.push-result', 'pase.code-workspace', 'vendor', 'node_modules'];
 const RELEASE_SKIP_ANY = ['.git', '.DS_Store', '__pycache__', 'node_modules', 'Thumbs.db'];

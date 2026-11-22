@@ -34,6 +34,20 @@ if (isset($_SESSION['pase_user_id'])) {
 $error = null;
 $_SESSION['login_csrf'] ??= bin2hex(random_bytes(32));
 
+// Wersja demonstracyjna: od razu do panelu na wspólnym koncie demo, bez formularza i bez limitu prób
+// (wszyscy odwiedzający dzielą jedno konto, więc limit logowań szybko by je zablokował).
+if (\Pase\Support\Demo::on() && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    $stmt = $pdo->prepare('SELECT * FROM admin_users WHERE username = ? AND is_active = 1');
+    $stmt->execute([\Pase\Support\Demo::USERNAME]);
+    $demoUser = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($demoUser && empty($demoUser['totp_secret'])) {
+        \Pase\Support\AdminSession::login($pdo, $demoUser, false);
+        header('Location: index.php');
+        exit;
+    }
+    $error = 'Demo nie jest jeszcze przygotowane. Uruchom cli/demo_reset.php (zadanie cron) i odśwież stronę.';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = is_string($_POST['username'] ?? null) ? trim($_POST['username']) : '';
     $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';

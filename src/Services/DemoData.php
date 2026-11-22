@@ -57,7 +57,7 @@ final class DemoData
         foreach ($products as $i => [$sku, $name, $price, $stock, $cost]) {
             $file = strtolower($sku) . '.png';
             $mkImg($imgDir . '/' . $file, $palette[$i % count($palette)]);
-            $ins->execute([$sku, $name, $stock, $price, json_encode(['/demo-img/' . $file]), '590' . str_pad((string) (1234500 + $i * 37), 10, '0', STR_PAD_LEFT),
+            $ins->execute([$sku, $name, $stock, $price, json_encode(['../demo-img/' . $file]), '590' . str_pad((string) (1234500 + $i * 37), 10, '0', STR_PAD_LEFT),
                 str_contains($sku, 'KM') ? 0.9 : 0.4, $cost, 5, '<p>Ręcznie wylewana świeca z naturalnego wosku sojowego.</p>', 'Naturalny wosk, bawełniany knot.']);
         }
         $prod = $pdo->query('SELECT id, sku, name, pase_price FROM products')->fetchAll(PDO::FETCH_ASSOC);

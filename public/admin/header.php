@@ -12,7 +12,8 @@ declare(strict_types=1);
 // dotrze do przeglądarki - nic nie mignie bez wyglądu przy ładowaniu (Support\StyleHoist).
 \Pase\Support\StyleHoist::start();
 
-$pageTitle = $PAGE_TITLE ?? 'Veless';
+$appBrand  = \Pase\Support\AppVersion::brand();
+$pageTitle = $PAGE_TITLE ?? $appBrand;
 $pageKey   = $PAGE_KEY ?? '';
 // Skala interfejsu (Aa w pasku nawigacji) - per konto, jak powiększenie strony w przeglądarce.
 $uiScale = (isset($pdo) && function_exists('currentUserId'))
@@ -28,9 +29,9 @@ $uiScale = (isset($pdo) && function_exists('currentUserId'))
     <link rel="apple-touch-icon" href="assets/app-icon-180.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Veless">
+    <meta name="apple-mobile-web-app-title" content="<?= htmlspecialchars($appBrand) ?>">
     <meta name="theme-color" content="<?= htmlspecialchars(\Pase\Support\Theme::accent($pdo ?? null)) ?>">
-    <title><?= htmlspecialchars($pageTitle) ?> — Veless</title>
+    <title><?= htmlspecialchars($pageTitle === $appBrand ? $appBrand : $pageTitle . ' — ' . $appBrand) ?></title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
     <style>
         :root {

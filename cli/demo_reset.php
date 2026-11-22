@@ -61,5 +61,14 @@ $pdo->prepare("UPDATE admin_users SET username = ?, password_hash = ?, email = '
 
 // 4. Fikcyjny sklep.
 DemoData::seed($pdo, PASE_ROOT . '/public/demo-img');
+// Pracownia: zapachy, materiały, wyroby i partie świec (wtyczki Zapachy i Produkcja).
+\Pase\Services\DemoWorkshop::seed($pdo);
+
+// 5. Kolor panelu demo (opcjonalnie, np. DEMO_ACCENT=#8a6519 dla złota Klubu Woskarzy).
+//    Strona Wygląd jest w demo tylko do oglądania, więc kolor zmienia się tylko tutaj.
+$accent = trim((string) \Pase\Support\Env::get('DEMO_ACCENT', ''));
+if ($accent !== '') {
+    \Pase\Support\Theme::save($pdo, ['accent' => $accent, 'tone' => (string) (\Pase\Support\Env::get('DEMO_TONE', 'warm') ?: 'warm')]);
+}
 
 echo 'Demo zresetowane: ', $pdo->query('SELECT COUNT(*) FROM woo_orders')->fetchColumn(), " zamówień.\n";

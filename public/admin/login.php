@@ -92,9 +92,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link rel="apple-touch-icon" href="assets/app-icon-180.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Veless">
+    <meta name="apple-mobile-web-app-title" content="<?= htmlspecialchars(\Pase\Support\AppVersion::brand()) ?>">
     <meta name="theme-color" content="<?= htmlspecialchars(\Pase\Support\Theme::accent($pdo)) ?>">
-    <title><?= htmlspecialchars(t('login.title')) ?></title>
+    <title><?= htmlspecialchars(str_replace(\Pase\Support\AppVersion::NAME, \Pase\Support\AppVersion::brand(), t('login.title'))) ?></title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
     <style>
         :root { --accent:#9c6b2e; --accent-soft:#f2e6d0; --ink:#22252b; --ink-2:#6d7076; --line:#e6e3da; --nav-bg:#1c1f24; }
@@ -121,6 +121,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <div class="login-card">
+        <?php if (\Pase\Support\AppVersion::brand() !== \Pase\Support\AppVersion::NAME): ?>
+        <p style="margin:0 0 6px;color:var(--accent);font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase"><?= htmlspecialchars(\Pase\Support\AppVersion::brand()) ?></p>
+        <?php endif; ?>
         <h1><?= htmlspecialchars(t('login.heading')) ?></h1>
         <?php if ($error): ?><div class="error-msg"><?= htmlspecialchars($error) ?></div><?php endif; ?>
         <?php if (\Pase\Support\Demo::on()): ?>

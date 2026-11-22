@@ -267,7 +267,8 @@ ale z `DEMO_MODE=1` w `.env`, a zamiast workera w cronie jest tylko nocny reset:
 
 `cli/demo_reset.php` usuwa wszystkie tabele i pliki robocze, tworzy bazę od nowa i wgrywa fikcyjny
 „Sklep Demo” (`src/Services/DemoData.php`: 12 produktów, ~140 zamówień z ostatniego miesiąca,
-przesyłki, dokumenty, automatyzacje). Uruchom go raz po wgraniu plików. Bez `DEMO_MODE=1` odmawia
+przesyłki, dokumenty, automatyzacje) oraz pracownię (`src/Services/DemoWorkshop.php`: materiały z dostawami,
+6 wyrobów z recepturą, partie i 8 zapachów w wtyczkach Produkcja i Zapachy). Uruchom go raz po wgraniu plików. Bez `DEMO_MODE=1` odmawia
 działania, więc nie wyczyści prawdziwego systemu.
 
 W trybie demo (`src/Support/Demo.php`):
@@ -276,6 +277,10 @@ W trybie demo (`src/Support/Demo.php`):
 - serwer nie przyjmuje żadnych plików (wtyczki, załączniki, CSV, kopie),
 - kopie zapasowe, migracja adresu, pobieranie agenta i reset hasła są wyłączone,
 - konta, 2FA, wtyczki, integracje i ustawienia wysyłki można oglądać, ale nie zmieniać.
+
+Własna nazwa i kolor: `APP_BRAND="Klub Woskarzy OMS"` zmienia nazwę produktu w tytułach stron, logowaniu, aplikacji
+na telefonie i pasku demo (działa też poza demo), a `DEMO_ACCENT=#8a6519` ustawia kolor panelu przy każdym resecie.
+Demo i strona Klubu Woskarzy: `oms-site/README.md`.
 
 ## Instalacja przez kreator w przeglądarce
 

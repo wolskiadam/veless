@@ -20,8 +20,8 @@ header('Content-Type: application/manifest+json; charset=utf-8');
 header('Cache-Control: public, max-age=3600');
 
 echo json_encode([
-    'name'             => 'Veless',
-    'short_name'       => 'Veless',
+    'name'             => \Pase\Support\AppVersion::brand(),
+    'short_name'       => mb_strlen(\Pase\Support\AppVersion::brand()) <= 12 ? \Pase\Support\AppVersion::brand() : mb_substr(\Pase\Support\AppVersion::brand(), 0, 12),
     'id'               => './',
     'start_url'        => 'index.php',
     'scope'            => './',

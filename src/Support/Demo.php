@@ -74,7 +74,7 @@ final class Demo
             . '<div style="max-width:440px;background:#fff;border-radius:12px;padding:28px;box-shadow:0 2px 12px rgba(0,0,0,.08)">'
             . '<h1 style="font-size:20px;margin:0 0 10px">To jest wersja demonstracyjna</h1>'
             . '<p style="line-height:1.5;margin:0 0 18px">Ta funkcja jest wyłączona w demo: nie wysyłamy niczego na zewnątrz, nie przyjmujemy plików '
-            . 'i nie zmieniamy kont ani integracji. Zainstaluj Veless u siebie, żeby z niej skorzystać.</p>'
+            . 'i nie zmieniamy kont ani integracji. Zainstaluj ' . htmlspecialchars(AppVersion::brand(), ENT_QUOTES, 'UTF-8') . ' u siebie, żeby z niej skorzystać.</p>'
             . '<a href="' . $back . '" style="color:#9c6b2e;font-weight:600">← Wróć</a></div>';
         exit;
     }
@@ -86,7 +86,7 @@ final class Demo
             return '';
         }
         return '<div style="background:#2b2420;color:#f6f2ec;text-align:center;font-size:13px;padding:7px 12px;line-height:1.4">'
-            . 'Wersja demonstracyjna Veless z fikcyjnymi danymi. Wysyłka, integracje i pliki są wyłączone, a dane wracają do stanu wyjściowego co noc.'
+            . 'Wersja demonstracyjna ' . htmlspecialchars(AppVersion::brand(), ENT_QUOTES, 'UTF-8') . ' z fikcyjnymi danymi. Wysyłka, integracje i pliki są wyłączone, a dane wracają do stanu wyjściowego co noc.'
             . '</div>';
     }
 }

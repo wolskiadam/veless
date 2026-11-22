@@ -1,0 +1,115 @@
+name: Strona i demo OMS Klubu Woskarzy (FTP)
+
+# Wgrywa przez FTP:
+#   - stronę oms.klubwoskarzy.pl z katalogu oms-site/ (statyczny HTML, bez PHP),
+#   - wersję demonstracyjną (omsdemo.klubwoskarzy.pl) = ten kod z gałęzi main, z DEMO_MODE=1 w .env na serwerze.
+# Uruchamia się po zmianie na main (strona: tylko gdy zmienił się oms-site/) albo ręcznie (Actions → Run workflow).
+#
+# Sekrety (Settings → Secrets and variables → Actions):
+#   OMS_FTP_SERVER, OMS_FTP_USERNAME, OMS_FTP_PASSWORD  – konto FTP na hostingu Klubu
+#   OMS_SITE_DIR  – katalog strony, np. /domains/oms.klubwoskarzy.pl/public_html/ (z ukośnikiem na końcu)
+#   OMS_DEMO_DIR  – katalog demo, np. /domains/omsdemo.klubwoskarzy.pl/public_html/ (cały projekt, jak demo.veless.pl)
+# Zmienne (Variables): OMS_SITE_DEPLOY=1 włącza stronę, OMS_DEMO_DEPLOY=1 włącza demo, FTP_PROTOCOL (domyślnie ftps).
+# Bez zmiennych workflow nic nie robi, więc można go scalić przed założeniem subdomen.
+# Instrukcja krok po kroku: oms-site/README.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      co:
+        description: "Co wgrać"
+        type: choice
+        options: [strona i demo, strona, demo]
+        default: strona i demo
+      proba:
+        description: "Próba bez zmian na serwerze (tylko lista różnic)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-oms
+  cancel-in-progress: false
+
+jobs:
+  site:
+    name: Strona oms.klubwoskarzy.pl
+    if: vars.OMS_SITE_DEPLOY == '1' && (github.event_name == 'push' || inputs.co != 'demo')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Czy strona się zmieniła
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" != "push" ] || git diff --name-only HEAD~1 HEAD | grep -q '^oms-site/'; then
+            echo "go=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "Brak zmian w oms-site/ - pomijam."
+          fi
+
+      - name: Wgraj stronę
+        if: steps.changed.outputs.go == '1'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          local-dir: ./oms-site/
+          server: ${{ secrets.OMS_FTP_SERVER }}
+          username: ${{ secrets.OMS_FTP_USERNAME }}
+          password: ${{ secrets.OMS_FTP_PASSWORD }}
+          server-dir: ${{ secrets.OMS_SITE_DIR }}
+          protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          dry-run: ${{ inputs.proba == true }}
+          exclude: |
+            README.md
+            **/.DS_Store
+
+  demo:
+    name: Demo omsdemo.klubwoskarzy.pl
+    if: vars.OMS_DEMO_DEPLOY == '1' && (github.event_name == 'push' || inputs.co != 'strona')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sprawdź składnię PHP
+        run: |
+          find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 -P4 php -l > /tmp/lint.txt 2>&1 || { grep -v '^No syntax errors' /tmp/lint.txt; exit 1; }
+          printf '{"id":"%s-%s","deployed_at":%s,"commit":"%s"}\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$(date +%s)" "${GITHUB_SHA::7}" > config/build.json
+
+      - name: Wgraj demo
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          local-dir: ./
+          server: ${{ secrets.OMS_FTP_SERVER }}
+          username: ${{ secrets.OMS_FTP_USERNAME }}
+          password: ${{ secrets.OMS_FTP_PASSWORD }}
+          server-dir: ${{ secrets.OMS_DEMO_DIR }}
+          protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          dry-run: ${{ inputs.proba == true }}
+          # Jak przy wdrożeniu AWiEN: bez danych serwera (.env, storage/), testów, dokumentacji i stron.
+          exclude: |
+            **/.git*
+            **/.git*/**
+            .github/**
+            .env
+            .env.*
+            storage/**
+            public/demo-img/**
+            tests/**
+            mockup/**
+            agent-app/**
+            examples/**
+            docker/**
+            site/**
+            oms-site/**
+            updates-server/**
+            Dockerfile
+            docker-compose.yml
+            .dockerignore
+            dane/**
+            **/*.md
+            !integrations/README.md
+            !extensions/README.md
+            **/.DS_Store

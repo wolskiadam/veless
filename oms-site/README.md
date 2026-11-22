@@ -7,7 +7,7 @@ Strona produktu w stylu klubwoskarzy.pl (Work Sans + szeryfowe nagłówki, złot
 - `assets/logo.png` – znak Klubu.
 - `assets/screens/` – zrzuty z demo (fikcyjna pracownia świec).
 
-Przyciski prowadzą do: demo `https://demo.oms.klubwoskarzy.pl/`, dołączenia do klubu `https://klubwoskarzy.pl/sklep/`
+Przyciski prowadzą do: demo `https://omsdemo.klubwoskarzy.pl/`, dołączenia do klubu `https://klubwoskarzy.pl/sklep/`
 i Strefy Klubowicza (`https://klubwoskarzy.pl/moje-konto/strefa-klubowicza/`), gdzie członkowie pobierają paczkę instalacyjną.
 
 Podgląd lokalnie: otwórz `oms-site/index.html` w przeglądarce.
@@ -20,9 +20,9 @@ Podgląd lokalnie: otwórz `oms-site/index.html` w przeglądarce.
 2. Wgraj zawartość `oms-site/` (bez README.md) do katalogu subdomeny, np. `domains/klubwoskarzy.pl/public_html/oms/`
    albo `domains/oms.klubwoskarzy.pl/public_html/` – zależnie od tego, gdzie panel założył subdomenę.
 
-### 2. Demo demo.oms.klubwoskarzy.pl
+### 2. Demo omsdemo.klubwoskarzy.pl
 
-1. Dodaj subdomenę `demo.oms.klubwoskarzy.pl` z SSL i nową bazę MySQL (np. `klub_omsdemo`).
+1. Dodaj subdomenę `omsdemo.klubwoskarzy.pl` z SSL i nową bazę MySQL (np. `klub_omsdemo`).
 2. Wgraj cały projekt do katalogu subdomeny (jak demo.veless.pl: główny `.htaccess` blokuje `.env`, `src/` i `config/`,
    a adres główny przekierowuje do panelu).
 3. Utwórz w tym katalogu `.env` na podstawie `.env.example`:
@@ -50,7 +50,7 @@ W repozytorium veless (Settings → Secrets and variables → Actions):
 | `OMS_FTP_SERVER` | `ftp.klubwoskarzy.pl` |
 | `OMS_FTP_USERNAME`, `OMS_FTP_PASSWORD` | konto FTP z dostępem do obu katalogów |
 | `OMS_SITE_DIR` | `/domains/oms.klubwoskarzy.pl/public_html/` |
-| `OMS_DEMO_DIR` | `/domains/demo.oms.klubwoskarzy.pl/public_html/` |
+| `OMS_DEMO_DIR` | `/domains/omsdemo.klubwoskarzy.pl/public_html/` |
 
 Zmienne: `OMS_SITE_DEPLOY=1` (strona), `OMS_DEMO_DEPLOY=1` (demo), opcjonalnie `FTP_PROTOCOL=ftp`, gdy serwer nie ma FTPS.
 Bez tych zmiennych workflow nic nie wgrywa. `.env`, `storage/` i obrazki demo na serwerze zostają nietknięte.

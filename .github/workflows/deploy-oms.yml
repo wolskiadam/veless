@@ -2,13 +2,13 @@ name: Strona i demo OMS Klubu Woskarzy (FTP)
 
 # Wgrywa przez FTP:
 #   - stronę oms.klubwoskarzy.pl z katalogu oms-site/ (statyczny HTML, bez PHP),
-#   - wersję demonstracyjną (demo.oms.klubwoskarzy.pl) = ten kod z gałęzi main, z DEMO_MODE=1 w .env na serwerze.
+#   - wersję demonstracyjną (omsdemo.klubwoskarzy.pl) = ten kod z gałęzi main, z DEMO_MODE=1 w .env na serwerze.
 # Uruchamia się po zmianie na main (strona: tylko gdy zmienił się oms-site/) albo ręcznie (Actions → Run workflow).
 #
 # Sekrety (Settings → Secrets and variables → Actions):
 #   OMS_FTP_SERVER, OMS_FTP_USERNAME, OMS_FTP_PASSWORD  – konto FTP na hostingu Klubu
 #   OMS_SITE_DIR  – katalog strony, np. /domains/oms.klubwoskarzy.pl/public_html/ (z ukośnikiem na końcu)
-#   OMS_DEMO_DIR  – katalog demo, np. /domains/demo.oms.klubwoskarzy.pl/public_html/ (cały projekt, jak demo.veless.pl)
+#   OMS_DEMO_DIR  – katalog demo, np. /domains/omsdemo.klubwoskarzy.pl/public_html/ (cały projekt, jak demo.veless.pl)
 # Zmienne (Variables): OMS_SITE_DEPLOY=1 włącza stronę, OMS_DEMO_DEPLOY=1 włącza demo, FTP_PROTOCOL (domyślnie ftps).
 # Bez zmiennych workflow nic nie robi, więc można go scalić przed założeniem subdomen.
 # Instrukcja krok po kroku: oms-site/README.md.
@@ -67,7 +67,7 @@ jobs:
             **/.DS_Store
 
   demo:
-    name: Demo demo.oms.klubwoskarzy.pl
+    name: Demo omsdemo.klubwoskarzy.pl
     if: vars.OMS_DEMO_DEPLOY == '1' && (github.event_name == 'push' || inputs.co != 'strona')
     runs-on: ubuntu-latest
     steps:

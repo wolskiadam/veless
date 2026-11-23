@@ -175,6 +175,31 @@ function csrfCheck(): void
     }
 }
 
+/**
+ * Ponowne podanie własnego hasła przed akcjami, które wgrywają kod na serwer (wtyczki, aktualizacja).
+ * Przejęta sesja (np. zostawiony komputer, skrypt XSS) nie wystarczy - trzeba znać hasło.
+ */
+function passwordConfirmField(): string
+{
+    return '<label style="display:block;margin-top:10px;font-size:13px;color:var(--ink-2,#555)">Twoje hasło do panelu (potwierdzenie)'
+        . '<input type="password" name="confirm_password" required autocomplete="current-password" style="display:block;margin-top:4px;max-width:280px"></label>';
+}
+
+/** Czy w żądaniu jest poprawne hasło zalogowanego konta (z limitem prób). */
+function passwordConfirmed(): bool
+{
+    $account = $GLOBALS['account'] ?? null;
+    $given = $_POST['confirm_password'] ?? '';
+    if (!is_array($account) || !is_string($given) || $given === '') {
+        return false;
+    }
+    $limiter = new \Pase\Support\RateLimiter(PASE_ROOT . '/storage/security/reauth.json');
+    if (!$limiter->consume(['account:' . (int) $account['id'] => [10, 900]])) {
+        return false;
+    }
+    return password_verify($given, (string) $account['password_hash']);
+}
+
 /** Every physical print action requires explicit, authenticated POST. */
 function requirePrintPost(): void
 {

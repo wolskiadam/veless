@@ -29,7 +29,7 @@ final class Session
     public const COOKIE_NAME = 'PASE_ADMIN';
 
     /** Ile dni trzymać zalogowanie panelu. Nadpisywalne z .env: SESSION_ADMIN_DAYS. */
-    private const DEFAULT_DAYS = 30;
+    private const DEFAULT_DAYS = 7;
 
     /** Jak często odświeżać ciasteczko (sekundy) - nie ma sensu przy każdym żądaniu. */
     private const REFRESH_EVERY = 3600;

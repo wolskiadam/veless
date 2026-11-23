@@ -95,6 +95,23 @@ try {
     copy($dist . '/veless-1.0.999.zip', $web . '/veless-1.0.999.zip');
     [, $page] = $http();
     check(str_contains($page, 'Instalacja Veless 1.0.999') && str_contains($page, 'pdo_mysql') && !str_contains($page, ' disabled'), 'Requirements pass once the package is uploaded');
+    // Obcy (inna przeglądarka) nie może zacząć: nie utworzy pliku z kodem ze swojej sesji na serwerze.
+    $stranger = $client($base . '/veless/instaluj.php');
+    [, $sp] = $stranger();
+    preg_match('#<pre id="proof">(instalacja-[A-Z2-9]{8}\.txt)</pre>#', $page, $mine);
+    preg_match('#<pre id="proof">(instalacja-[A-Z2-9]{8}\.txt)</pre>#', $sp, $theirs);
+    check(isset($mine[1], $theirs[1]) && $mine[1] !== $theirs[1], 'Each browser gets its own proof file name');
+    [, $sp] = $stranger(['csrf' => $csrf($sp), 'action' => 'start']);
+    check(str_contains($sp, 'Nie widzę pliku') && !is_file($web . '/.veless-install.json'), 'Start without the proof file is refused');
+    [, $page] = $http(['csrf' => $csrf($page), 'action' => 'start']);
+    check(str_contains($page, 'Nie widzę pliku'), 'Owner also needs the proof file');
+    touch($web . '/' . $mine[1]);
+    [, $page] = $http();
+    check(str_contains($page, 'Plik jest na miejscu'), 'Proof file is detected');
+    [, $sp] = $stranger();
+    check(!str_contains($sp, 'Plik jest na miejscu'), "Stranger does not see the owner's proof as theirs");
+    [, $sp] = $stranger(['csrf' => $csrf($sp), 'action' => 'start']);
+    check(str_contains($sp, 'Nie widzę pliku') && !is_file($web . '/.veless-install.json'), "Owner's proof file does not let a stranger start");
     $http(['csrf' => $csrf($page), 'action' => 'start']);
     [, $page] = $http();
     check(str_contains($page, 'Konto administratora') && str_contains($page, $base . '/veless/public'), 'Second step asks for database, address and admin with detected URL');
@@ -132,7 +149,7 @@ try {
 
     $env = (string) file_get_contents($web . '/.env');
     check(str_contains($env, 'DB_NAME="' . $target . '"') && str_contains($env, 'APP_MODE=server') && preg_match('/^WORKER_HTTP_SECRET="[a-f0-9]{48}"$/m', $env)
-        && preg_match('/^ADMIN_DEFAULT_PASSWORD=$/m', $env) && str_contains($env, 'ALLEGRO_REDIRECT_URI="' . $panel . '/auth_allegro_callback.php"'), '.env written from template with database, secret and redirect');
+        && preg_match('/^ADMIN_DEFAULT_PASSWORD=$/m', $env) && preg_match('/^TOTP_REQUIRE_ADMIN=1$/m', $env) && str_contains($env, 'ALLEGRO_REDIRECT_URI="' . $panel . '/auth_allegro_callback.php"'), '.env written from template with database, secret and redirect');
     check((fileperms($web . '/.env') & 0077) === 0 && (fileperms($web . '/storage/security/totp.key') & 0077) === 0, '.env and encryption key are private (0600)');
     check(strlen((string) base64_decode((string) file_get_contents($web . '/storage/security/totp.key'), true)) === 32, 'Encryption key is 32 random bytes');
 
@@ -157,7 +174,8 @@ try {
     [, $page] = $http(['csrf' => $csrf($page), 'action' => 'finish']);
     [, $page] = $http();
     check(str_contains($page, 'Veless 1.0.999 zainstalowany') && str_contains($page, $panel . '/admin/'), 'Final page links to the panel');
-    check(!is_file($web . '/instaluj.php') && !is_file($web . '/veless-1.0.999.zip') && !is_file($web . '/.veless-install.json'), 'Installer, package and state file are removed');
+    check(!is_file($web . '/instaluj.php') && !is_file($web . '/veless-1.0.999.zip') && !is_file($web . '/.veless-install.json')
+        && glob($web . '/instalacja-*.txt') === [], 'Installer, package, state and proof files are removed');
     check(!str_contains((string) file_get_contents($web . '/.htaccess'), 'veless-installer'), 'Installer block removed from .htaccess');
 
     // Logowanie do panelu nowym kontem.
@@ -166,8 +184,11 @@ try {
     $token = preg_match('/name="(csrf|_csrf|csrf_token)" value="([^"]+)"/', $login, $m) ? [$m[1], $m[2]] : ['csrf', ''];
     [$code, $body, $loc] = $panelHttp([$token[0] => $token[1], 'username' => 'wlasciciel', 'password' => 'Mocne-haslo-123'], 'login.php');
     check(in_array($code, [302, 303], true) && !str_contains($loc, 'login.php'), 'Admin logs into the panel with the wizard password (HTTP ' . $code . ' → ' . $loc . ')');
-    [$code, $dash] = $panelHttp([], 'index.php');
-    check($code === 200 && str_contains($dash, 'v1.0.999'), 'Panel opens after login and shows the release version (HTTP ' . $code . ')');
+    // TOTP_REQUIRE_ADMIN=1 z kreatora: przed wejściem do panelu administrator musi włączyć logowanie dwuetapowe.
+    [$code, , $loc] = $panelHttp([], 'index.php');
+    check(in_array($code, [302, 303], true) && str_contains($loc, 'security.php'), 'Fresh admin is sent to set up two-factor login first (HTTP ' . $code . ' → ' . $loc . ')');
+    [$code, $sec] = $panelHttp([], 'security.php');
+    check($code === 200 && str_contains($sec, 'v1.0.999'), 'Two-factor setup page opens and shows the release version (HTTP ' . $code . ')');
     check((int) $pdo->query('SELECT COUNT(*) FROM admin_users')->fetchColumn() === 1, 'Opening the panel does not add the default admin account');
 
     // Ponowne wgranie kreatora do zainstalowanego katalogu nic nie robi.

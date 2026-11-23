@@ -16,8 +16,10 @@ declare(strict_types=1);
  * Samodzielny plik: przed rozpakowaniem nie ma jeszcze kodu Veless. Funkcje mają prefiks vi_,
  * bo w kroku 4 kreator ładuje config/config.php systemu w tym samym procesie.
  *
- * Kreator przejmuje pierwsza przeglądarka, która go uruchomi (ciasteczko). Inne dostają odmowę,
- * żeby nikt obcy nie dokończył instalacji z własną bazą.
+ * Zanim kreator ruszy, właściciel udowadnia dostęp do plików serwera: tworzy (FTP / menedżer plików)
+ * pusty plik o nazwie z kodem pokazanym tylko w jego przeglądarce. Obcy, który trafi na porzucony
+ * instaluj.php, nie założy instalacji z własną bazą i własnym kontem administratora.
+ * Potem kreator prowadzi tylko ta przeglądarka (ciasteczko). Inne dostają odmowę.
  */
 
 // Kopia leżąca w src/Installer/ działającego systemu nigdy nic nie robi.
@@ -50,6 +52,18 @@ $_SESSION['csrf'] ??= bin2hex(random_bytes(16));
 // ------------------------------------------------------------------ pomocnicze
 
 function vi_h(mixed $v): string { return htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8'); }
+
+/** Nazwa pliku, który właściciel tworzy na serwerze, żeby udowodnić dostęp do plików (kod tylko w jego sesji). */
+function vi_proof_name(): string
+{
+    if (!is_string($_SESSION['proof'] ?? null) || !preg_match('/^[A-Z2-9]{8}$/D', $_SESSION['proof'])) {
+        $abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        $code = '';
+        for ($i = 0; $i < 8; $i++) { $code .= $abc[random_int(0, strlen($abc) - 1)]; }
+        $_SESSION['proof'] = $code;
+    }
+    return 'instalacja-' . $_SESSION['proof'] . '.txt';
+}
 
 /** Pasek kroków u góry strony. */
 function vi_steps(int $current): string
@@ -203,6 +217,9 @@ function vi_build_env(string $template, array $db, string $baseUrl): string
 {
     $set = [
         'APP_ENV' => 'production', 'APP_MODE' => 'server', 'APP_DEBUG' => 'false', 'DEMO_MODE' => '0',
+        // Administrator musi włączyć logowanie dwuetapowe przy pierwszym wejściu: samo hasło to za mało dla konta,
+        // które może wgrywać wtyczki (kod PHP) na serwer.
+        'TOTP_REQUIRE_ADMIN' => '1',
         'WORKER_HTTP_SECRET' => vi_env_value(bin2hex(random_bytes(24))), 'ADMIN_DEFAULT_PASSWORD' => '',
         'DB_HOST' => vi_env_value($db['host']), 'DB_PORT' => (string) $db['port'], 'DB_NAME' => vi_env_value($db['name']),
         'DB_USER' => vi_env_value($db['user']), 'DB_PASS' => vi_env_value($db['pass']),
@@ -386,6 +403,13 @@ try {
     if ($state === null) {
         $req = vi_requirements($dir, $package, $packageError);
         $blocked = (bool) array_filter($req, static fn($r) => $r[0] === 'err');
+        $proof = vi_proof_name();
+        $proofOk = is_file($dir . '/' . $proof);
+        if ($action === 'start' && !$blocked && !$proofOk) {
+            vi_fail('Nie widzę pliku ' . $proof . ' w katalogu instalacji.', '<p>Utwórz go przez FTP albo menedżer plików hostingu (może być pusty) obok <code>'
+                . vi_h($self) . '</code>, a potem wróć i kliknij „Rozpocznij instalację”. Wielkość liter ma znaczenie.</p>'
+                . '<p><a href="' . vi_h($self) . '">← Wróć</a></p>', 1);
+        }
         if ($action === 'start' && !$blocked) {
             session_regenerate_id(true);
             $_SESSION['claim'] = bin2hex(random_bytes(24));
@@ -403,6 +427,10 @@ try {
             '<p>Kreator zainstaluje system w katalogu <code>' . vi_h($dir) . '</code>. Najpierw sprawdzamy, czy serwer ma wszystko, czego potrzeba.</p>'
             . '<table>' . $rows . '</table>'
             . ($blocked ? '<div class="err">Popraw pozycje oznaczone ✗ i odśwież tę stronę.</div>' : '')
+            . '<h2>Potwierdź, że to Twój serwer</h2><p>Przez FTP albo menedżer plików hostingu utwórz w katalogu <code>' . vi_h($dir) . '</code> pusty plik o nazwie:</p>'
+            . '<pre id="proof">' . vi_h($proof) . '</pre>'
+            . ($proofOk ? '<div class="ok">Plik jest na miejscu.</div>'
+                : '<p class="hint">Dzięki temu nikt obcy, kto trafi na ten adres, nie zainstaluje systemu na Twoim serwerze. Kod jest widoczny tylko w tej przeglądarce; kreator usunie plik na końcu.</p>')
             . '<form method="post">' . vi_hidden() . '<input type="hidden" name="action" value="start"><button type="submit"' . ($blocked ? ' disabled' : '') . '>Rozpocznij instalację</button></form>', 1);
     }
 
@@ -624,6 +652,7 @@ try {
     vi_remove_tree($dir . '/storage/installer');
     @unlink($stateFile);
     @unlink($dir . '/INSTRUKCJA.txt');
+    foreach (glob($dir . '/instalacja-*.txt') ?: [] as $proofFile) { @unlink($proofFile); }
     $selfDeleted = @unlink(__FILE__);
     $version = (string) $state['version'];
     $_SESSION = [];

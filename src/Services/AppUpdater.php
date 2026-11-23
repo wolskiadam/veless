@@ -144,6 +144,12 @@ final class AppUpdater
     {
         if (($why = $this->blockedReason()) !== null) { throw new \RuntimeException($why); }
         $plan = $this->inspect($zipPath);
+        // Paczka bez podpisu (np. podesłana mailem „poprawka”) tylko po świadomym wpisie w .env przez FTP.
+        if (!$requireSigned && $plan['signature'] !== 'ok' && !self::unsignedAllowed()) {
+            throw new \RuntimeException($plan['signature'] === 'unknown'
+                ? 'Serwer nie ma rozszerzenia PHP sodium, więc nie da się sprawdzić podpisu paczki. Włącz sodium w panelu hostingu albo dopisz ALLOW_UNSIGNED_UPDATES=1 do pliku .env.'
+                : 'Paczka nie ma podpisu Veless, więc nie zostanie zainstalowana. Jeśli na pewno wiesz, skąd pochodzi, dopisz ALLOW_UNSIGNED_UPDATES=1 do pliku .env (przez FTP) i spróbuj ponownie.');
+        }
         if ($requireSigned && $plan['signature'] !== 'ok') {
             throw new \RuntimeException($plan['signature'] === 'unknown'
                 ? 'Serwer nie ma rozszerzenia PHP sodium, więc nie da się sprawdzić podpisu paczki. Aktualizuj ręcznie albo włącz sodium.'
@@ -196,6 +202,12 @@ final class AppUpdater
         $this->prune();
         \Pase\Support\Logger::info('Aktualizacja systemu: ' . ($plan['installed'] ?? '?') . ' → ' . $plan['version'], ['changed' => count($plan['changed']), 'added' => count($plan['added']), 'removed' => count($plan['removed'])]);
         return ['from' => $plan['installed'], 'to' => $plan['version'], 'changed' => count($plan['changed']), 'added' => count($plan['added']), 'removed' => count($plan['removed']), 'backup' => basename($backup)];
+    }
+
+    /** Czy wolno instalować paczki bez podpisu (ALLOW_UNSIGNED_UPDATES=1 w .env). */
+    public static function unsignedAllowed(): bool
+    {
+        return \Pase\Support\Env::bool('ALLOW_UNSIGNED_UPDATES', false);
     }
 
     /** Kopie plików sprzed aktualizacji. @return list<array{file:string,from:string,to:string,created_at:string,size:int}> */

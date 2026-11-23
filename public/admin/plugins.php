@@ -36,6 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'upload') {
         if (empty($_POST['confirm_risk'])) {
             $flashErr = 'Potwierdź, że instalujesz wtyczkę z zaufanego źródła.';
+        } elseif (!passwordConfirmed()) {
+            $flashErr = 'Podaj poprawne hasło do panelu, żeby zainstalować wtyczkę.';
         } else {
             $res = PluginInstaller::installFromZip($_FILES['plugin_zip'] ?? []);
             if ($res['ok']) {
@@ -159,6 +161,7 @@ require __DIR__ . '/header.php';
             <input type="checkbox" name="confirm_risk" value="1">
             Rozumiem, że instaluję obcy kod PHP i robię to na własną odpowiedzialność.
         </label>
+        <?= passwordConfirmField() ?>
         <p style="color:#888;font-size:12px;margin-top:8px">
             Paczka musi zawierać katalog wtyczki z plikiem <code>register.php</code>. Rodzaj rozpoznajemy sam:
             klasa z <code>PaseExt\</code> to rozszerzenie (<a href="plugins.php?tab=ext_docs">dokumentacja</a>),

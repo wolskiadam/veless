@@ -33,6 +33,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $back = 'update.php';
     try {
         if ($blocked !== null && $action !== 'delete') { throw new \RuntimeException($blocked); }
+        // Aktualizacja i cofnięcie podmieniają kod na serwerze - tylko po ponownym podaniu hasła.
+        if (in_array($action, ['apply', 'install_latest', 'rollback'], true) && !empty($_POST['confirm']) && !passwordConfirmed()) {
+            throw new \RuntimeException('Podaj poprawne hasło do panelu, żeby zmienić wersję systemu.');
+        }
         switch ($action) {
             case 'upload':
                 $up = $_FILES['package'] ?? null;
@@ -146,6 +150,7 @@ require __DIR__ . '/header.php';
                 <input type="hidden" name="action" value="install_latest">
                 <label class="up-check"><input type="checkbox" name="confirm" value="1" required>
                     <span>Mam aktualną kopię zapasową. Przed podmianą system zapisze kopię zmienianych plików, żeby można było cofnąć aktualizację.</span></label>
+                <?= passwordConfirmField() ?>
                 <p class="up-row"><button class="btn" type="submit">Zainstaluj <?= $e($latest['version']) ?> teraz</button>
                     <?php if ($status['mode'] !== 'off' && $checker->autoAllowed((string) $latest['version'], (bool) ($latest['auto'] ?? true), (new DateTimeImmutable('today', $tz))->setTime($checker->hours()[0], 30)->getTimestamp())): ?>
                         <span class="up-hint" style="margin:0">albo poczekaj - zainstaluje się sama w nocy (<?= $e(implode('-', $checker->hours())) ?>).</span>
@@ -193,7 +198,7 @@ require __DIR__ . '/header.php';
         <div class="card">
             <strong>Paczka <?= $e($selected) ?></strong>
             <p class="up-hint">Wersja <?= $e($plan['version']) ?><?= $plan['created_at'] !== '' ? ', zbudowana ' . $e($fmtDate($plan['created_at'])) : '' ?>.
-                <?= ['ok' => '<strong style="color:var(--ok-ink,#1d7a43)">Podpisana przez Veless.</strong>', 'none' => '<strong>Paczka bez podpisu</strong> - instaluj ją tylko, jeśli wiesz, skąd pochodzi.', 'unknown' => 'Podpisu nie da się sprawdzić (brak rozszerzenia PHP sodium).'][$plan['signature']] ?? '' ?></p>
+                <?= ['ok' => '<strong style="color:var(--ok-ink,#1d7a43)">Podpisana przez Veless.</strong>', 'none' => '<strong>Paczka bez podpisu</strong> - ' . (\Pase\Services\AppUpdater::unsignedAllowed() ? 'instaluj ją tylko, jeśli wiesz, skąd pochodzi.' : 'nie zostanie zainstalowana (chyba że w .env jest ALLOW_UNSIGNED_UPDATES=1).'), 'unknown' => 'Podpisu nie da się sprawdzić (brak rozszerzenia PHP sodium).'][$plan['signature']] ?? '' ?></p>
             <div class="up-grid">
                 <div><small>Zmienione pliki</small><strong><?= count($plan['changed']) ?></strong></div>
                 <div><small>Nowe pliki</small><strong><?= count($plan['added']) ?></strong></div>
@@ -217,6 +222,7 @@ require __DIR__ . '/header.php';
                     <input type="hidden" name="file" value="<?= $e($selected) ?>">
                     <label class="up-check"><input type="checkbox" name="confirm" value="1" required>
                         <span>Mam aktualną kopię zapasową (<a href="backup.php">System → Kopia zapasowa</a>). Przed podmianą system i tak zapisze kopię zmienianych plików programu, żeby można było cofnąć aktualizację.</span></label>
+                    <?= passwordConfirmField() ?>
                     <p class="up-row"><button class="btn" type="submit">Aktualizuj do <?= $e($plan['version']) ?></button>
                         <span class="up-hint" style="margin:0">Na czas aktualizacji (zwykle kilka sekund) zadania w tle są wstrzymane.</span></p>
                 </form>
@@ -271,6 +277,7 @@ require __DIR__ . '/header.php';
                             <input type="hidden" name="action" value="rollback">
                             <input type="hidden" name="file" value="<?= $e($b['file']) ?>">
                             <label class="up-check" style="display:inline-flex;margin:0 8px 0 0"><input type="checkbox" name="confirm" value="1" required> wróć do <?= $e($b['from'] ?: 'poprzedniej') ?></label>
+                            <input type="password" name="confirm_password" required autocomplete="current-password" placeholder="Twoje hasło" aria-label="Twoje hasło do panelu" style="max-width:150px;margin-right:8px">
                             <button class="btn secondary" type="submit">Cofnij</button>
                         </form>
                     <?php endif; ?>

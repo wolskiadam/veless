@@ -123,15 +123,23 @@ try {
     $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'apply', 'file' => 'veless-1.0.11.zip']));
     check(str_contains($page, 'potwierdzenie kopii') && !is_file($app . '/src/Support/UpdateProbe.php'), 'Update requires the backup confirmation');
 
+    // Hasło: bez niego (albo ze złym) nic się nie zmienia.
+    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'apply', 'file' => 'veless-1.0.11.zip', 'confirm' => '1', 'confirm_password' => 'zle-haslo']));
+    check(str_contains($page, 'Podaj poprawne hasło') && !is_file($app . '/src/Support/UpdateProbe.php'), 'Update requires the current password');
+    // Paczki testowe nie mają podpisu: bez ALLOW_UNSIGNED_UPDATES=1 w .env aktualizacja odmawia.
+    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'apply', 'file' => 'veless-1.0.11.zip', 'confirm' => '1', 'confirm_password' => 'Mocne-haslo-123']));
+    check(str_contains($page, 'nie ma podpisu Veless') && !is_file($app . '/src/Support/UpdateProbe.php'), 'Unsigned package is refused by default');
+    file_put_contents($app . '/.env', "ALLOW_UNSIGNED_UPDATES=1\n", FILE_APPEND);
+
     // Worker w trakcie pracy: aktualizacja czeka.
     $lock = fopen($app . '/storage/worker.lock', 'c+'); flock($lock, LOCK_EX);
-    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'apply', 'file' => 'veless-1.0.11.zip', 'confirm' => '1']));
+    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'apply', 'file' => 'veless-1.0.11.zip', 'confirm' => '1', 'confirm_password' => 'Mocne-haslo-123']));
     flock($lock, LOCK_UN); fclose($lock);
     check(str_contains($page, 'Właśnie działa zadanie w tle') && !is_file($app . '/src/Support/UpdateProbe.php'), 'Update refuses while the worker holds its lock, nothing changed');
 
     $envBefore = file_get_contents($app . '/.env');
     $keyBefore = file_get_contents($app . '/storage/security/totp.key');
-    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'apply', 'file' => 'veless-1.0.11.zip', 'confirm' => '1']));
+    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'apply', 'file' => 'veless-1.0.11.zip', 'confirm' => '1', 'confirm_password' => 'Mocne-haslo-123']));
     check(str_contains($page, 'do 1.0.11') && str_contains($page, 'z wersji 1.0.10'), 'Update succeeds with a summary');
     check(is_file($app . '/src/Support/UpdateProbe.php') && str_contains((string) file_get_contents($app . '/lang/pl.php'), "'Aktualizacja B'"), 'New and changed files in place');
     check(!is_file($app . '/cli/demo_reset.php') && is_file($app . '/sql/migration_002_woo_orders.sql'), 'File dropped by B removed; locally edited one kept');
@@ -147,14 +155,14 @@ try {
     // Starsza paczka: odmowa.
     $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'upload', 'package' => new CURLFile($pkgA, 'application/zip', 'veless-1.0.10.zip')]));
     check(str_contains($page, 'To starsza wersja'), 'Older package is flagged as a downgrade');
-    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'apply', 'file' => 'veless-1.0.10.zip', 'confirm' => '1']));
+    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'apply', 'file' => 'veless-1.0.10.zip', 'confirm' => '1', 'confirm_password' => 'Mocne-haslo-123']));
     check(str_contains($page, 'Cofnięcie wersji nie jest obsługiwane') && is_file($app . '/src/Support/UpdateProbe.php'), 'Downgrade from a package is refused');
     $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'delete', 'file' => 'veless-1.0.10.zip']));
 
     // Cofnięcie z kopii.
     $backup = basename(glob($app . '/storage/backups/update/update-*.zip')[0]);
     check(str_contains($page, '1.0.10 → 1.0.11') && str_contains($page, 'value="rollback"'), 'Rollback offered for the last update');
-    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'rollback', 'file' => $backup, 'confirm' => '1']));
+    $page = $follow($http('update.php', ['csrf' => $csrf($page), 'action' => 'rollback', 'file' => $backup, 'confirm' => '1', 'confirm_password' => 'Mocne-haslo-123']));
     check(str_contains($page, 'Działa teraz wersja 1.0.10'), 'Rollback succeeds');
     check(!is_file($app . '/src/Support/UpdateProbe.php') && is_file($app . '/cli/demo_reset.php')
         && !str_contains((string) file_get_contents($app . '/lang/pl.php'), "'Aktualizacja B'"), 'Files are back to version A (new file removed, deleted file restored)');

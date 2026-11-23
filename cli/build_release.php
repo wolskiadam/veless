@@ -119,6 +119,20 @@ foreach (['config/config.php', 'public/admin/index.php', 'cli/worker.php', '.env
     }
 }
 
+// Kreator instaluje cały system w katalogu strony, więc każdy katalog poza public/ musi sam blokować dostęp z internetu.
+// Nowy katalog bez takiego .htaccess byłby widoczny w przeglądarce - wtedy paczka się nie zbuduje.
+$topDirs = [];
+foreach ($files as $rel) {
+    if (str_contains($rel, '/')) { $topDirs[explode('/', $rel)[0]] = true; }
+}
+foreach (array_keys($topDirs) as $dir) {
+    if ($dir === 'public') { continue; }
+    $guard = $root . '/' . $dir . '/.htaccess';
+    if (!in_array($dir . '/.htaccess', $files, true) || !preg_match('/^\s*Require all denied\s*$/m', (string) file_get_contents($guard))) {
+        release_fail("Katalog {$dir}/ nie ma pliku .htaccess z „Require all denied” - po instalacji byłby widoczny z internetu.");
+    }
+}
+
 if (!is_dir($out) && !mkdir($out, 0755, true)) {
     release_fail("Nie można utworzyć katalogu {$out}.");
 }
@@ -176,6 +190,10 @@ Veless {$version} - instalacja na hostingu
    Nie rozpakowuj paczki - zrobi to kreator.
 3. Otwórz w przeglądarce adres tego katalogu z dopiskiem /instaluj.php,
    np. https://twoja-domena.pl/veless/instaluj.php, i przejdź przez kreator.
+   Na pierwszym ekranie kreator poda nazwę pliku (np. instalacja-AB12CD34.txt): utwórz taki
+   pusty plik w tym samym katalogu przez FTP albo menedżer plików. To potwierdza, że serwer jest Twój.
+4. Po pierwszym logowaniu panel poprosi o włączenie logowania dwuetapowego (aplikacja
+   Google Authenticator lub podobna). Bez tego nie wpuści do reszty panelu.
 
 Na końcu kreator pokaże linijkę do wklejenia w zadaniach cron (panel hostingu) i sam usunie
 siebie oraz paczkę z serwera.

@@ -10,6 +10,8 @@ namespace Pase\Support;
  *   - nie łączy się z niczym na zewnątrz (Http, wyszukiwarka firm, SMTP),
  *   - nie przyjmuje plików (wtyczki, załączniki, kopie zapasowe, CSV),
  *   - nie pozwala zmienić kont, haseł, 2FA, integracji ani kanałów wysyłki,
+ *   - zapisuje (POST) tylko na stronach z danymi sklepu: strony administratora i strony spoza
+ *     rejestru uprawnień są w demo tylko do oglądania (lista dozwolonych, nie zablokowanych),
  *   - wraca do stanu wyjściowego co noc (cli/demo_reset.php z crona).
  */
 final class Demo
@@ -17,10 +19,15 @@ final class Demo
     public const USERNAME = 'demo';
     public const PASSWORD = 'demo';
 
-    /** Strony całkiem wyłączone (pobierają lub odtwarzają dane systemu albo pliki agenta). */
+    /**
+     * Strony całkiem wyłączone (pobierają lub odtwarzają dane systemu albo pliki agenta).
+     * handover.php = zarówno strona panelu, jak i public/handover.php (wymiana paczek danych, które
+     * worker wgrywa razem z plikami) - w demo każdy jest administratorem, więc nie może tego dotknąć.
+     */
     private const BLOCKED_PAGES = [
         'backup.php', 'url_migration.php', 'agent_download.php', 'agent_app_download.php',
-        'forgot_password.php', 'reset_password.php',
+        'forgot_password.php', 'reset_password.php', 'handover.php', 'update.php',
+        'agent_update.php', 'print_agent_poll.php', 'print_agent_ack.php',
     ];
 
     /** Strony tylko do oglądania: zapis (POST) jest zablokowany. */
@@ -29,7 +36,13 @@ final class Demo
         'integrations.php', 'integration_edit.php', 'allegro_connect.php', 'tiktokshop_connect.php',
         'allegro_settings.php', 'email_settings.php', 'sync_settings.php', 'client_settings.php', 'texts.php',
         'payu.php', 'payu_refund.php', 'gs1.php', 'login_quick.php', 'company.php', 'appearance.php',
+        // Szablony to HTML, który podgląd wyświetla w panelu - w demo nikt nie może podrzucić skryptu następnym gościom.
+        'email_templates.php', 'print_templates.php', 'print_template_image.php', 'templates.php',
+        'allegro_templates.php', 'erli_templates.php',
     ];
+
+    /** Strony panelu spoza rejestru uprawnień, na których zapis w demo jest nieszkodliwy (logowanie, układ widoku). */
+    private const PANEL_POST_OK = ['login.php', 'layout_save.php', 'ui_scale_save.php', 'notifications.php'];
 
     public static function on(): bool
     {
@@ -42,11 +55,25 @@ final class Demo
         if (!self::on()) {
             return false;
         }
-        $script = basename($script);
+        $path = str_replace('\\', '/', $script);
+        $script = basename($path);
         if ($hasFiles || in_array($script, self::BLOCKED_PAGES, true)) {
             return true;
         }
-        return strtoupper($method) === 'POST' && in_array($script, self::READONLY_PAGES, true);
+        if (strtoupper($method) !== 'POST') {
+            return false;
+        }
+        if (in_array($script, self::READONLY_PAGES, true)) {
+            return true;
+        }
+        // Poza panelem (strona zamówienia klienta, telefon pakowania) wystarczą blokady wyżej.
+        if (basename(dirname($path)) !== 'admin' || in_array($script, self::PANEL_POST_OK, true)) {
+            return false;
+        }
+        // Panel: zapis tylko na stronach z rejestru uprawnień, które nie są zastrzeżone dla administratora.
+        // Nowa strona administracyjna jest więc w demo od razu tylko do oglądania.
+        $key = PagePermissions::keyForFile($script);
+        return $key === null || (PagePermissions::registry()[$key]['legacy'] ?? 'admin') === 'admin';
     }
 
     /** Wywoływane na początku każdej strony WWW: odrzuca zablokowane żądania. */

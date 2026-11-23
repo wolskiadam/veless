@@ -43,13 +43,26 @@ $wipe = static function (string $dir): void {
         $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
     }
 };
-foreach (['sessions', 'uploads', 'labels', 'documents', 'cache', 'backups'] as $sub) {
+foreach (['sessions', 'uploads', 'labels', 'documents', 'cache', 'backups', 'handover', 'updates'] as $sub) {
     if (is_dir(PASE_ROOT . '/storage/' . $sub)) {
         $wipe(PASE_ROOT . '/storage/' . $sub);
     }
 }
 foreach (glob(PASE_ROOT . '/storage/security/*.json') ?: [] as $file) {
     @unlink($file);
+}
+// Gość demo jest administratorem: nic wykonywalnego nie może przetrwać nocy w storage/,
+// a blokady dostępu z internetu wracają do stanu z paczki.
+$storage = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(PASE_ROOT . '/storage', FilesystemIterator::SKIP_DOTS));
+foreach ($storage as $item) {
+    $name = strtolower($item->getFilename());
+    if ($item->isFile() && ($name === '.user.ini' || preg_match('/\.(php\d?|phtml|phar|pht|phps|cgi|pl|py|sh|shtml)(\.|$)/', $name))) {
+        @unlink($item->getPathname());
+    }
+}
+@file_put_contents(PASE_ROOT . '/storage/.htaccess', "# Logi, plik locka i ewentualne hasło admina - niedostępne z weba.\nRequire all denied\n");
+if (is_dir(PASE_ROOT . '/storage/security')) {
+    @file_put_contents(PASE_ROOT . '/storage/security/.htaccess', "Require all denied\n");
 }
 
 // 3. Tabele od nowa (auto-migracja przy połączeniu) i konto demo.

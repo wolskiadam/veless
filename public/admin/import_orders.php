@@ -21,6 +21,12 @@ requireRole(['admin', 'editor']);
 $source = ($_GET['source'] ?? 'woo') === 'allegro' ? 'allegro' : 'woo';
 
 $flashErr = null;
+
+// Import startuje linkiem (GET, kolejne strony same się przeładowują), więc link niesie
+// token sesji - obca strona nie uruchomi importu w tle cudzym zalogowanym kontem.
+if (isset($_GET['run']) && !hash_equals(csrfToken(), (string) ($_GET['t'] ?? ''))) {
+    unset($_GET['run']);
+}
 $done     = false;
 $queuedTotal = (int) ($_GET['queued'] ?? 0);
 
@@ -110,7 +116,7 @@ if ($source === 'woo' && isset($_GET['run']) && isset($wooRanges[$wooRange]) && 
         $hasMore = count($result['orders']) > 0;
         if ($hasMore) {
             $next = $wooPage + 1;
-            header("Location: import_orders.php?source=woo&run=1&integration={$wooIntegrationId}&range={$wooRange}&page={$next}&queued={$queuedTotal}");
+            header("Location: import_orders.php?source=woo&run=1&t=" . csrfToken() . "&integration={$wooIntegrationId}&range={$wooRange}&page={$next}&queued={$queuedTotal}");
             exit;
         }
         $done = true;
@@ -173,7 +179,7 @@ if ($source === 'allegro' && isset($_GET['run']) && isset($allegroRanges[$allegr
 
         if ($hasMore) {
             $nextOffset = $allegroOffset + $allegroLimit;
-            header("Location: import_orders.php?source=allegro&run=1&range={$allegroRange}&offset={$nextOffset}&queued={$queuedTotal}");
+            header("Location: import_orders.php?source=allegro&run=1&t=" . csrfToken() . "&range={$allegroRange}&offset={$nextOffset}&queued={$queuedTotal}");
             exit;
         }
         $done = true;
@@ -243,6 +249,7 @@ require __DIR__ . '/header.php';
             <form method="get" style="margin-top:14px">
                 <input type="hidden" name="source" value="woo">
                 <input type="hidden" name="run" value="1">
+                <input type="hidden" name="t" value="<?= csrfToken() ?>">
                 <input type="hidden" name="page" value="1">
                 <label style="font-size:12px;color:#888;display:block">Sklep (integracja)</label>
                 <select name="integration" required style="min-width:340px;margin-bottom:12px">
@@ -286,6 +293,7 @@ require __DIR__ . '/header.php';
             <form method="get" style="margin-top:14px">
                 <input type="hidden" name="source" value="allegro">
                 <input type="hidden" name="run" value="1">
+                <input type="hidden" name="t" value="<?= csrfToken() ?>">
                 <input type="hidden" name="offset" value="0">
                 <label style="font-size:12px;color:#888;display:block">Zakres importu</label>
                 <select name="range" style="min-width:340px">

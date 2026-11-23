@@ -3,7 +3,7 @@
 
 Options -Indexes
 
-<FilesMatch "^(db_admin|auth|bootstrap_admin|header|footer|_orders_query|_orders_table|_auth_card|_allegro_feedback)\.php$">
+<FilesMatch "^(db_admin|auth|bootstrap_admin|header|footer|_[A-Za-z0-9_]+)\.php$">
     Require all denied
 </FilesMatch>
 

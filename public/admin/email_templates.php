@@ -43,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create' || $action === 'update') {
         $name     = trim($_POST['name'] ?? '');
         $subject  = trim($_POST['subject'] ?? '');
-        $body     = (string) ($_POST['body'] ?? '');
+        $body     = \Pase\Support\HtmlSanitizer::clean((string) ($_POST['body'] ?? '')); // bez skryptów i on*
         $isActive = isset($_POST['is_active']);
 
         if ($name === '' || $subject === '') {
@@ -148,7 +148,7 @@ require __DIR__ . '/header.php';
             <!-- Podgląd na żywo (przykładowe dane) -->
             <div id="edPreviewWrap" style="display:none">
                 <p style="font-size:12px;color:#888;margin:0 0 6px">Podgląd renderuje przykładowe dane w miejsce zmiennych <code>{{...}}</code>.</p>
-                <iframe id="edPreview" style="width:100%;height:300px;border:1px solid #e5e7eb;border-radius:8px;background:#fff"></iframe>
+                <iframe id="edPreview" sandbox="" referrerpolicy="no-referrer" style="width:100%;height:300px;border:1px solid #e5e7eb;border-radius:8px;background:#fff"></iframe>
             </div>
         </div>
 
@@ -286,11 +286,12 @@ require __DIR__ . '/header.php';
         });
     }
     function refreshPreview() {
-        var doc = prevFrame.contentDocument || prevFrame.contentWindow.document;
-        doc.open();
-        doc.write('<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;padding:14px;color:#222">'
-            + render(htmlArea.value || '') + '</body>');
-        doc.close();
+        // Ramka z pustym sandbox: bez skryptów i bez dostępu do panelu, nawet gdy treść
+        // zawiera <script> albo onerror= (podgląd nie może wykonać kodu z szablonu).
+        prevFrame.srcdoc = '<!doctype html><meta charset="utf-8">'
+            + '<meta http-equiv="Content-Security-Policy" content="script-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
+            + '<body style="font-family:system-ui,sans-serif;padding:14px;color:#222">'
+            + render(htmlArea.value || '') + '</body>';
     }
 
     // Przełączanie zakładek: Wizualnie / HTML / Podgląd.

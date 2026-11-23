@@ -38,7 +38,7 @@ jobs:
     if: vars.OMS_SITE_DEPLOY == '1' && (github.event_name == 'push' || inputs.co != 'demo')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 2
 
@@ -53,7 +53,7 @@ jobs:
 
       - name: Wgraj stronę
         if: steps.changed.outputs.go == '1'
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        uses: SamKirkland/FTP-Deploy-Action@8e83cea8672e3fbcbb9fdafff34debf6ae4c5f65 # v4.3.5
         with:
           local-dir: ./oms-site/
           server: ${{ secrets.OMS_FTP_SERVER }}
@@ -71,7 +71,7 @@ jobs:
     if: vars.OMS_DEMO_DEPLOY == '1' && (github.event_name == 'push' || inputs.co != 'strona')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Sprawdź składnię PHP
         run: |
@@ -79,7 +79,7 @@ jobs:
           printf '{"id":"%s-%s","deployed_at":%s,"commit":"%s"}\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$(date +%s)" "${GITHUB_SHA::7}" > config/build.json
 
       - name: Wgraj demo
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        uses: SamKirkland/FTP-Deploy-Action@8e83cea8672e3fbcbb9fdafff34debf6ae4c5f65 # v4.3.5
         with:
           local-dir: ./
           server: ${{ secrets.OMS_FTP_SERVER }}

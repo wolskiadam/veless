@@ -28,6 +28,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name    = trim($_POST['name'] ?? '');
         $format  = $_POST['format'] ?? 'A4';
         $body    = (string) ($_POST['body'] ?? '');
+        if ($format !== 'ZPL') {
+            $body = \Pase\Support\HtmlSanitizer::clean($body); // bez skryptów - szablon otwiera też administrator
+        }
         $active  = isset($_POST['is_active']);
 
         if ($name === '' || trim($body) === '') {

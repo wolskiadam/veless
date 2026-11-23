@@ -45,7 +45,7 @@ function parseSections(array $post): array
                 $out[] = ['items' => [['type' => 'IMAGE', 'url' => $url]]];
             }
         } else { // text
-            $content = trim((string) ($texts[$i] ?? ''));
+            $content = trim(\Pase\Support\HtmlSanitizer::clean((string) ($texts[$i] ?? '')));
             if ($content !== '') {
                 $out[] = ['items' => [['type' => 'TEXT', 'content' => $content]]];
             }
@@ -167,7 +167,7 @@ require __DIR__ . '/header.php';
             <!-- PRAWA: podgląd -->
             <div>
                 <label class="ol">Podgląd opisu</label>
-                <div id="tplPreview" class="al-desc-prev"></div>
+                <iframe id="tplPreview" class="al-desc-prev" sandbox="" referrerpolicy="no-referrer" title="Podgląd opisu"></iframe>
             </div>
         </div>
 
@@ -212,7 +212,7 @@ require __DIR__ . '/header.php';
     .sec-type { font-size:12px; font-weight:700; color:<?= $dtColor ?>; }
     .sec-move { background:#fff; border:1px solid #e5e7eb; border-radius:5px; width:26px; height:26px; cursor:pointer; }
     .sec textarea, .sec input[type=url] { width:100%; font-size:13px; }
-    .al-desc-prev { border:1px solid #e5e7eb; border-radius:8px; padding:14px; background:#fff; min-height:200px; font-size:14px; line-height:1.6; color:#333; position:sticky; top:18px; max-height:520px; overflow:auto; }
+    .al-desc-prev { display:block; width:100%; height:520px; border:1px solid #e5e7eb; border-radius:8px; padding:0; background:#fff; min-height:200px; font-size:14px; line-height:1.6; color:#333; position:sticky; top:18px; max-height:520px; overflow:auto; }
     .tag-panel { background:#f7f8fa; border:1px solid #eef0f3; border-radius:8px; padding:12px; max-height:520px; overflow:auto; position:sticky; top:18px; }
     .tag-title { font-size:13px; font-weight:700; color:#2c3e50; margin-bottom:6px; }
     .tag-chip { display:block; width:100%; text-align:left; background:#fff; border:1px solid #e5e7eb; border-radius:6px;
@@ -285,7 +285,11 @@ function syncPreview() {
             if (t) html += '<div>' + t + '</div>';
         }
     });
-    prev.innerHTML = html || '<span style="color:#aaa">Podgląd pojawi się tu po dodaniu modułów.</span>';
+    // Ramka z pustym sandbox: treść modułów (HTML redaktora) nie może uruchomić skryptu w panelu.
+    prev.srcdoc = '<!doctype html><meta charset="utf-8">'
+        + '<meta http-equiv="Content-Security-Policy" content="script-src \'none\'; object-src \'none\'; base-uri \'none\'; form-action \'none\'">'
+        + '<style>body{margin:0;padding:14px;font:14px/1.6 system-ui,sans-serif;color:#333}img{max-width:100%;border-radius:6px;margin:6px 0}</style>'
+        + (html || '<span style="color:#aaa">Podgląd pojawi się tu po dodaniu modułów.</span>');
 }
 
 // ===== Wstawianie tagów do aktywnego modułu tekstowego =====

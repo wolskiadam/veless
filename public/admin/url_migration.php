@@ -18,11 +18,20 @@ requireRole(['admin', 'editor']);
 
 $settings = new SettingsRepository($pdo);
 $flashOk  = null;
+$flashErr = null;
 
+// Adres bazowy trafia do linku resetu hasła i do przekierowania logowania Allegro.
+// Kto go zmieni, może przechwycić te linki - dlatego tylko administrator i tylko z hasłem.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrfCheck();
     $newBase = rtrim(trim($_POST['new_base_url'] ?? ''), '/');
-    if ($newBase !== '' && filter_var($newBase, FILTER_VALIDATE_URL)) {
+    if (!isAdmin()) {
+        $flashErr = 'Adres panelu może zmienić tylko administrator.';
+    } elseif (!passwordConfirmed()) {
+        $flashErr = 'Nieprawidłowe hasło - adres nie został zmieniony.';
+    } elseif ($newBase === '' || !preg_match('#^https?://#i', $newBase) || !filter_var($newBase, FILTER_VALIDATE_URL)) {
+        $flashErr = 'Podaj pełny adres zaczynający się od https://';
+    } else {
         $settings->setMany([
             'APP_BASE_URL'        => $newBase,
             'ALLEGRO_REDIRECT_URI' => $newBase . '/auth_allegro_callback.php',
@@ -51,6 +60,7 @@ require __DIR__ . '/header.php';
 ?>
 
 <?php if ($flashOk): ?><div class="flash ok"><?= htmlspecialchars($flashOk) ?></div><?php endif; ?>
+<?php if ($flashErr): ?><div class="flash err"><?= htmlspecialchars($flashErr) ?></div><?php endif; ?>
 
 <div class="card">
     <strong>Obecne wartości</strong>
@@ -76,8 +86,13 @@ require __DIR__ . '/header.php';
     </p>
     <form method="post">
         <input type="hidden" name="csrf" value="<?= csrfToken() ?>">
-        <input name="new_base_url" value="<?= htmlspecialchars($currentBase) ?>" placeholder="https://twojsklep.pl/pase/public" style="width:100%;max-width:520px">
-        <p style="margin-top:14px"><button class="btn" type="submit">Zaktualizuj</button></p>
+        <input name="new_base_url" value="<?= htmlspecialchars($currentBase) ?>" placeholder="https://twojsklep.pl/pase/public" style="width:100%;max-width:520px"<?= isAdmin() ? '' : ' disabled' ?>>
+        <?php if (isAdmin()): ?>
+            <?= passwordConfirmField() ?>
+            <p style="margin-top:14px"><button class="btn" type="submit">Zaktualizuj</button></p>
+        <?php else: ?>
+            <p style="color:var(--ink-2);font-size:12.5px;margin-top:10px">Adres panelu może zmienić tylko administrator.</p>
+        <?php endif; ?>
     </form>
 </div>
 

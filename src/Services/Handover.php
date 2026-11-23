@@ -568,6 +568,10 @@ final class Handover
             $storage = rtrim($this->root, '/') . '/storage/';
             foreach (array_keys($manifest['files']) as $entry) {
                 if (!str_starts_with((string) $entry, 'storage/')) { continue; }
+                if (!self::importableStorageEntry((string) $entry)) {
+                    Logger::warn('Przekazanie: pominięto plik spoza danych ' . $entry);
+                    continue;
+                }
                 $dest = $storage . substr((string) $entry, 8);
                 if (!is_dir(dirname($dest))) { @mkdir(dirname($dest), 0775, true); }
                 if (!@copy($work . '/' . $entry, $dest)) { Logger::warn('Przekazanie: nie skopiowano pliku ' . $entry); }
@@ -727,6 +731,32 @@ final class Handover
     {
         return $entry === 'database.jsonl' || $entry === 'secrets/totp.key'
             || (str_starts_with($entry, 'storage/') && !str_contains($entry, '..') && !str_contains($entry, "\0") && !str_contains($entry, '\\'));
+    }
+
+    /** Rozszerzenia, które serwer mógłby wykonać albo które zmieniają jego konfigurację - nigdy nie trafiają do storage/. */
+    private const NO_IMPORT_EXT = ['php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'pht', 'phps', 'inc',
+        'cgi', 'pl', 'py', 'sh', 'shtml', 'htaccess', 'htpasswd', 'ini'];
+
+    /**
+     * Czy plik z pakietu wolno wgrać do storage/. Tylko dane w podkatalogach (załączniki, zdjęcia, etykiety, dokumenty):
+     * bez plików z katalogu głównego storage/ (np. .htaccess, release.json), bez katalogów systemowych
+     * (klucze, sesje, kopie, paczki aktualizacji, programy agenta), bez plików ukrytych i wykonywalnych.
+     * Pakiet buduje druga instalacja, ale wgrany kod w storage/ dawałby wykonanie PHP na serwerze.
+     */
+    public static function importableStorageEntry(string $entry): bool
+    {
+        if (!str_starts_with($entry, 'storage/') || !self::safeEntry($entry)) { return false; }
+        $parts = explode('/', substr($entry, 8));
+        if (count($parts) < 2 || in_array($parts[0], [...self::SKIP_STORAGE, 'updates'], true)) { return false; }
+        foreach ($parts as $part) {
+            if ($part === '' || $part[0] === '.') { return false; }
+        }
+        $name = strtolower((string) end($parts));
+        foreach (explode('.', $name) as $i => $piece) {
+            // Każdy człon nazwy, nie tylko ostatni: Apache potrafi wykonać plik.php.jpg.
+            if ($i > 0 && in_array($piece, self::NO_IMPORT_EXT, true)) { return false; }
+        }
+        return true;
     }
 
     private function totpKeyPath(): string

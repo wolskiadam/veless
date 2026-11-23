@@ -30,6 +30,7 @@ jobs:
           # a test HTTP 2FA traktuje każde ostrzeżenie PHP w logu serwera jako błąd.
           coverage: none
       - run: php tests/security.php
+      - run: php tests/demo_guard.php
       - run: php tests/two_factor.php
       - run: php tests/two_factor_http.php
       - run: php tests/secret_store.php

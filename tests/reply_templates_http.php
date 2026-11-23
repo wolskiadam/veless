@@ -221,6 +221,30 @@ try {
     request($boss, 'admin/email_settings.php', ['csrf' => csrfOf($es['body'])] + $acc + ['review_link' => 'https://g.page/r/nowy/review', 'logo_remove' => '1']);
     ok($pdo->query('SELECT logo_data FROM mail_accounts WHERE id = 1')->fetchColumn() === null, 'Logo can be removed');
 
+    // Szablon bez skryptów: zapis czyści <script> i on*, zmienne zostają; podgląd w ramce sandbox.
+    $te = request($boss, 'admin/email_templates.php?edit=2');
+    ok(str_contains($te['body'], '<iframe id="edPreview" sandbox=""'), 'Template preview frame is sandboxed');
+    request($boss, 'admin/email_templates.php', ['csrf' => csrfOf($te['body']), 'action' => 'update', 'id' => 2, 'name' => 'Oceń nas', 'subject' => 'Ocena',
+        'body' => '<p>Dzięki {{customer_name}}</p><img src="x" onerror="fetch(1)"><script>fetch(2)</script>', 'is_active' => '1']);
+    $saved = (string) $pdo->query('SELECT body FROM email_templates WHERE id = 2')->fetchColumn();
+    ok(str_contains($saved, 'Dzięki {{customer_name}}') && !str_contains($saved, 'onerror') && !str_contains($saved, '<script'), 'Saved template has no script or handler');
+
+    // Adres panelu (link resetu hasła) zmienia tylko administrator, po podaniu hasła.
+    $pdo->exec("INSERT OR REPLACE INTO settings (setting_key, setting_value) VALUES ('APP_BASE_URL', 'https://crm.example.com/public')");
+    $baseNow = static fn(): string => (string) $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'APP_BASE_URL'")->fetchColumn();
+    $ola = login('ola');
+    $um = request($ola, 'admin/url_migration.php');
+    request($ola, 'admin/url_migration.php', ['csrf' => csrfOf($um['body']), 'new_base_url' => 'https://evil.example/public', 'confirm_password' => 'Only-Test-Password-42']);
+    ok($baseNow() === 'https://crm.example.com/public', 'Editor cannot change the panel address');
+    $cs = request($ola, 'admin/client_settings.php');
+    request($ola, 'admin/client_settings.php', ['csrf' => csrfOf($cs['body']), 'app_base_url' => 'https://evil.example/public', 'client_verify' => '1']);
+    ok($baseNow() === 'https://crm.example.com/public', 'Editor cannot change the address in customer page settings');
+    $um = request($boss, 'admin/url_migration.php');
+    request($boss, 'admin/url_migration.php', ['csrf' => csrfOf($um['body']), 'new_base_url' => 'https://nowy.example.com/public', 'confirm_password' => 'zle-haslo']);
+    ok($baseNow() === 'https://crm.example.com/public', 'Admin with a wrong password cannot change the address');
+    request($boss, 'admin/url_migration.php', ['csrf' => csrfOf($um['body']), 'new_base_url' => 'https://nowy.example.com/public', 'confirm_password' => 'Only-Test-Password-42']);
+    ok($baseNow() === 'https://nowy.example.com/public', 'Admin with the password changes the address');
+
     $viewer = login('vi');
     $vpage = request($viewer, 'admin/order_view.php?id=501');
     ok($vpage['status'] === 200 && !str_contains($vpage['body'], 'id="tplPickBtn"'), 'Viewer does not get the picker');

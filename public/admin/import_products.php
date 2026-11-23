@@ -48,6 +48,12 @@ if (isset($_GET['progress'])) {
 }
 
 $flashErr = null;
+
+// Import startuje linkiem (GET, kolejne strony same się przeładowują), więc link niesie
+// token sesji - obca strona nie uruchomi importu w tle cudzym zalogowanym kontem.
+if (isset($_GET['run']) && !hash_equals(csrfToken(), (string) ($_GET['t'] ?? ''))) {
+    unset($_GET['run']);
+}
 $done = false;
 $nextUrl = null;
 $queuedTotal = (int) ($_GET['queued'] ?? 0);
@@ -184,7 +190,7 @@ if (isset($_GET['run']) && $wooConfig !== null && $mode === '') {
         if (count($result['products']) > 0) {
             $next = $page + 1;
             // Nie przekierowujemy od razu - strona pokazuje postęp i sama przechodzi dalej.
-            $nextUrl = "import_products.php?run=1&integration={$integrationId}&mode={$mode}&page={$next}&queued={$queuedTotal}&skipped={$skippedTotal}";
+            $nextUrl = "import_products.php?run=1&t=" . csrfToken() . "&integration={$integrationId}&mode={$mode}&page={$next}&queued={$queuedTotal}&skipped={$skippedTotal}";
         }
         $done = true;
     } catch (\Throwable $e) {
@@ -240,6 +246,7 @@ require __DIR__ . '/header.php';
         <?php endif; ?>
         <form method="get" style="margin-top:14px">
             <input type="hidden" name="run" value="1">
+            <input type="hidden" name="t" value="<?= csrfToken() ?>">
             <input type="hidden" name="page" value="1">
             <label style="font-size:12px;color:#888;display:block">Sklep (integracja)</label>
             <select name="integration" id="selInt" required style="min-width:340px">

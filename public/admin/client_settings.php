@@ -57,9 +57,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $values = [
         // Checkbox: brak w POST = wyłączone ('0').
         'CLIENT_VERIFY_ENABLED' => isset($_POST['client_verify']) ? '1' : '0',
-        'APP_BASE_URL'          => rtrim(trim($_POST['app_base_url'] ?? ''), '/'),
         'MAIL_ADMIN_NOTIFY'     => trim($_POST['admin_notify'] ?? ''),
     ];
+    // Adres bazowy buduje link resetu hasła - zmienia go tylko administrator, po podaniu hasła.
+    $newBase = rtrim(trim((string) ($_POST['app_base_url'] ?? '')), '/');
+    $oldBase = rtrim((string) ($settings->get('APP_BASE_URL', '') ?? ''), '/');
+    if (isset($_POST['app_base_url']) && $newBase !== $oldBase) {
+        if (!isAdmin()) {
+            flash('Adres bazowy może zmienić tylko administrator - pozostałe ustawienia zapisano.', 'err');
+        } elseif ($newBase !== '' && (!preg_match('#^https?://#i', $newBase) || !filter_var($newBase, FILTER_VALIDATE_URL))) {
+            flash('Adres bazowy musi zaczynać się od https:// - pozostałe ustawienia zapisano.', 'err');
+        } elseif (!passwordConfirmed()) {
+            flash('Do zmiany adresu bazowego podaj swoje hasło - pozostałe ustawienia zapisano.', 'err');
+        } else {
+            $values['APP_BASE_URL'] = $newBase;
+        }
+    }
     // Boxy widoczne klientowi: zaznaczony = '1', brak w POST = '0'.
     foreach (array_keys(ClientPageBoxes::catalog()) as $box) {
         $values[ClientPageBoxes::settingKey($box)] = isset($_POST['box'][$box]) ? '1' : '0';
@@ -116,7 +129,10 @@ require __DIR__ . '/header.php';
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px">
             <div>
                 <label style="font-size:12px;color:#888;display:block">Adres bazowy strony klienta (publiczny URL)</label>
-                <input name="app_base_url" value="<?= htmlspecialchars($s['APP_BASE_URL'] ?? '') ?>" placeholder="https://twojsklep.pl/pase/public" style="width:100%">
+                <input name="app_base_url" value="<?= htmlspecialchars($s['APP_BASE_URL'] ?? '') ?>" placeholder="https://twojsklep.pl/pase/public" style="width:100%"<?= isAdmin() ? '' : ' disabled title="Zmienia tylko administrator"' ?>>
+                <?php if (isAdmin()): ?>
+                    <input type="password" name="confirm_password" autocomplete="current-password" placeholder="Twoje hasło - tylko przy zmianie adresu" style="width:100%;margin-top:6px">
+                <?php endif; ?>
             </div>
             <div>
                 <label style="font-size:12px;color:#888;display:block">E-mail powiadomień o wiadomości klienta</label>

@@ -39,6 +39,7 @@ Nie wykonywano migracji na produkcji. Przed wdrożeniem wykonaj backup bazy.
 php tests/sales_workflow.php
 php tests/security.php
 php tests/demo_guard.php
+php tests/html_sanitizer.php
 php tests/two_factor.php
 php tests/two_factor_http.php
 node tests/two_factor_ui.js
